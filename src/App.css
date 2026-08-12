@@ -1,16 +1,49 @@
 @import "tailwindcss";
 
-@theme {
-  --color-gray-750: #2d3748;
-  --color-gray-850: #1a202c;
-  --color-gray-900: #171923;
-  
-  --font-sans: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+@layer base {
+  :root {
+    --color-bg-primary: #ffffff;
+    --color-bg-secondary: #f8fafc;
+    --color-border-subtle: #e2e8f0;
+    --color-text-primary: #0f172a;
+    --color-text-secondary: #64748b;
+    --color-accent: #2563eb;
+    --color-accent-hover: #1d4ed8;
+  }
+
+  .dark {
+    --color-bg-primary: #0f172a;
+    --color-bg-secondary: #1e293b;
+    --color-border-subtle: #334155;
+    --color-text-primary: #f8fafc;
+    --color-text-secondary: #94a3b8;
+    --color-accent: #3b82f6;
+    --color-accent-hover: #60a5fa;
+  }
+
+  body {
+    @apply bg-[var(--color-bg-primary)] text-[var(--color-text-primary)] antialiased h-screen overflow-hidden text-sm;
+  }
 }
 
-@layer base {
-  body {
-    @apply bg-gray-900 text-gray-200 antialiased;
+@layer components {
+  .panel {
+    @apply bg-[var(--color-bg-primary)] border border-[var(--color-border-subtle)] rounded-xl shadow-sm;
+  }
+  
+  .card {
+    @apply bg-[var(--color-bg-primary)] border border-[var(--color-border-subtle)] rounded-xl shadow-sm hover:shadow-md hover:border-[var(--color-text-secondary)] transition-all overflow-hidden flex flex-col;
+  }
+  
+  .input-pro {
+    @apply w-full bg-[var(--color-bg-primary)] border border-[var(--color-border-subtle)] rounded-lg px-3 py-2 text-[var(--color-text-primary)] focus:outline-none focus:border-[var(--color-accent)] focus:ring-1 focus:ring-[var(--color-accent)] transition-all;
+  }
+
+  .btn-pro {
+    @apply px-4 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)] rounded-lg hover:bg-[var(--color-border-subtle)] transition-colors flex items-center gap-2 font-medium;
+  }
+
+  .btn-pro-primary {
+    @apply px-4 py-2 bg-[var(--color-accent)] text-white rounded-lg hover:bg-[var(--color-accent-hover)] transition-colors border border-transparent font-medium shadow-sm;
   }
 }
