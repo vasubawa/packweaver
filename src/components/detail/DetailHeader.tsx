@@ -2,19 +2,28 @@ import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Icon } from '../Icon';
 import { Instance } from '../../types';
-import { SOURCE_COLORS } from '../../constants';
+import { SOURCE_COLORS, formatBasePackName } from '../../constants';
+import { ConfirmDeleteModal } from '../ConfirmDeleteModal';
 
 interface DetailHeaderProps {
   instance: Instance;
   onBack: () => void;
   onExport: () => void;
   onUpdate: (updates: Partial<Instance>) => void;
+  onDelete?: (id: string) => void;
 }
 
-export function DetailHeader({ instance, onBack, onExport, onUpdate }: DetailHeaderProps) {
+export function DetailHeader({
+  instance,
+  onBack,
+  onExport,
+  onUpdate,
+  onDelete,
+}: DetailHeaderProps) {
   const [isEditingName, setIsEditingName] = useState(false);
   const [editName, setEditName] = useState(instance.name);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const sc = SOURCE_COLORS[instance.source] || SOURCE_COLORS.local;
 
   const handleNameSave = () => {
@@ -30,48 +39,82 @@ export function DetailHeader({ instance, onBack, onExport, onUpdate }: DetailHea
     setIsUpdating(true);
     setTimeout(() => {
       setIsUpdating(false);
-      // Simulate that the update found no new versions for this demo
       alert(`No updates available for "${instance.name}"`);
     }, 1500);
   };
 
+  const handleDeleteConfirm = async () => {
+    try {
+      await invoke('delete_instance', { id: instance.id });
+      setShowDeleteModal(false);
+      if (onDelete) {
+        onDelete(instance.id);
+      } else {
+        onBack();
+      }
+    } catch (e) {
+      console.error('Failed to delete instance:', e);
+    }
+  };
+
+  const displayBasePack = formatBasePackName(instance.basePack);
+
   return (
     <>
       <div
-        className="detail-banner"
-        style={{ background: instance.bannerGradient || 'var(--bg-muted)', flexShrink: 0 }}
+        className="detail-banner relative overflow-hidden shrink-0"
+        style={{
+          height: 140,
+          background: instance.bannerGradient || sc.gradient,
+        }}
       >
-        <div className="detail-banner-gradient" />
+        <div
+          className="absolute inset-0"
+          style={{
+            background: 'linear-gradient(180deg, rgba(0,0,0,0.1) 0%, var(--bg-canvas) 100%)',
+          }}
+        />
         <button
-          className="btn-ghost absolute top-4 left-4 z-10"
+          className="btn-ghost absolute top-4 left-6 z-10 flex items-center gap-1.5 backdrop-blur-md"
           onClick={onBack}
           style={{
-            background: 'var(--bg-surface)',
+            background: 'rgba(0, 0, 0, 0.45)',
             border: '1px solid var(--border)',
             borderRadius: 'var(--radius-sm)',
-            padding: '6px 10px',
+            padding: '6px 12px',
+            color: 'var(--text-primary)',
           }}
         >
-          <Icon name="arrowLeft" size={15} />
-          <span className="text-xs font-medium ml-1">Back</span>
+          <Icon name="arrowLeft" size={14} />
+          <span className="text-xs font-medium">Back to Library</span>
         </button>
       </div>
 
-      <div className="px-6 -mt-10 relative z-10 flex-shrink-0">
-        <div className="flex items-end justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="status-dot" style={{ background: sc.dot }} />
-              <span className="text-[11px] font-medium" style={{ color: sc.accent }}>
+      <div className="px-6 -mt-8 relative z-10 shrink-0">
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 mb-2">
+              <span
+                className="badge text-[11px] font-medium px-2.5 py-0.5 rounded-full"
+                style={{
+                  background: sc.soft,
+                  color: sc.accent,
+                  border: `1px solid ${sc.border}`,
+                }}
+              >
+                <span
+                  className="w-2 h-2 rounded-full mr-1.5 inline-block"
+                  style={{ background: sc.dot }}
+                />
                 {sc.label}
               </span>
             </div>
 
             {isEditingName ? (
-              <div className="flex items-center gap-2 mb-1">
+              <div className="flex items-center gap-2 mb-2">
                 <input
                   className="form-input text-xl font-bold tracking-tight py-1"
-                  style={{ fontFamily: "'Newsreader', Georgia, serif", width: '300px' }}
+                  style={{ fontFamily: "'Newsreader', Georgia, serif", maxWidth: '360px' }}
                   value={editName}
                   onChange={e => setEditName(e.target.value)}
                   onKeyDown={e => {
@@ -86,9 +129,9 @@ export function DetailHeader({ instance, onBack, onExport, onUpdate }: DetailHea
                 />
               </div>
             ) : (
-              <div className="flex items-center gap-2 mb-1 group">
+              <div className="flex items-center gap-2 mb-2 group min-w-0">
                 <h2
-                  className="text-2xl font-bold tracking-tight"
+                  className="text-2xl font-bold tracking-tight truncate"
                   style={{
                     color: 'var(--text-primary)',
                     fontFamily: "'Newsreader', Georgia, serif",
@@ -97,35 +140,46 @@ export function DetailHeader({ instance, onBack, onExport, onUpdate }: DetailHea
                   {instance.name}
                 </h2>
                 <button
-                  className="btn-ghost opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="btn-ghost opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
                   onClick={() => setIsEditingName(true)}
+                  title="Edit Pack Name"
                 >
                   <Icon name="pencil" size={14} />
                 </button>
               </div>
             )}
 
-            <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-muted)' }}>
-              <span>
-                {instance.basePack} {instance.basePackVersion}
+            <div
+              className="flex items-center gap-2 text-xs flex-wrap"
+              style={{ color: 'var(--text-muted)' }}
+            >
+              <span
+                className="font-medium truncate max-w-[200px]"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                {displayBasePack}
               </span>
-              <span className="text-zinc-400">&middot;</span>
+              <span>&middot;</span>
               <span>{instance.mcVersion}</span>
-              <span className="text-zinc-400">&middot;</span>
+              <span>&middot;</span>
               <span>{instance.loader}</span>
-              <span className="text-zinc-400">&middot;</span>
+              <span>&middot;</span>
               <span>{instance.totalModCount} mods</span>
+              {instance.customModCount > 0 && (
+                <>
+                  <span>&middot;</span>
+                  <span style={{ color: sc.accent }}>+{instance.customModCount} custom</span>
+                </>
+              )}
             </div>
           </div>
 
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
             {instance.hasUpdate && (
-              <span className="badge update-badge" style={{ fontSize: 11 }}>
-                Update Available
-              </span>
+              <span className="badge update-badge text-[11px]">Update Available</span>
             )}
             <button
-              className="btn-secondary"
+              className="btn-secondary text-xs px-3 py-2"
               onClick={handleUpdatePack}
               disabled={isUpdating}
               style={{ opacity: isUpdating ? 0.7 : 1 }}
@@ -133,35 +187,38 @@ export function DetailHeader({ instance, onBack, onExport, onUpdate }: DetailHea
               <div className={isUpdating ? 'animate-spin' : ''}>
                 <Icon name="refresh" size={14} />
               </div>
-              {isUpdating ? 'Updating...' : 'Update Pack'}
-            </button>
-            <button className="btn-accent" onClick={onExport} style={{ background: sc.accent }}>
-              <Icon name="package" size={14} />
-              Export Pack
+              <span>{isUpdating ? 'Checking...' : 'Check Updates'}</span>
             </button>
             <button
-              className="btn-ghost"
-              onClick={async () => {
-                if (window.confirm(`Are you sure you want to delete "${instance.name}"?`)) {
-                  try {
-                    await invoke('delete_instance', { id: instance.id });
-                    onBack();
-                  } catch (e) {
-                    console.error('Failed to delete instance:', e);
-                  }
-                }
-              }}
+              className="btn-accent text-xs px-3.5 py-2 font-medium"
+              onClick={onExport}
               style={{
-                padding: '8px',
-                border: '1px solid var(--border)',
-                borderRadius: 'var(--radius-sm)',
+                background: sc.accent,
+                borderColor: sc.accent,
+                boxShadow: `0 2px 10px ${sc.soft}`,
               }}
             >
-              <Icon name="trash" size={15} style={{ color: 'var(--danger)' }} />
+              <Icon name="package" size={14} />
+              <span>Export Pack</span>
+            </button>
+            <button
+              className="btn-ghost text-red-400 hover:text-red-300 hover:bg-red-500/10 p-2 rounded-md"
+              onClick={() => setShowDeleteModal(true)}
+              title="Delete pack"
+              style={{ border: '1px solid var(--border)' }}
+            >
+              <Icon name="trash" size={15} />
             </button>
           </div>
         </div>
       </div>
+
+      <ConfirmDeleteModal
+        isOpen={showDeleteModal}
+        packName={instance.name}
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setShowDeleteModal(false)}
+      />
     </>
   );
 }
