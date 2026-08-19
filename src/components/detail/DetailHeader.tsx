@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Icon } from '../Icon';
 import { Instance } from '../../types';
-import { SOURCE_COLORS } from '../instances/InstanceCard';
+import { SOURCE_COLORS } from '../../constants';
 
 interface DetailHeaderProps {
   instance: Instance;
