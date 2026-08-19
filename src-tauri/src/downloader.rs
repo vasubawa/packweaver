@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io;
 use std::path::Path;
-use tauri::{AppHandle, Manager, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 #[derive(Serialize, Clone)]
 pub struct ProgressEvent {
@@ -59,21 +59,31 @@ pub async fn run_pipeline(
 
     // Emits an event to the frontend
     let emit_progress = |status: &str, p: u32, t: u32| {
-        let _ = app.emit("instance-progress", ProgressEvent {
-            instance_id: instance_id.clone(),
-            status: status.to_string(),
-            progress: p,
-            total: t,
-        });
+        let _ = app.emit(
+            "instance-progress",
+            ProgressEvent {
+                instance_id: instance_id.clone(),
+                status: status.to_string(),
+                progress: p,
+                total: t,
+            },
+        );
     };
 
     emit_progress("Fetching Pack Info...", 0, 100);
 
     // 1. Fetch Modrinth Version
-    let url = format!("https://api.modrinth.com/v2/project/{}/version", base_pack_id);
-    let versions: Vec<ModrinthVersion> = client.get(&url).send().await
+    let url = format!(
+        "https://api.modrinth.com/v2/project/{}/version",
+        base_pack_id
+    );
+    let versions: Vec<ModrinthVersion> = client
+        .get(&url)
+        .send()
+        .await
         .map_err(|e| e.to_string())?
-        .json().await
+        .json()
+        .await
         .map_err(|e| e.to_string())?;
 
     let latest_version = versions.into_iter().next().ok_or("No versions found")?;
@@ -89,14 +99,18 @@ pub async fn run_pipeline(
     let instance_dir = app_dir.join("instances").join(&instance_id);
     let original_dir = instance_dir.join("original");
     let workspace_dir = instance_dir.join("workspace");
-    
+
     fs::create_dir_all(&original_dir).map_err(|e| e.to_string())?;
     fs::create_dir_all(&workspace_dir).map_err(|e| e.to_string())?;
 
     // 3. Download .mrpack
     emit_progress("Downloading Basepack...", 10, 100);
     let mrpack_path = original_dir.join("basepack.mrpack");
-    let mut resp = client.get(&pack_file.url).send().await.map_err(|e| e.to_string())?;
+    let mut resp = client
+        .get(&pack_file.url)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     let mut out = fs::File::create(&mrpack_path).map_err(|e| e.to_string())?;
     while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {
         io::Write::write_all(&mut out, &chunk).map_err(|e| e.to_string())?;
@@ -111,8 +125,12 @@ pub async fn run_pipeline(
     let index_data = fs::read_to_string(index_path).map_err(|e| e.to_string())?;
     let index: ModrinthIndex = serde_json::from_str(&index_data).map_err(|e| e.to_string())?;
 
-    let mc_version = index.dependencies.get("minecraft").cloned().unwrap_or_else(|| "unknown".to_string());
-    
+    let mc_version = index
+        .dependencies
+        .get("minecraft")
+        .cloned()
+        .unwrap_or_else(|| "unknown".to_string());
+
     let mut loader = "unknown".to_string();
     if index.dependencies.contains_key("fabric-loader") {
         loader = "fabric".to_string();
@@ -132,7 +150,7 @@ pub async fn run_pipeline(
     // For simplicity here, we create futures and use chunking or join_all.
     // However, to emit progress as they finish, we can process them sequentially or use a bounded channel.
     // Let's do small batches for simplicity.
-    
+
     let mut completed = 0;
     for chunk in index.files.chunks(5) {
         let mut tasks = Vec::new();
@@ -140,10 +158,18 @@ pub async fn run_pipeline(
             let dl_url = file.downloads.first().cloned().unwrap_or_default();
             let dest_path = instance_dir.join(&file.path);
             let client_clone = client.clone();
-            
+
             // Extract env tags to save to DB
-            let client_env = file.env.as_ref().map(|e| e.client.clone()).unwrap_or_else(|| "required".to_string());
-            let server_env = file.env.as_ref().map(|e| e.server.clone()).unwrap_or_else(|| "required".to_string());
+            let client_env = file
+                .env
+                .as_ref()
+                .map(|e| e.client.clone())
+                .unwrap_or_else(|| "required".to_string());
+            let server_env = file
+                .env
+                .as_ref()
+                .map(|e| e.server.clone())
+                .unwrap_or_else(|| "required".to_string());
             let mod_id = file.path.clone();
 
             tasks.push(async move {
@@ -160,9 +186,9 @@ pub async fn run_pipeline(
                 (mod_id, client_env, server_env)
             });
         }
-        
+
         let results = join_all(tasks).await;
-        
+
         // Update DB with the downloaded mods
         let conn = state.db.lock().unwrap();
         for (mod_id, client_env, server_env) in results {
@@ -185,7 +211,7 @@ pub async fn run_pipeline(
     }
 
     emit_progress("Ready", total_files, total_files);
-    
+
     Ok(())
 }
 
@@ -243,10 +269,10 @@ mod tests {
         }"#;
 
         let index: ModrinthIndex = serde_json::from_str(json_data).expect("Failed to parse index");
-        
+
         assert_eq!(index.dependencies.get("minecraft").unwrap(), "1.20.1");
         assert_eq!(index.dependencies.get("fabric-loader").unwrap(), "0.14.21");
-        
+
         assert_eq!(index.files.len(), 1);
         assert_eq!(index.files[0].path, "mods/sodium.jar");
         assert_eq!(index.files[0].env.as_ref().unwrap().client, "required");

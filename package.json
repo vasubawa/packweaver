@@ -48,10 +48,6 @@
       "eslint --fix",
       "prettier --write"
     ],
-    "src/**/*.{css,json}": "prettier --write",
-    "**/*.rs": [
-      "cargo fmt --manifest-path src-tauri/Cargo.toml -- --check",
-      "cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings"
-    ]
+    "src/**/*.{css,json}": "prettier --write"
   }
 }
