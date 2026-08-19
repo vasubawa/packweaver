@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Icon } from './Icon';
 import { SOURCE_COLORS } from '../constants';
@@ -36,14 +36,50 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
   const [isDragOver, setIsDragOver] = useState(false);
   const [localFile, setLocalFile] = useState<any>(null);
 
+  const [liveCatalog, setLiveCatalog] = useState<any[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (source === 'modrinth' && searchQuery.trim().length > 2) {
+      const timeout = setTimeout(async () => {
+        try {
+          const res = await fetch(
+            `https://api.modrinth.com/v2/search?query=${searchQuery}&facets=[["project_type:modpack"]]`
+          );
+          const data = await res.json();
+          setLiveCatalog(
+            data.hits.map((h: any) => {
+              const loader = h.categories?.find((c: string) =>
+                ['fabric', 'forge', 'neoforge', 'quilt'].includes(c)
+              );
+              return {
+                name: h.title,
+                version: 'latest',
+                mc: h.versions?.[h.versions.length - 1] || '1.20.1', // Just a fallback
+                loader: loader ? loader.charAt(0).toUpperCase() + loader.slice(1) : 'Fabric',
+                mods: '?',
+              };
+            })
+          );
+        } catch (e) {
+          console.error(e);
+        }
+      }, 500);
+      return () => clearTimeout(timeout);
+    } else if (source === 'modrinth' && searchQuery.trim().length <= 2) {
+      const timeout = setTimeout(() => setLiveCatalog([]), 0);
+      return () => clearTimeout(timeout);
+    }
+  }, [searchQuery, source]);
+
   const sc = SOURCE_COLORS[source] || SOURCE_COLORS.local;
   const filteredCatalog = useMemo(() => {
-    const catalog =
-      source === 'modrinth' ? MODRINTH_CATALOG : source === 'curseforge' ? CURSEFORGE_CATALOG : [];
+    if (source === 'modrinth') return liveCatalog.length > 0 ? liveCatalog : MODRINTH_CATALOG;
+    const catalog = source === 'curseforge' ? CURSEFORGE_CATALOG : [];
     if (!searchQuery) return catalog;
     const q = searchQuery.toLowerCase();
     return catalog.filter(p => p.name.toLowerCase().includes(q));
-  }, [searchQuery, source]);
+  }, [searchQuery, source, liveCatalog]);
 
   if (!isOpen) return null;
 
@@ -67,9 +103,15 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
     setShowResults(false);
   };
 
-  const handleLocalUpload = () => {
-    setLocalFile({ name: 'my-modpack.zip', size: '2.4 GB' });
-    setName('My Modpack');
+  const handleLocalUpload = (file?: File) => {
+    if (file) {
+      setLocalFile({ name: file.name, size: (file.size / 1024 / 1024).toFixed(2) + ' MB' });
+      setName(file.name.replace('.zip', ''));
+    } else {
+      if (fileInputRef.current) {
+        fileInputRef.current.click();
+      }
+    }
   };
 
   const handleCreate = async () => {
@@ -157,10 +199,24 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
                   onDrop={e => {
                     e.preventDefault();
                     setIsDragOver(false);
-                    handleLocalUpload();
+                    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                      handleLocalUpload(e.dataTransfer.files[0]);
+                    }
                   }}
-                  onClick={handleLocalUpload}
+                  onClick={() => handleLocalUpload()}
                 >
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    className="hidden"
+                    accept=".zip"
+                    onChange={e => {
+                      if (e.target.files && e.target.files[0]) {
+                        handleLocalUpload(e.target.files[0]);
+                      }
+                    }}
+                    style={{ display: 'none' }}
+                  />
                   {localFile ? (
                     <div className="flex items-center justify-center gap-3">
                       <Icon name="fileArchive" size={20} style={{ color: sc.accent }} />

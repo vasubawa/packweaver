@@ -70,9 +70,7 @@ export function Sidebar({ activeScreen, onNavigate }: SidebarProps) {
             aria-label="Toggle dark mode"
             style={{ marginRight: 4, flexShrink: 0, padding: 8 }}
           >
-            <Icon name={theme === 'dark' ? 'moon' : 'user'} size={15} />
-            {/* Using a placeholder icon 'user' for light mode if 'sun' is missing, can fallback. 
-                Wait, Icon doesn't have 'sun'. I will just use 'moon' toggle or 'grid'. Let's keep it 'moon' and color code. */}
+            <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={15} />
           </button>
         </div>
       </div>

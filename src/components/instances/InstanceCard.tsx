@@ -1,3 +1,4 @@
+import { useState, useRef, useEffect } from 'react';
 import { Icon } from '../Icon';
 import { Instance } from '../../types';
 import { SOURCE_COLORS } from '../../constants';
@@ -9,7 +10,24 @@ interface InstanceCardProps {
 }
 
 export function InstanceCard({ instance, onClick, onExport }: InstanceCardProps) {
+  const [showMenu, setShowMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
   const sc = SOURCE_COLORS[instance.source] || SOURCE_COLORS.local;
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setShowMenu(false);
+      }
+    };
+    if (showMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showMenu]);
+
   return (
     <div
       className="instance-card flex flex-col"
@@ -112,9 +130,79 @@ export function InstanceCard({ instance, onClick, onExport }: InstanceCardProps)
             >
               <Icon name="package" size={14} />
             </button>
-            <button className="btn-ghost" onClick={e => e.stopPropagation()} title="More options">
-              <Icon name="moreH" size={14} />
-            </button>
+            <div className="relative" ref={menuRef}>
+              <button
+                className="btn-ghost"
+                onClick={e => {
+                  e.stopPropagation();
+                  setShowMenu(!showMenu);
+                }}
+                title="More options"
+              >
+                <Icon name="moreH" size={14} />
+              </button>
+
+              {showMenu && (
+                <div
+                  className="absolute right-0 bottom-full mb-1 w-36 py-1 rounded-md shadow-lg z-20"
+                  style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+                >
+                  <button
+                    className="w-full text-left px-3 py-1.5 text-xs hover:bg-black/5 dark:hover:bg-white/5"
+                    onClick={e => {
+                      e.stopPropagation();
+                      setShowMenu(false);
+                      alert('Opening folder...');
+                    }}
+                  >
+                    Open Folder
+                  </button>
+                  <button
+                    className="w-full text-left px-3 py-1.5 text-xs hover:bg-black/5 dark:hover:bg-white/5"
+                    onClick={e => {
+                      e.stopPropagation();
+                      setShowMenu(false);
+                      onExport(instance);
+                    }}
+                  >
+                    Export Pack
+                  </button>
+                  <button
+                    className="w-full text-left px-3 py-1.5 text-xs hover:bg-black/5 dark:hover:bg-white/5"
+                    onClick={e => {
+                      e.stopPropagation();
+                      setShowMenu(false);
+                      alert('Duplicating is not implemented yet.');
+                    }}
+                  >
+                    Duplicate
+                  </button>
+                  <button
+                    className="w-full text-left px-3 py-1.5 text-xs hover:bg-black/5 dark:hover:bg-white/5"
+                    onClick={e => {
+                      e.stopPropagation();
+                      setShowMenu(false);
+                      onClick(instance); // Navigates to detail view
+                    }}
+                  >
+                    Settings
+                  </button>
+                  <div className="my-1 border-t" style={{ borderColor: 'var(--border)' }} />
+                  <button
+                    className="w-full text-left px-3 py-1.5 text-xs hover:bg-red-500/10 text-red-500 dark:text-red-400"
+                    onClick={e => {
+                      e.stopPropagation();
+                      setShowMenu(false);
+                      if (window.confirm(`Are you sure you want to delete "${instance.name}"?`)) {
+                        alert('Delete command would be invoked here.');
+                      }
+                    }}
+                  >
+                    Delete
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
