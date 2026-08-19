@@ -8,7 +8,7 @@ export interface SearchResult {
 export interface SourcePlugin {
   id: 'modrinth' | 'curseforge' | 'local';
   name: string;
-  
+
   // Brand Assets
   colors: {
     primary: string; // Hex color for backgrounds
@@ -18,7 +18,7 @@ export interface SourcePlugin {
   };
   iconUrl: string;
   fallbackEmoji: string;
-  
+
   // Capabilities
   canSearch: boolean;
   search?: (query: string, limit?: number, offset?: number) => Promise<SearchResult[]>;
