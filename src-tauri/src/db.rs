@@ -1,18 +1,28 @@
 use rusqlite::{Connection, Result};
 use std::path::PathBuf;
-use tauri::Manager;
 
-pub fn init_db(app_handle: &tauri::AppHandle) -> Result<Connection> {
-    // Get the app data dir, e.g. AppData/Roaming/com.vasus.packweaver
-    let app_dir = app_handle
-        .path()
-        .app_data_dir()
-        .expect("Failed to get app data dir");
+
+pub fn get_portable_data_dir() -> PathBuf {
+    let mut path = std::env::current_exe().expect("Failed to get current executable path");
+    path.pop(); // Remove executable name
+
+    // If on macOS and inside an .app bundle, go up to the directory containing the .app
+    if cfg!(target_os = "macos") && path.to_string_lossy().contains(".app/Contents/MacOS") {
+        path.pop(); // MacOS
+        path.pop(); // Contents
+        path.pop(); // .app
+    }
+
+    path.join("packweaver-data")
+}
+
+pub fn init_db(_app_handle: &tauri::AppHandle) -> Result<Connection> {
+    let app_dir = get_portable_data_dir();
 
     // Ensure the directory exists
     std::fs::create_dir_all(&app_dir).expect("Failed to create app data dir");
 
-    let db_path: PathBuf = app_dir.join("packweaver.db");
+    let db_path = app_dir.join("packweaver.db");
 
     let conn = Connection::open(db_path)?;
 
