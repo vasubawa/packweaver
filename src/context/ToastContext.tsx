@@ -29,19 +29,25 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
       <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
         {toasts.map(toast => (
-          <div 
-            key={toast.id} 
+          <div
+            key={toast.id}
             className="flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg text-sm font-medium animate-slide-in"
-            style={{ 
-              background: 'var(--bg-surface)', 
+            style={{
+              background: 'var(--bg-surface)',
               color: 'var(--text-primary)',
               border: `1px solid ${toast.type === 'error' ? 'var(--danger)' : toast.type === 'success' ? 'var(--modrinth)' : 'var(--border)'}`,
-              borderLeftWidth: '4px'
+              borderLeftWidth: '4px',
             }}
           >
-            {toast.type === 'success' && <Icon name="check" size={16} style={{ color: 'var(--modrinth)' }} />}
-            {toast.type === 'error' && <Icon name="x" size={16} style={{ color: 'var(--danger)' }} />}
-            {toast.type === 'info' && <Icon name="info" size={16} style={{ color: 'var(--accent)' }} />}
+            {toast.type === 'success' && (
+              <Icon name="check" size={16} style={{ color: 'var(--modrinth)' }} />
+            )}
+            {toast.type === 'error' && (
+              <Icon name="x" size={16} style={{ color: 'var(--danger)' }} />
+            )}
+            {toast.type === 'info' && (
+              <Icon name="info" size={16} style={{ color: 'var(--accent)' }} />
+            )}
             {toast.message}
           </div>
         ))}

@@ -25,7 +25,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const saved = localStorage.getItem('theme');
     return (saved as ThemeMode) || 'dark';
   });
-  
+
   const [accent, setAccentState] = useState<AccentColor>(() => {
     const saved = localStorage.getItem('accent');
     return (saved as AccentColor) || 'packweaver';
@@ -44,10 +44,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('accent', accent);
   }, [accent]);
 
-  const toggleTheme = () => setThemeState(t => t === 'dark' ? 'light' : 'dark');
+  const toggleTheme = () => setThemeState(t => (t === 'dark' ? 'light' : 'dark'));
 
   return (
-    <ThemeContext.Provider value={{ theme, accent, setTheme: setThemeState, setAccent: setAccentState, toggleTheme }}>
+    <ThemeContext.Provider
+      value={{ theme, accent, setTheme: setThemeState, setAccent: setAccentState, toggleTheme }}
+    >
       {children}
     </ThemeContext.Provider>
   );

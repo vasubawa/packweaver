@@ -10,7 +10,11 @@
     "tauri": "tauri",
     "test:ui": "vitest",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
-    "test": "vitest run && cargo test --manifest-path src-tauri/Cargo.toml"
+    "test": "vitest run && cargo test --manifest-path src-tauri/Cargo.toml",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css,json}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css,json}\"",
+    "lint": "eslint \"src/**/*.{ts,tsx}\"",
+    "lint:fix": "eslint \"src/**/*.{ts,tsx}\" --fix"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
@@ -19,6 +23,7 @@
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/cli": "^2",
     "@testing-library/jest-dom": "^7.0.1",
@@ -26,9 +31,14 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
+    "eslint": "^10.8.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.4",
     "jsdom": "^30.0.1",
+    "prettier": "^3.9.6",
     "tailwindcss": "^4.3.3",
     "typescript": "~5.8.3",
+    "typescript-eslint": "^8.67.0",
     "vite": "^7.0.4",
     "vitest": "^4.1.10"
   }

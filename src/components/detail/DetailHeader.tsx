@@ -26,36 +26,49 @@ export function DetailHeader({ instance, onBack, onExport, onUpdate }: DetailHea
 
   return (
     <>
-      <div className="detail-banner" style={{ background: instance.bannerGradient || 'var(--bg-muted)', flexShrink: 0 }}>
+      <div
+        className="detail-banner"
+        style={{ background: instance.bannerGradient || 'var(--bg-muted)', flexShrink: 0 }}
+      >
         <div className="detail-banner-gradient" />
-        <button 
-          className="btn-ghost absolute top-4 left-4 z-10" 
-          onClick={onBack} 
-          style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '6px 10px' }}
+        <button
+          className="btn-ghost absolute top-4 left-4 z-10"
+          onClick={onBack}
+          style={{
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-sm)',
+            padding: '6px 10px',
+          }}
         >
           <Icon name="arrowLeft" size={15} />
           <span className="text-xs font-medium ml-1">Back</span>
         </button>
       </div>
-      
+
       <div className="px-6 -mt-10 relative z-10 flex-shrink-0">
         <div className="flex items-end justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 mb-1">
               <span className="status-dot" style={{ background: sc.dot }} />
-              <span className="text-[11px] font-medium" style={{ color: sc.accent }}>{sc.label}</span>
+              <span className="text-[11px] font-medium" style={{ color: sc.accent }}>
+                {sc.label}
+              </span>
             </div>
-            
+
             {isEditingName ? (
               <div className="flex items-center gap-2 mb-1">
-                <input 
-                  className="form-input text-xl font-bold tracking-tight py-1" 
+                <input
+                  className="form-input text-xl font-bold tracking-tight py-1"
                   style={{ fontFamily: "'Newsreader', Georgia, serif", width: '300px' }}
                   value={editName}
                   onChange={e => setEditName(e.target.value)}
                   onKeyDown={e => {
                     if (e.key === 'Enter') handleNameSave();
-                    if (e.key === 'Escape') { setEditName(instance.name); setIsEditingName(false); }
+                    if (e.key === 'Escape') {
+                      setEditName(instance.name);
+                      setIsEditingName(false);
+                    }
                   }}
                   autoFocus
                   onBlur={handleNameSave}
@@ -63,17 +76,28 @@ export function DetailHeader({ instance, onBack, onExport, onUpdate }: DetailHea
               </div>
             ) : (
               <div className="flex items-center gap-2 mb-1 group">
-                <h2 className="text-2xl font-bold tracking-tight" style={{ color: 'var(--text-primary)', fontFamily: "'Newsreader', Georgia, serif" }}>
+                <h2
+                  className="text-2xl font-bold tracking-tight"
+                  style={{
+                    color: 'var(--text-primary)',
+                    fontFamily: "'Newsreader', Georgia, serif",
+                  }}
+                >
                   {instance.name}
                 </h2>
-                <button className="btn-ghost opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => setIsEditingName(true)}>
+                <button
+                  className="btn-ghost opacity-0 group-hover:opacity-100 transition-opacity"
+                  onClick={() => setIsEditingName(true)}
+                >
                   <Icon name="pencil" size={14} />
                 </button>
               </div>
             )}
-            
+
             <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-muted)' }}>
-              <span>{instance.basePack} {instance.basePackVersion}</span>
+              <span>
+                {instance.basePack} {instance.basePackVersion}
+              </span>
               <span className="text-zinc-400">&middot;</span>
               <span>{instance.mcVersion}</span>
               <span className="text-zinc-400">&middot;</span>
@@ -82,14 +106,29 @@ export function DetailHeader({ instance, onBack, onExport, onUpdate }: DetailHea
               <span>{instance.totalModCount} mods</span>
             </div>
           </div>
-          
+
           <div className="flex items-center gap-2 flex-shrink-0">
-            {instance.hasUpdate && <span className="badge update-badge" style={{ fontSize: 11 }}>Update Available</span>}
-            <button className="btn-secondary"><Icon name="refresh" size={14} />Update Pack</button>
-            <button className="btn-accent" onClick={onExport} style={{ background: sc.accent }}>
-              <Icon name="package" size={14} />Export Pack
+            {instance.hasUpdate && (
+              <span className="badge update-badge" style={{ fontSize: 11 }}>
+                Update Available
+              </span>
+            )}
+            <button className="btn-secondary">
+              <Icon name="refresh" size={14} />
+              Update Pack
             </button>
-            <button className="btn-ghost" style={{ padding: '8px', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)' }}>
+            <button className="btn-accent" onClick={onExport} style={{ background: sc.accent }}>
+              <Icon name="package" size={14} />
+              Export Pack
+            </button>
+            <button
+              className="btn-ghost"
+              style={{
+                padding: '8px',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-sm)',
+              }}
+            >
               <Icon name="trash" size={15} style={{ color: 'var(--danger)' }} />
             </button>
           </div>
