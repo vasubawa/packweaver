@@ -30,24 +30,44 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
     }
   };
 
-  const removeMod = (id: string) => {
-    onUpdate({
-      customMods: instance.customMods.filter(m => m.id !== id),
-    });
+  const removeMod = async (id: string) => {
+    try {
+      await invoke('remove_custom_mod', {
+        instanceId: instance.id,
+        modId: id,
+      });
+      onUpdate({
+        customMods: instance.customMods.filter(m => m.id !== id),
+      });
+    } catch (e) {
+      console.error('Failed to remove custom mod:', e);
+    }
   };
 
-  const addCustomMod = () => {
+  const addCustomMod = async () => {
     if (!newModName.trim()) return;
-    const newMod: CustomModItem = {
-      id: `custom-${Date.now()}`,
-      name: newModName.trim(),
-      version: 'latest',
-      enabled: true,
-      isBase: false,
-      source: addModSource,
-    };
-    onUpdate({ customMods: [...instance.customMods, newMod] });
-    setNewModName('');
+    const modId = `custom-${Date.now()}`;
+    const name = newModName.trim();
+    try {
+      await invoke('add_custom_mod', {
+        instanceId: instance.id,
+        modId,
+        name,
+        source: addModSource,
+      });
+      const newMod: CustomModItem = {
+        id: modId,
+        name,
+        version: 'latest',
+        enabled: true,
+        isBase: false,
+        source: addModSource,
+      };
+      onUpdate({ customMods: [...instance.customMods, newMod] });
+      setNewModName('');
+    } catch (e) {
+      console.error('Failed to add custom mod:', e);
+    }
   };
 
   return (

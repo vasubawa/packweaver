@@ -43,7 +43,6 @@ struct ModrinthFile {
 #[derive(Deserialize, Debug)]
 struct ModrinthEnv {
     client: String,
-    server: String,
 }
 
 pub async fn run_pipeline(
@@ -51,6 +50,7 @@ pub async fn run_pipeline(
     _state: tauri::State<'_, AppState>,
     instance_id: String,
     base_pack_id: String,
+    source: String,
 ) -> Result<(), String> {
     let client = Client::builder()
         .user_agent("packweaver/0.1.0")
@@ -72,33 +72,6 @@ pub async fn run_pipeline(
         );
     };
 
-    emit_progress("Fetching Pack Info...", 0, 100);
-
-    // 1. Fetch Modrinth Version
-    let url = format!(
-        "https://api.modrinth.com/v2/project/{}/version",
-        base_pack_id
-    );
-    let versions: Vec<ModrinthVersion> = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?
-        .json()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let latest_version = versions.into_iter().next().ok_or("No versions found")?;
-    let mut files = latest_version.files;
-    if files.is_empty() {
-        return Err("No files found in latest version".to_string());
-    }
-    let pack_file = if let Some(idx) = files.iter().position(|f| f.primary) {
-        files.remove(idx)
-    } else {
-        files.remove(0)
-    };
-
     // 2. Setup Directories
     let app_dir = crate::db::get_portable_data_dir();
     let instance_dir = app_dir.join("instances").join(&instance_id);
@@ -108,17 +81,50 @@ pub async fn run_pipeline(
     fs::create_dir_all(&original_dir).map_err(|e| e.to_string())?;
     fs::create_dir_all(&workspace_dir).map_err(|e| e.to_string())?;
 
-    // 3. Download .mrpack
-    emit_progress("Downloading Basepack...", 10, 100);
     let mrpack_path = original_dir.join("basepack.mrpack");
-    let mut resp = client
-        .get(&pack_file.url)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    let mut out = fs::File::create(&mrpack_path).map_err(|e| e.to_string())?;
-    while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {
-        io::Write::write_all(&mut out, &chunk).map_err(|e| e.to_string())?;
+
+    if source == "local" {
+        emit_progress("Copying Local File...", 10, 100);
+        fs::copy(&base_pack_id, &mrpack_path).map_err(|e| e.to_string())?;
+    } else {
+        emit_progress("Fetching Pack Info...", 0, 100);
+
+        // 1. Fetch Modrinth Version
+        let url = format!(
+            "https://api.modrinth.com/v2/project/{}/version",
+            base_pack_id
+        );
+        let versions: Vec<ModrinthVersion> = client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?
+            .json()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let latest_version = versions.into_iter().next().ok_or("No versions found")?;
+        let mut files = latest_version.files;
+        if files.is_empty() {
+            return Err("No files found in latest version".to_string());
+        }
+        let pack_file = if let Some(idx) = files.iter().position(|f| f.primary) {
+            files.remove(idx)
+        } else {
+            files.remove(0)
+        };
+
+        // 3. Download .mrpack
+        emit_progress("Downloading Basepack...", 10, 100);
+        let mut resp = client
+            .get(&pack_file.url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let mut out = fs::File::create(&mrpack_path).map_err(|e| e.to_string())?;
+        while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {
+            io::Write::write_all(&mut out, &chunk).map_err(|e| e.to_string())?;
+        }
     }
 
     // 4. Extract .mrpack to workspace
@@ -163,17 +169,12 @@ pub async fn run_pipeline(
             let dl_url = file.downloads.first().cloned().unwrap_or_default();
             let client_clone = client.clone();
 
-            // Extract env tags to save to DB
-            let client_env = file
+            let enabled = file
                 .env
                 .as_ref()
                 .map(|e| e.client.clone())
-                .unwrap_or_else(|| "required".to_string());
-            let server_env = file
-                .env
-                .as_ref()
-                .map(|e| e.server.clone())
-                .unwrap_or_else(|| "required".to_string());
+                .unwrap_or_else(|| "required".to_string())
+                != "unsupported";
             let mod_id = file.path.clone();
             let file_path = file.path.clone();
 
@@ -216,7 +217,7 @@ pub async fn run_pipeline(
                     io::Write::write_all(&mut out, &bytes).map_err(|e| e.to_string())?;
                 }
 
-                Ok((mod_id, client_env, server_env))
+                Ok((mod_id, enabled))
             });
         }
 
@@ -225,16 +226,16 @@ pub async fn run_pipeline(
         let conn = crate::db::init_db(&app).map_err(|e| e.to_string())?;
         for res in results {
             match res {
-                Ok((mod_id, client_env, server_env)) => {
+                Ok((mod_id, enabled)) => {
                     let _ = conn.execute(
-                        "INSERT INTO instance_mods (instance_id, mod_id, mod_version_id, source, env_client, env_server) 
+                        "INSERT INTO instance_mods (instance_id, mod_id, mod_version_id, source, is_base, enabled) 
                          VALUES (?1, ?2, ?3, ?4, ?5, ?6) 
                          ON CONFLICT(instance_id, mod_id) DO UPDATE SET 
                             mod_version_id=excluded.mod_version_id, 
                             source=excluded.source, 
-                            env_client=excluded.env_client, 
-                            env_server=excluded.env_server",
-                        params![&instance_id, &mod_id, "latest", "modrinth", &client_env, &server_env],
+                            is_base=excluded.is_base, 
+                            enabled=excluded.enabled",
+                        params![&instance_id, &mod_id, "latest", "modrinth", 1, enabled],
                     );
                     completed += 1;
                     emit_progress("Downloading Mods...", completed, total_files);
@@ -322,6 +323,5 @@ mod tests {
         assert_eq!(index.files.len(), 1);
         assert_eq!(index.files[0].path, "mods/sodium.jar");
         assert_eq!(index.files[0].env.as_ref().unwrap().client, "required");
-        assert_eq!(index.files[0].env.as_ref().unwrap().server, "unsupported");
     }
 }
