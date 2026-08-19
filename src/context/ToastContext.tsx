@@ -11,7 +11,8 @@ interface ToastContextType {
   addToast: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
-const ToastContext = createContext<ToastContextType | undefined>(undefined);
+// eslint-disable-next-line react-refresh/only-export-components
+export const ToastContext = createContext<ToastContextType | undefined>(undefined);
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -56,6 +57,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useToast() {
   const context = useContext(ToastContext);
   if (context === undefined) {

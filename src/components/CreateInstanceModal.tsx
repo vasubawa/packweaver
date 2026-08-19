@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Icon } from './Icon';
-import { SOURCE_COLORS } from './instances/InstanceCard';
+import { SOURCE_COLORS } from '../constants';
 import { ModSource, LoaderType } from '../types';
 
 const MODRINTH_CATALOG = [
@@ -36,14 +36,13 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
   const [localFile, setLocalFile] = useState<any>(null);
 
   const sc = SOURCE_COLORS[source] || SOURCE_COLORS.local;
-  const catalog =
-    source === 'modrinth' ? MODRINTH_CATALOG : source === 'curseforge' ? CURSEFORGE_CATALOG : [];
-
   const filteredCatalog = useMemo(() => {
+    const catalog =
+      source === 'modrinth' ? MODRINTH_CATALOG : source === 'curseforge' ? CURSEFORGE_CATALOG : [];
     if (!searchQuery) return catalog;
     const q = searchQuery.toLowerCase();
     return catalog.filter(p => p.name.toLowerCase().includes(q));
-  }, [searchQuery, catalog]);
+  }, [searchQuery, source]);
 
   if (!isOpen) return null;
 

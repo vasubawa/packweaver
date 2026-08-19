@@ -11,7 +11,8 @@ interface ThemeContextType {
   toggleTheme: () => void;
 }
 
-const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
+// eslint-disable-next-line react-refresh/only-export-components
+export const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 const ACCENT_MAP: Record<AccentColor, { primary: string; hover: string; soft: string }> = {
   packweaver: { primary: '#d97355', hover: '#c55a3a', soft: 'rgba(217,115,85,0.08)' },
@@ -55,6 +56,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useTheme() {
   const context = useContext(ThemeContext);
   if (context === undefined) {

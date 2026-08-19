@@ -142,6 +142,7 @@ function App() {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line
     loadInstances();
 
     const unlisten = listen<ProgressEvent>('instance-progress', event => {

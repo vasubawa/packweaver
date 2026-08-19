@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Icon } from '../Icon';
-import { SOURCE_COLORS } from '../instances/InstanceCard';
+import { SOURCE_COLORS } from '../../constants';
 import { Instance, CustomModItem, ModSource } from '../../types';
 
 interface ClientModsTabProps {

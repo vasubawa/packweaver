@@ -36,7 +36,17 @@ jobs:
     - name: Typecheck
       run: pnpm tsc --noEmit
       
-    # Note: Tauri components require rust toolchains and specific system dependencies.
-    # To avoid long build times for simple PRs, we currently only test the frontend.
-    # - name: Run Tests
-    #   run: pnpm test
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+        
+    - name: Check Rust Formatting
+      run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+      
+    - name: Run Clippy
+      run: cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
+      
+    - name: Check Rust Build
+      run: cargo check --manifest-path src-tauri/Cargo.toml
+
