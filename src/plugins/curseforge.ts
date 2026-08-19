@@ -3,6 +3,13 @@ import { SourcePlugin, SearchResult } from './types';
 export const CurseForgePlugin: SourcePlugin = {
   id: 'curseforge',
   name: 'CurseForge',
+  description: 'Search and download modpacks and mods from CurseForge via API key.',
+  version: '1.0.0',
+  author: 'Packweaver Core',
+  category: 'source',
+  enabled: false, // Default disabled until user supplies an API key
+  builtIn: true,
+  requiresApiKey: true,
   colors: {
     primary: '#f16436',
     primaryHover: '#d6572e',

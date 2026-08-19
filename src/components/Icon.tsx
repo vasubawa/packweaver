@@ -191,6 +191,21 @@ export function Icon({
         <path d="m15 5 4 4" />
       </svg>
     ),
+    key: (
+      <svg {...s} {...p}>
+        <circle cx="7.5" cy="15.5" r="4.5" />
+        <path d="m21 3-9.5 9.5" />
+        <path d="m15.5 7.5 3 3" />
+        <path d="m18 5 2 2" />
+      </svg>
+    ),
+    archive: (
+      <svg {...s} {...p}>
+        <rect width="20" height="5" x="2" y="3" rx="1" />
+        <path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" />
+        <path d="M10 12h4" />
+      </svg>
+    ),
   };
   return <>{icons[name] || null}</>;
 }

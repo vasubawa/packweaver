@@ -19,7 +19,7 @@ export function Header({
 }: HeaderProps) {
   return (
     <header
-      className="theme-transition flex items-center justify-between px-6"
+      className="theme-transition flex items-center justify-between px-6 gap-4"
       style={{
         height: 'var(--header-h)',
         minHeight: 'var(--header-h)',
@@ -27,8 +27,8 @@ export function Header({
         background: 'var(--bg-surface)',
       }}
     >
-      <div className="flex items-center gap-6 flex-1">
-        <div className="flex flex-col justify-center min-w-0">
+      <div className="flex items-center gap-4 flex-1 min-w-0">
+        <div className="flex flex-col justify-center shrink-0">
           <h1
             className="text-[15px] font-semibold tracking-tight truncate"
             style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-heading)' }}
@@ -43,15 +43,16 @@ export function Header({
         </div>
 
         {showSearchAndActions && onSearchChange && (
-          <div className="relative flex-1 max-w-sm">
+          <div className="relative flex-1 min-w-[160px]">
             <div
-              className="absolute left-3 top-1/2 -translate-y-1/2"
+              className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
               style={{ color: 'var(--text-muted)' }}
             >
-              <Icon name="search" size={15} />
+              <Icon name="search" size={14} />
             </div>
             <input
-              className="search-pill"
+              className="search-pill w-full"
+              style={{ width: '100%', paddingLeft: 32 }}
               type="text"
               placeholder="Search packs..."
               value={searchQuery}
@@ -62,9 +63,12 @@ export function Header({
       </div>
 
       {showSearchAndActions && onNewInstance && (
-        <button className="btn-primary" onClick={onNewInstance}>
+        <button
+          className="btn-primary shrink-0 flex items-center gap-1.5 whitespace-nowrap"
+          onClick={onNewInstance}
+        >
           <Icon name="plus" size={14} />
-          New Pack
+          <span>New Pack</span>
         </button>
       )}
     </header>
