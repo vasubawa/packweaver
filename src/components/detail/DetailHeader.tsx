@@ -78,11 +78,12 @@ export function DetailHeader({
           className="btn-ghost absolute top-4 left-6 z-10 flex items-center gap-1.5 backdrop-blur-md"
           onClick={onBack}
           style={{
-            background: 'rgba(0, 0, 0, 0.45)',
+            background: 'var(--bg-surface)',
             border: '1px solid var(--border)',
             borderRadius: 'var(--radius-sm)',
             padding: '6px 12px',
             color: 'var(--text-primary)',
+            boxShadow: 'var(--shadow-sm)',
           }}
         >
           <Icon name="arrowLeft" size={14} />

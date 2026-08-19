@@ -26,12 +26,18 @@
     --radius-pill: 9999px;
     --transition: 180ms ease;
     --font-heading: 'Newsreader', georgia, 'Cambria', serif;
-    --modrinth: #1bd96a;
-    --modrinth-soft: #eefbf3;
-    --curseforge: #f16436;
-    --curseforge-soft: #fdf5f0;
-    --local: #64748b;
-    --local-soft: #f5f5f4;
+    --modrinth: #16a34a;
+    --modrinth-soft: rgba(22, 163, 74, 0.1);
+    --modrinth-border: rgba(22, 163, 74, 0.25);
+    --modrinth-gradient: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);
+    --curseforge: #ea580c;
+    --curseforge-soft: rgba(234, 88, 12, 0.1);
+    --curseforge-border: rgba(234, 88, 12, 0.25);
+    --curseforge-gradient: linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%);
+    --local: #b45309;
+    --local-soft: rgba(180, 83, 9, 0.1);
+    --local-border: rgba(180, 83, 9, 0.25);
+    --local-gradient: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
   }
   .dark {
     --bg-canvas: #18181b;
@@ -51,11 +57,17 @@
     --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3);
     --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.4);
     --modrinth: #1bd96a;
-    --modrinth-soft: #14351f;
+    --modrinth-soft: rgba(27, 217, 106, 0.12);
+    --modrinth-border: rgba(27, 217, 106, 0.28);
+    --modrinth-gradient: linear-gradient(135deg, #0e2a18 0%, #08160d 100%);
     --curseforge: #f16436;
-    --curseforge-soft: #331c14;
-    --local: #94a3b8;
-    --local-soft: #2e2a28;
+    --curseforge-soft: rgba(241, 100, 54, 0.12);
+    --curseforge-border: rgba(241, 100, 54, 0.28);
+    --curseforge-gradient: linear-gradient(135deg, #38190e 0%, #1e0d07 100%);
+    --local: #c49474;
+    --local-soft: rgba(196, 148, 116, 0.12);
+    --local-border: rgba(196, 148, 116, 0.28);
+    --local-gradient: linear-gradient(135deg, #2b1f17 0%, #17110c 100%);
   }
 
   body {
@@ -271,6 +283,39 @@
     height: 7px;
     border-radius: 50%;
     flex-shrink: 0;
+  }
+  .card-banner-badge {
+    display: inline-flex;
+    align-items: center;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 3px 8px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    box-shadow: var(--shadow-sm);
+  }
+  .card-banner-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    box-shadow: var(--shadow-sm);
+    transition:
+      background var(--transition),
+      color var(--transition),
+      border-color var(--transition);
+  }
+  .card-banner-btn:hover {
+    color: var(--text-primary);
+    background: var(--bg-muted);
+    border-color: var(--border-focus);
   }
   .badge {
     display: inline-flex;

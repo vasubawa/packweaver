@@ -71,16 +71,9 @@ export function InstanceCard({ instance, onClick, onDelete }: InstanceCardProps)
           className="relative overflow-hidden shrink-0 flex items-start justify-between p-3.5"
           style={{ height: 86, background: instance.bannerGradient || sc.gradient }}
         >
-          <span
-            className="badge font-medium text-[11px] px-2.5 py-1 rounded-md backdrop-blur-md"
-            style={{
-              background: 'rgba(0, 0, 0, 0.45)',
-              color: sc.accent,
-              borderColor: sc.border,
-            }}
-          >
+          <span className="card-banner-badge">
             <span
-              className="w-2 h-2 rounded-full mr-1.5 inline-block"
+              className="w-2 h-2 rounded-full mr-1.5 inline-block shrink-0"
               style={{ background: sc.dot }}
             />
             {sc.label}
@@ -89,7 +82,7 @@ export function InstanceCard({ instance, onClick, onDelete }: InstanceCardProps)
           <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
             <div className="relative" ref={menuRef}>
               <button
-                className="w-7 h-7 rounded-md flex items-center justify-center bg-black/40 hover:bg-black/70 text-white/80 hover:text-white transition-colors"
+                className="card-banner-btn"
                 onClick={() => setShowMenu(!showMenu)}
                 title="Options"
               >
