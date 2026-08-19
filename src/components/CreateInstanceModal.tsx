@@ -3,20 +3,9 @@ import { invoke } from '@tauri-apps/api/core';
 import { Icon } from './Icon';
 import { SOURCE_COLORS } from '../constants';
 import { ModSource, LoaderType } from '../types';
-import { PLUGINS } from '../plugins';
+import { getActiveSourcePlugins, SourcePlugin } from '../plugins';
 import { open } from '@tauri-apps/plugin-dialog';
 
-const MODRINTH_CATALOG = [
-  { name: 'Better Minecraft', version: 'v5.4.0', mc: '1.20.1', loader: 'Fabric', mods: 156 },
-  { name: 'All the Mods 9', version: 'v3.1.0', mc: '1.20.1', loader: 'NeoForge', mods: 432 },
-  { name: 'Prominence II RPG', version: 'v4.2.0', mc: '1.20.1', loader: 'Forge', mods: 278 },
-  { name: 'Fabulously Optimized', version: 'v6.1.0', mc: '1.20.1', loader: 'Fabric', mods: 42 },
-];
-const CURSEFORGE_CATALOG = [
-  { name: 'Create: Above & Beyond', version: 'v1.8.2', mc: '1.18.2', loader: 'Forge', mods: 217 },
-  { name: 'Cobblemon', version: 'v2.0.1', mc: '1.20.1', loader: 'Fabric', mods: 94 },
-  { name: 'RLCraft', version: 'v2.9.3', mc: '1.12.2', loader: 'Forge', mods: 254 },
-];
 const MC_VERSIONS = ['1.21.4', '1.21.1', '1.20.4', '1.20.1', '1.18.2', '1.16.5', '1.12.2'];
 const LOADERS: LoaderType[] = ['Fabric', 'Forge', 'NeoForge', 'Quilt'];
 
@@ -27,7 +16,12 @@ export interface CreateModalProps {
 }
 
 export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalProps) {
-  const [source, setSource] = useState<ModSource>('local');
+  const [activeSources, setActiveSources] = useState<SourcePlugin[]>(() =>
+    getActiveSourcePlugins()
+  );
+  const [source, setSource] = useState<ModSource>(
+    () => (activeSources[0]?.id as ModSource) || 'local'
+  );
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPack, setSelectedPack] = useState<any>(null);
   const [name, setName] = useState('');
@@ -40,11 +34,31 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
   const [liveCatalog, setLiveCatalog] = useState<any[]>([]);
 
   useEffect(() => {
-    const plugin = PLUGINS[source];
-    if (plugin && plugin.canSearch && plugin.search && searchQuery.trim().length > 2) {
+    const handlePluginsChange = () => {
+      const updated = getActiveSourcePlugins();
+      setActiveSources(updated);
+      if (!updated.some(s => s.id === source) && updated.length > 0) {
+        setSource(updated[0].id as ModSource);
+      }
+    };
+    window.addEventListener('packweaver_plugins_changed', handlePluginsChange);
+    return () => window.removeEventListener('packweaver_plugins_changed', handlePluginsChange);
+  }, [source]);
+
+  const currentPlugin = useMemo(() => {
+    return activeSources.find(s => s.id === source);
+  }, [activeSources, source]);
+
+  useEffect(() => {
+    if (
+      currentPlugin &&
+      currentPlugin.canSearch &&
+      currentPlugin.search &&
+      searchQuery.trim().length > 2
+    ) {
       const timeout = setTimeout(async () => {
         try {
-          const results = await plugin.search!(searchQuery, 20);
+          const results = await currentPlugin.search!(searchQuery, 20);
           setLiveCatalog(
             results.map((r: any) => ({
               id: r.id, // e.g. modrinth slug
@@ -64,16 +78,12 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
       const timeout = setTimeout(() => setLiveCatalog([]), 0);
       return () => clearTimeout(timeout);
     }
-  }, [searchQuery, source]);
+  }, [searchQuery, currentPlugin]);
 
   const sc = SOURCE_COLORS[source] || SOURCE_COLORS.local;
   const filteredCatalog = useMemo(() => {
-    if (source === 'modrinth') return liveCatalog.length > 0 ? liveCatalog : MODRINTH_CATALOG;
-    const catalog = source === 'curseforge' ? CURSEFORGE_CATALOG : [];
-    if (!searchQuery) return catalog;
-    const q = searchQuery.toLowerCase();
-    return catalog.filter(p => p.name.toLowerCase().includes(q));
-  }, [searchQuery, source, liveCatalog]);
+    return liveCatalog;
+  }, [liveCatalog]);
 
   if (!isOpen) return null;
 
@@ -176,19 +186,20 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
             <div className="mb-5">
               <label className="form-label mb-2">Source</label>
               <div className="seg-control">
-                {[
-                  { id: 'local', label: 'Local Upload', dot: '#64748b' },
-                  { id: 'modrinth', label: 'Modrinth', dot: '#1bd96a' },
-                  { id: 'curseforge', label: 'CurseForge', dot: '#f16436' },
-                ].map(s => (
+                {activeSources.map(s => (
                   <button
                     key={s.id}
                     className={`seg-btn ${source === s.id ? 'seg-active' : ''}`}
                     onClick={() => handleSourceChange(s.id as ModSource)}
-                    style={source === s.id ? { background: sourceStyles[s.id] } : {}}
+                    style={
+                      source === s.id ? { background: sourceStyles[s.id] || 'var(--bg-muted)' } : {}
+                    }
                   >
-                    <span className="seg-dot" style={{ background: s.dot }} />
-                    {s.label}
+                    <span
+                      className="seg-dot"
+                      style={{ background: s.colors.primary || '#64748b' }}
+                    />
+                    {s.name}
                   </button>
                 ))}
               </div>
@@ -196,8 +207,12 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
 
             <div className="mb-5">
               <label className="form-label mb-2">Base Pack</label>
-              {source === 'local' ? (
-                <div onClick={() => handleLocalUpload()}>
+              {!currentPlugin?.canSearch ? (
+                <div
+                  className="dropzone cursor-pointer"
+                  style={{ padding: '24px 16px' }}
+                  onClick={() => handleLocalUpload()}
+                >
                   {localFile ? (
                     <div className="flex items-center justify-center gap-3">
                       <Icon name="fileArchive" size={20} style={{ color: sc.accent }} />
@@ -265,7 +280,7 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
                   />
                   {showResults && filteredCatalog.length > 0 && (
                     <div className="search-results">
-                      {filteredCatalog.map((pack, i) => (
+                      {filteredCatalog.map((pack: any, i: number) => (
                         <div
                           key={i}
                           className="search-result-item"

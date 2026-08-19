@@ -319,6 +319,43 @@ fn remove_custom_mod(
     Ok(())
 }
 
+#[tauri::command]
+fn get_app_info() -> Result<serde_json::Value, String> {
+    let data_dir = db::get_portable_data_dir();
+    Ok(serde_json::json!({
+        "data_dir": data_dir.to_string_lossy(),
+        "version": env!("CARGO_PKG_VERSION"),
+    }))
+}
+
+#[tauri::command]
+fn open_data_dir() -> Result<(), String> {
+    let data_dir = db::get_portable_data_dir();
+    let _ = std::fs::create_dir_all(&data_dir);
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(data_dir)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(data_dir)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(data_dir)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -338,7 +375,9 @@ pub fn run() {
             toggle_mod_state,
             update_instance_details,
             add_custom_mod,
-            remove_custom_mod
+            remove_custom_mod,
+            get_app_info,
+            open_data_dir
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
