@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io;
 use std::path::Path;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 
 #[derive(Serialize, Clone)]
 pub struct ProgressEvent {
@@ -95,7 +95,7 @@ pub async fn run_pipeline(
     };
 
     // 2. Setup Directories
-    let app_dir = app.path().app_data_dir().unwrap();
+    let app_dir = crate::db::get_portable_data_dir();
     let instance_dir = app_dir.join("instances").join(&instance_id);
     let original_dir = instance_dir.join("original");
     let workspace_dir = instance_dir.join("workspace");
