@@ -104,6 +104,18 @@ function App() {
     setInstances(prev => prev.map(i => (i.id === updatedInstance.id ? updatedInstance : i)));
   }, []);
 
+  const handleDeleteInstance = useCallback(
+    (id: string) => {
+      setInstances(prev => prev.filter(i => i.id !== id));
+      if (selectedInstanceId === id) {
+        setSelectedInstanceId(null);
+        setScreen('library');
+      }
+      addToast('Pack deleted successfully', 'info');
+    },
+    [selectedInstanceId, addToast]
+  );
+
   const headerTitle = useMemo(() => {
     return { library: 'Library', plugins: 'Plugins', settings: 'Settings' }[screen] || 'Packweaver';
   }, [screen]);
@@ -143,6 +155,7 @@ function App() {
               onSelectInstance={handleSelectInstance}
               onExportInstance={handleExport}
               onNewInstance={() => setShowCreateModal(true)}
+              onDeleteInstance={handleDeleteInstance}
             />
           )}
 
@@ -152,6 +165,7 @@ function App() {
               onBack={handleBack}
               onExport={handleExport}
               onUpdateInstance={handleUpdateInstance}
+              onDeleteInstance={handleDeleteInstance}
             />
           )}
 

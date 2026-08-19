@@ -11,6 +11,7 @@ interface ServerFilesTabProps {
 export function ServerFilesTab({ instance, onUpdate }: ServerFilesTabProps) {
   const [newFileName, setNewFileName] = useState('');
   const [addFileSource, setAddFileSource] = useState<ModSource>('local');
+  const sc = SOURCE_COLORS[instance.source] || SOURCE_COLORS.local;
 
   const toggleFile = (idx: number) => {
     onUpdate({
@@ -38,10 +39,15 @@ export function ServerFilesTab({ instance, onUpdate }: ServerFilesTabProps) {
   };
 
   return (
-    <div className="animate-slide-in max-w-2xl">
-      <div className="add-mod-bar">
+    <div className="animate-slide-in max-w-3xl flex flex-col gap-6">
+      {/* Add Server File Bar */}
+      <div
+        className="p-3 rounded-xl flex items-center gap-3"
+        style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+      >
         <select
-          className="form-select"
+          className="form-select text-xs"
+          style={{ width: 'auto', minWidth: 120 }}
           value={addFileSource}
           onChange={e => setAddFileSource(e.target.value as ModSource)}
         >
@@ -50,122 +56,141 @@ export function ServerFilesTab({ instance, onUpdate }: ServerFilesTabProps) {
           <option value="curseforge">CurseForge</option>
         </select>
         <input
-          className="form-input"
-          placeholder="Add server file..."
+          className="form-input text-xs flex-1"
+          placeholder="File path or config name (e.g. server.properties)..."
           value={newFileName}
           onChange={e => setNewFileName(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && addServerFile()}
         />
         <button
-          className="btn-accent"
+          className="btn-accent text-xs px-3.5 py-1.5 font-medium shrink-0"
+          style={{ background: sc.accent }}
           onClick={addServerFile}
-          style={{ padding: '5px 12px', fontSize: 12 }}
         >
           <Icon name="plus" size={13} />
-          Add
+          <span>Add File</span>
         </button>
       </div>
 
+      {/* Server Files List */}
       <div>
         <div className="flex items-center gap-2 mb-3">
-          <Icon name="server" size={14} style={{ color: 'var(--text-muted)' }} />
-          <span
-            className="text-xs font-semibold uppercase tracking-wider"
-            style={{ color: 'var(--text-muted)' }}
-          >
-            Server Files
+          <Icon name="server" size={14} style={{ color: sc.accent }} />
+          <span className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+            Server-Only Files & Overrides
           </span>
-          <span className="badge" style={{ fontSize: 10 }}>
-            {instance.serverFiles.length}
-          </span>
+          <span className="badge text-[10.5px] px-1.5 py-0.2">{instance.serverFiles.length}</span>
         </div>
+
         {instance.serverFiles.length === 0 ? (
-          <div className="py-8 text-center">
+          <div
+            className="p-8 text-center rounded-xl flex flex-col items-center justify-center"
+            style={{ background: 'var(--bg-surface)', border: '1px dashed var(--border)' }}
+          >
             <div
-              className="flex items-center justify-center rounded-2xl mb-3 mx-auto"
-              style={{
-                width: 48,
-                height: 48,
-                background: 'var(--bg-muted)',
-                border: '1px solid var(--border)',
-              }}
+              className="w-10 h-10 rounded-xl flex items-center justify-center mb-2.5"
+              style={{ background: 'var(--bg-muted)' }}
             >
-              <Icon name="server" size={20} />
+              <Icon name="server" size={18} style={{ color: 'var(--text-muted)' }} />
             </div>
-            <p className="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
-              No server files
+            <p className="text-xs font-medium text-[var(--text-primary)] mb-0.5">
+              No server-specific files added
             </p>
-            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-              Add config files or scripts for your server
+            <p className="text-[11px] text-[var(--text-muted)]">
+              Add server configs, start scripts, or JVM overrides to be bundled during server
+              packaging.
             </p>
           </div>
         ) : (
-          instance.serverFiles.map((file, idx) => (
-            <div key={idx} className="mod-row">
-              <div className="flex items-center gap-3">
-                <Icon
-                  name={file.type === 'script' ? 'fileCode' : 'settings'}
-                  size={14}
-                  style={{ color: 'var(--text-muted)', flexShrink: 0 }}
-                />
-                <div className="flex items-center gap-2.5">
-                  <div>
-                    <div
-                      className="text-[13px] font-medium"
-                      style={{ color: 'var(--text-primary)' }}
-                    >
-                      {file.name}
-                    </div>
-                    <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
-                      {file.type === 'script' ? 'Script' : 'Config'} &middot;{' '}
-                      {SOURCE_COLORS[file.source]?.label || 'Local'}
+          <div
+            className="rounded-xl overflow-hidden divide-y divide-[var(--border)]"
+            style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+          >
+            {instance.serverFiles.map((file, idx) => {
+              const fileSc = SOURCE_COLORS[file.source] || SOURCE_COLORS.local;
+              return (
+                <div key={idx} className="p-3 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <Icon
+                      name={file.type === 'script' ? 'fileCode' : 'settings'}
+                      size={14}
+                      style={{ color: 'var(--text-muted)', flexShrink: 0 }}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[13px] font-medium text-[var(--text-primary)] truncate">
+                        {file.name}
+                      </div>
+                      <div className="text-[11px] text-[var(--text-muted)] flex items-center gap-2">
+                        <span>
+                          {file.type === 'script' ? 'Shell/Batch Script' : 'Config Override'}
+                        </span>
+                        <span>&middot;</span>
+                        <span
+                          className="px-1.5 py-0.2 text-[10px] rounded font-medium"
+                          style={{ background: fileSc.soft, color: fileSc.accent }}
+                        >
+                          {fileSc.label}
+                        </span>
+                      </div>
                     </div>
                   </div>
-                  <span className={`source-badge source-badge-${file.source}`}>
-                    <span className="source-badge-dot" />
-                    {SOURCE_COLORS[file.source]?.label || 'Local'}
-                  </span>
+
+                  <div className="flex items-center gap-3 shrink-0">
+                    <button
+                      role="switch"
+                      aria-checked={file.enabled}
+                      aria-label={`Toggle ${file.name}`}
+                      className={`theme-toggle-track ${file.enabled ? 'on' : ''}`}
+                      style={file.enabled ? { background: fileSc.accent } : {}}
+                      onClick={() => toggleFile(idx)}
+                    >
+                      <div className="theme-toggle-knob" />
+                    </button>
+                    <button
+                      className="btn-ghost p-1.5 rounded text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                      onClick={() => removeFile(idx)}
+                      title="Remove file"
+                    >
+                      <Icon name="trash" size={13} />
+                    </button>
+                  </div>
                 </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  className={`toggle-track ${file.enabled ? SOURCE_COLORS[file.source]?.toggleClass || 'on-local' : ''}`}
-                  onClick={() => toggleFile(idx)}
-                >
-                  <div className="toggle-knob" />
-                </button>
-                <button className="btn-ghost" onClick={() => removeFile(idx)} title="Remove file">
-                  <Icon name="trash" size={13} />
-                </button>
-              </div>
-            </div>
-          ))
+              );
+            })}
+          </div>
         )}
       </div>
-      <div className="mt-6 pt-4" style={{ borderTop: '1px solid var(--border)' }}>
-        <div className="setting-row" style={{ borderBottom: 'none', padding: '10px 0' }}>
-          <div>
-            <div className="text-[13px] font-medium" style={{ color: 'var(--text-primary)' }}>
-              Include server files in Export
-            </div>
-            <div className="text-[11.5px]" style={{ color: 'var(--text-muted)' }}>
-              Bundle server-side configs and scripts with your exported pack
-            </div>
+
+      {/* Export toggle option */}
+      <div
+        className="p-4 rounded-xl flex items-center justify-between"
+        style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+      >
+        <div>
+          <div className="text-[13px] font-medium text-[var(--text-primary)]">
+            Bundle Server Files on Export
           </div>
-          <button
-            className={`toggle-track ${instance.exportSettings.includeServer ? 'on' : ''}`}
-            onClick={() =>
-              onUpdate({
-                exportSettings: {
-                  ...instance.exportSettings,
-                  includeServer: !instance.exportSettings.includeServer,
-                },
-              })
-            }
-          >
-            <div className="toggle-knob" />
-          </button>
+          <div className="text-[11.5px] text-[var(--text-muted)]">
+            Include these configurations when packaging a server release
+          </div>
         </div>
+        <button
+          role="switch"
+          aria-checked={instance.exportSettings.includeServer}
+          aria-label="Include server files"
+          className={`theme-toggle-track ${instance.exportSettings.includeServer ? 'on' : ''}`}
+          style={instance.exportSettings.includeServer ? { background: sc.accent } : {}}
+          onClick={() =>
+            onUpdate({
+              exportSettings: {
+                ...instance.exportSettings,
+                includeServer: !instance.exportSettings.includeServer,
+              },
+            })
+          }
+        >
+          <div className="theme-toggle-knob" />
+        </button>
       </div>
     </div>
   );
