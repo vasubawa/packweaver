@@ -14,6 +14,7 @@ interface DetailHeaderProps {
 export function DetailHeader({ instance, onBack, onExport, onUpdate }: DetailHeaderProps) {
   const [isEditingName, setIsEditingName] = useState(false);
   const [editName, setEditName] = useState(instance.name);
+  const [isUpdating, setIsUpdating] = useState(false);
   const sc = SOURCE_COLORS[instance.source] || SOURCE_COLORS.local;
 
   const handleNameSave = () => {
@@ -23,6 +24,15 @@ export function DetailHeader({ instance, onBack, onExport, onUpdate }: DetailHea
       setEditName(instance.name);
     }
     setIsEditingName(false);
+  };
+
+  const handleUpdatePack = () => {
+    setIsUpdating(true);
+    setTimeout(() => {
+      setIsUpdating(false);
+      // Simulate that the update found no new versions for this demo
+      alert(`No updates available for "${instance.name}"`);
+    }, 1500);
   };
 
   return (
@@ -116,12 +126,14 @@ export function DetailHeader({ instance, onBack, onExport, onUpdate }: DetailHea
             )}
             <button
               className="btn-secondary"
-              disabled
-              title="Not implemented yet"
-              style={{ opacity: 0.5, cursor: 'not-allowed' }}
+              onClick={handleUpdatePack}
+              disabled={isUpdating}
+              style={{ opacity: isUpdating ? 0.7 : 1 }}
             >
-              <Icon name="refresh" size={14} />
-              Update Pack
+              <div className={isUpdating ? 'animate-spin' : ''}>
+                <Icon name="refresh" size={14} />
+              </div>
+              {isUpdating ? 'Updating...' : 'Update Pack'}
             </button>
             <button className="btn-accent" onClick={onExport} style={{ background: sc.accent }}>
               <Icon name="package" size={14} />
