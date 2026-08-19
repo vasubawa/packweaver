@@ -29,13 +29,8 @@ pub fn init_db(_app_handle: &tauri::AppHandle) -> Result<Connection> {
     // Enable foreign keys
     conn.execute("PRAGMA foreign_keys = ON;", [])?;
 
-    // We are resetting the database schema to the newly defined canonical domain model
-    conn.execute("DROP TABLE IF EXISTS instance_mods", [])?;
-    conn.execute("DROP TABLE IF EXISTS server_files", [])?;
-    conn.execute("DROP TABLE IF EXISTS instances", [])?;
-
     conn.execute(
-        "CREATE TABLE instances (
+        "CREATE TABLE IF NOT EXISTS instances (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
             base_pack_id TEXT NOT NULL,
@@ -54,7 +49,7 @@ pub fn init_db(_app_handle: &tauri::AppHandle) -> Result<Connection> {
     )?;
 
     conn.execute(
-        "CREATE TABLE instance_mods (
+        "CREATE TABLE IF NOT EXISTS instance_mods (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             instance_id TEXT NOT NULL,
             mod_id TEXT NOT NULL,
@@ -69,7 +64,7 @@ pub fn init_db(_app_handle: &tauri::AppHandle) -> Result<Connection> {
     )?;
 
     conn.execute(
-        "CREATE TABLE server_files (
+        "CREATE TABLE IF NOT EXISTS server_files (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             instance_id TEXT NOT NULL,
             name TEXT NOT NULL,
