@@ -27,25 +27,13 @@ jobs:
     - name: Install dependencies
       run: pnpm install
       
-    - name: Check Formatting
-      run: pnpm format:check
-      
-    - name: Run Linter
-      run: pnpm lint
-      
-    - name: Typecheck
-      run: pnpm tsc --noEmit
-      
     - name: Setup Rust
       uses: dtolnay/rust-toolchain@stable
       with:
         components: rustfmt, clippy
         
-    - name: Check Rust Formatting
-      run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
-      
-    - name: Run Clippy
-      run: cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
+    - name: Run All Checks (Format, Lint, Types, Rust Clippy)
+      run: pnpm check
       
     - name: Check Rust Build
       run: cargo check --manifest-path src-tauri/Cargo.toml
