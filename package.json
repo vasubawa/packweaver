@@ -11,10 +11,8 @@
     "test:ui": "vitest",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
     "test": "vitest run && cargo test --manifest-path src-tauri/Cargo.toml",
-    "format": "prettier --write \"src/**/*.{ts,tsx,css,json}\"",
-    "format:check": "prettier --check \"src/**/*.{ts,tsx,css,json}\"",
-    "lint": "eslint \"src/**/*.{ts,tsx}\"",
-    "lint:fix": "eslint \"src/**/*.{ts,tsx}\" --fix",
+    "check": "prettier --check \"src/**/*.{ts,tsx,css,json}\" && eslint \"src/**/*.{ts,tsx}\" && tsc --noEmit && cargo clippy --manifest-path src-tauri/Cargo.toml",
+    "fix": "prettier --write \"src/**/*.{ts,tsx,css,json}\" && eslint \"src/**/*.{ts,tsx}\" --fix && cargo fmt --manifest-path src-tauri/Cargo.toml",
     "prepare": "husky"
   },
   "dependencies": {
