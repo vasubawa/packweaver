@@ -8,12 +8,12 @@ pub fn init_db(app_handle: &tauri::AppHandle) -> Result<Connection> {
         .path()
         .app_data_dir()
         .expect("Failed to get app data dir");
-    
+
     // Ensure the directory exists
     std::fs::create_dir_all(&app_dir).expect("Failed to create app data dir");
-    
+
     let db_path: PathBuf = app_dir.join("packweaver.db");
-    
+
     let conn = Connection::open(db_path)?;
 
     // Enable foreign keys
@@ -36,7 +36,10 @@ pub fn init_db(app_handle: &tauri::AppHandle) -> Result<Connection> {
     )?;
 
     // Add column if migrating from old schema
-    let _ = conn.execute("ALTER TABLE instances ADD COLUMN status TEXT DEFAULT 'Ready'", []);
+    let _ = conn.execute(
+        "ALTER TABLE instances ADD COLUMN status TEXT DEFAULT 'Ready'",
+        [],
+    );
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS instance_mods (
@@ -63,9 +66,9 @@ mod tests {
     #[test]
     fn test_db_schema_initialization() {
         let conn = Connection::open_in_memory().expect("Failed to open in-memory db");
-        
+
         conn.execute("PRAGMA foreign_keys = ON;", []).unwrap();
-        
+
         conn.execute(
             "CREATE TABLE IF NOT EXISTS instances (
                 id TEXT PRIMARY KEY,
@@ -79,9 +82,12 @@ mod tests {
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )",
             [],
-        ).expect("Failed to create instances table");
+        )
+        .expect("Failed to create instances table");
 
-        let mut stmt = conn.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='instances'").unwrap();
+        let mut stmt = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='instances'")
+            .unwrap();
         let exists = stmt.exists([]).unwrap();
         assert!(exists, "instances table should exist");
     }
