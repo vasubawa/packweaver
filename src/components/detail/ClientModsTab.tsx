@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { Icon } from '../Icon';
 import { SOURCE_COLORS } from '../../constants';
 import { Instance, CustomModItem, ModSource } from '../../types';
@@ -12,10 +13,21 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
   const [newModName, setNewModName] = useState('');
   const [addModSource, setAddModSource] = useState<ModSource>('modrinth');
 
-  const toggleMod = (id: string) => {
-    onUpdate({
-      customMods: instance.customMods.map(m => (m.id === id ? { ...m, enabled: !m.enabled } : m)),
-    });
+  const toggleMod = async (id: string) => {
+    const mod = instance.customMods.find(m => m.id === id);
+    if (!mod) return;
+    try {
+      await invoke('toggle_mod_state', {
+        instanceId: instance.id,
+        modId: id,
+        enabled: !mod.enabled,
+      });
+      onUpdate({
+        customMods: instance.customMods.map(m => (m.id === id ? { ...m, enabled: !m.enabled } : m)),
+      });
+    } catch (e) {
+      console.error('Failed to toggle mod state:', e);
+    }
   };
 
   const removeMod = (id: string) => {

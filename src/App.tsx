@@ -48,98 +48,23 @@ function App() {
     try {
       const data = await invoke<any[]>('get_instances');
 
-      const augmented: Instance[] = data.map(inst => ({
+      const augmented: Instance[] = data.map((inst: any) => ({
         ...DUMMY_INSTANCES.default,
         ...inst,
         basePack: inst.base_pack_id || 'Unknown',
+        basePackVersion: inst.base_pack_version_id || 'Unknown',
         mcVersion: inst.mc_version || '1.20.1',
+        loader: inst.loader || 'Fabric',
         totalModCount: inst.mods_count || 0,
         source: inst.source || 'local',
       }));
 
       setInstances(augmented);
-    } catch (e) {
-      console.error('Failed to load instances:', e);
-      setInstances([
-        {
-          id: '1',
-          name: 'My Custom Modpack',
-          source: 'modrinth',
-          description:
-            'Custom kitchen-sink pack built on Better Minecraft with added tech mods and performance tweaks.',
-          basePack: 'Better Minecraft',
-          basePackVersion: 'v5.4.0',
-          mcVersion: '1.20.1',
-          loader: 'Fabric',
-          customModCount: 12,
-          totalModCount: 168,
-          status: 'ready',
-          lastExported: '2 hours ago',
-          fileSize: '4.8 GB',
-          hasUpdate: true,
-          bannerGradient: 'linear-gradient(135deg, #1bd96a 0%, #12994a 100%)',
-          basePackMods: [
-            "Biomes O' Plenty",
-            'Terralith',
-            'Sophisticated Backpacks',
-            'Waystones',
-            "Oh The Biomes You'll Go",
-            'Create',
-            'Iris Shaders',
-            'Sodium',
-          ],
-          customMods: [
-            {
-              id: 'custom-1',
-              name: 'Create Crafts & Additions',
-              version: '1.3.1',
-              enabled: true,
-              source: 'modrinth',
-              isBase: false,
-            },
-            {
-              id: 'custom-2',
-              name: 'Applied Energistics 2',
-              version: '15.3.2',
-              enabled: true,
-              source: 'curseforge',
-              isBase: false,
-            },
-            {
-              id: 'custom-3',
-              name: 'JEI',
-              version: '15.3.0',
-              enabled: true,
-              source: 'modrinth',
-              isBase: false,
-            },
-            {
-              id: 'custom-4',
-              name: 'Iron Furnaces',
-              version: '4.1.6',
-              enabled: false,
-              source: 'local',
-              isBase: false,
-            },
-            {
-              id: 'custom-5',
-              name: 'Pipez',
-              version: '1.2.1',
-              enabled: true,
-              source: 'curseforge',
-              isBase: false,
-            },
-          ],
-          serverFiles: [
-            { name: 'server.properties', type: 'config', source: 'local', enabled: true },
-            { name: 'bukkit.yml', type: 'config', source: 'local', enabled: false },
-            { name: 'start.sh', type: 'script', source: 'local', enabled: true },
-          ],
-          exportSettings: { includeServer: true, version: '1.0.0', format: 'zip' },
-        },
-      ] as Instance[]);
+    } catch {
+      setInstances([]);
+      addToast('Failed to load instances. Is the backend running?', 'error');
     }
-  }, []);
+  }, [addToast]);
 
   useEffect(() => {
     // eslint-disable-next-line
@@ -205,6 +130,13 @@ function App() {
     () => instances.find(i => i.id === selectedInstanceId),
     [instances, selectedInstanceId]
   );
+
+  useEffect(() => {
+    if (screen === 'detail' && !selectedInstance) {
+      // eslint-disable-next-line
+      setScreen('library');
+    }
+  }, [screen, selectedInstance]);
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: 'var(--bg-canvas)' }}>

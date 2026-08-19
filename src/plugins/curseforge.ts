@@ -14,12 +14,10 @@ export const CurseForgePlugin: SourcePlugin = {
 
   canSearch: true,
   search: async (
-    query: string,
+    _query: string,
     _limit: number = 20,
     _offset: number = 0
   ): Promise<SearchResult[]> => {
-    // TODO: Implement CurseForge API integration
-    console.log('CurseForge search not implemented yet. Query:', query, _limit, _offset);
-    return [];
+    throw new Error('CurseForge API integration is not implemented yet');
   },
 };

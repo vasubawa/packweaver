@@ -48,12 +48,14 @@ struct ModrinthEnv {
 
 pub async fn run_pipeline(
     app: AppHandle,
-    state: tauri::State<'_, AppState>,
+    _state: tauri::State<'_, AppState>,
     instance_id: String,
     base_pack_id: String,
 ) -> Result<(), String> {
     let client = Client::builder()
         .user_agent("packweaver/0.1.0")
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(120))
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -88,6 +90,9 @@ pub async fn run_pipeline(
 
     let latest_version = versions.into_iter().next().ok_or("No versions found")?;
     let mut files = latest_version.files;
+    if files.is_empty() {
+        return Err("No files found in latest version".to_string());
+    }
     let pack_file = if let Some(idx) = files.iter().position(|f| f.primary) {
         files.remove(idx)
     } else {
@@ -156,7 +161,6 @@ pub async fn run_pipeline(
         let mut tasks = Vec::new();
         for file in chunk {
             let dl_url = file.downloads.first().cloned().unwrap_or_default();
-            let dest_path = instance_dir.join(&file.path);
             let client_clone = client.clone();
 
             // Extract env tags to save to DB
@@ -171,39 +175,81 @@ pub async fn run_pipeline(
                 .map(|e| e.server.clone())
                 .unwrap_or_else(|| "required".to_string());
             let mod_id = file.path.clone();
+            let file_path = file.path.clone();
+
+            let instance_dir_clone = instance_dir.clone();
 
             tasks.push(async move {
-                if let Some(parent) = dest_path.parent() {
-                    let _ = fs::create_dir_all(parent);
+                let path_comp = std::path::Path::new(&file_path);
+                if path_comp.is_absolute()
+                    || path_comp
+                        .components()
+                        .any(|c| matches!(c, std::path::Component::ParentDir))
+                {
+                    return Err(format!("Invalid file path: {}", file_path));
                 }
-                if let Ok(mut r) = client_clone.get(&dl_url).send().await {
-                    if let Ok(mut out) = fs::File::create(dest_path) {
-                        while let Ok(Some(bytes)) = r.chunk().await {
-                            let _ = io::Write::write_all(&mut out, &bytes);
-                        }
+                let dest_path = instance_dir_clone.join(path_comp);
+
+                if let Ok(parsed_url) = url::Url::parse(&dl_url) {
+                    if parsed_url.host_str() != Some("cdn.modrinth.com") {
+                        return Err(format!("Invalid download host: {}", dl_url));
                     }
+                } else {
+                    return Err(format!("Invalid URL: {}", dl_url));
                 }
-                (mod_id, client_env, server_env)
+
+                if let Some(parent) = dest_path.parent() {
+                    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                }
+
+                let mut r = client_clone
+                    .get(&dl_url)
+                    .send()
+                    .await
+                    .map_err(|e| e.to_string())?;
+                if !r.status().is_success() {
+                    return Err(format!("Download failed with status: {}", r.status()));
+                }
+
+                let mut out = fs::File::create(dest_path).map_err(|e| e.to_string())?;
+                while let Some(bytes) = r.chunk().await.map_err(|e| e.to_string())? {
+                    io::Write::write_all(&mut out, &bytes).map_err(|e| e.to_string())?;
+                }
+
+                Ok((mod_id, client_env, server_env))
             });
         }
 
         let results = join_all(tasks).await;
 
-        // Update DB with the downloaded mods
-        let conn = state.db.lock().unwrap();
-        for (mod_id, client_env, server_env) in results {
-            let _ = conn.execute(
-                "INSERT INTO instance_mods (instance_id, mod_id, mod_version_id, source, env_client, env_server) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![&instance_id, &mod_id, "latest", "modrinth", &client_env, &server_env],
-            );
-            completed += 1;
-            emit_progress("Downloading Mods...", completed, total_files);
+        let conn = crate::db::init_db(&app).map_err(|e| e.to_string())?;
+        for res in results {
+            match res {
+                Ok((mod_id, client_env, server_env)) => {
+                    let _ = conn.execute(
+                        "INSERT INTO instance_mods (instance_id, mod_id, mod_version_id, source, env_client, env_server) 
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6) 
+                         ON CONFLICT(instance_id, mod_id) DO UPDATE SET 
+                            mod_version_id=excluded.mod_version_id, 
+                            source=excluded.source, 
+                            env_client=excluded.env_client, 
+                            env_server=excluded.env_server",
+                        params![&instance_id, &mod_id, "latest", "modrinth", &client_env, &server_env],
+                    );
+                    completed += 1;
+                    emit_progress("Downloading Mods...", completed, total_files);
+                }
+                Err(e) => {
+                    eprintln!("Failed to download mod: {}", e);
+                    return Err(e);
+                }
+            }
         }
     }
 
     // 7. Update final Instance state
     {
-        let conn = state.db.lock().unwrap();
+        let conn = crate::db::init_db(&app).map_err(|e| e.to_string())?;
         let _ = conn.execute(
             "UPDATE instances SET mc_version = ?1, loader = ?2, status = 'Ready' WHERE id = ?3",
             params![&mc_version, &loader, &instance_id],

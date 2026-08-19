@@ -73,9 +73,17 @@ export function LibraryView({
           ))}
           {filteredInstances.length <= 3 && !searchQuery && (
             <div
+              role="button"
+              tabIndex={0}
               className="instance-card flex flex-col items-center justify-center cursor-pointer opacity-70 hover:opacity-100 transition-opacity"
               style={{ minHeight: 180, borderStyle: 'dashed', backgroundColor: 'transparent' }}
               onClick={onNewInstance}
+              onKeyDown={e => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onNewInstance();
+                }
+              }}
             >
               <div
                 className="flex items-center justify-center rounded-full mb-3"
