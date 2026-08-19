@@ -3,6 +3,12 @@ import { SourcePlugin, SearchResult } from './types';
 export const ModrinthPlugin: SourcePlugin = {
   id: 'modrinth',
   name: 'Modrinth',
+  description: 'Search and download open-source modpacks and mods from Modrinth.',
+  version: '1.0.0',
+  author: 'Packweaver Core',
+  category: 'source',
+  enabled: true,
+  builtIn: true,
   colors: {
     primary: '#42e887',
     primaryHover: '#3bc475',
