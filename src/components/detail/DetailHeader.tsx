@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { Icon } from '../Icon';
 import { Instance } from '../../types';
 import { SOURCE_COLORS } from '../../constants';
@@ -113,7 +114,12 @@ export function DetailHeader({ instance, onBack, onExport, onUpdate }: DetailHea
                 Update Available
               </span>
             )}
-            <button className="btn-secondary">
+            <button
+              className="btn-secondary"
+              disabled
+              title="Not implemented yet"
+              style={{ opacity: 0.5, cursor: 'not-allowed' }}
+            >
               <Icon name="refresh" size={14} />
               Update Pack
             </button>
@@ -123,6 +129,16 @@ export function DetailHeader({ instance, onBack, onExport, onUpdate }: DetailHea
             </button>
             <button
               className="btn-ghost"
+              onClick={async () => {
+                if (window.confirm(`Are you sure you want to delete "${instance.name}"?`)) {
+                  try {
+                    await invoke('delete_instance', { id: instance.id });
+                    onBack();
+                  } catch (e) {
+                    console.error('Failed to delete instance:', e);
+                  }
+                }
+              }}
               style={{
                 padding: '8px',
                 border: '1px solid var(--border)',

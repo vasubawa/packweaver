@@ -21,11 +21,14 @@ export const ModrinthPlugin: SourcePlugin = {
     try {
       const facets = [[`project_type:modpack`]];
 
+      const validLimit = Math.min(Math.max(1, limit), 100);
+      const validOffset = Math.max(0, offset);
+
       const url = new URL('https://api.modrinth.com/v2/search');
       if (query) url.searchParams.append('query', query);
       url.searchParams.append('facets', JSON.stringify(facets));
-      url.searchParams.append('limit', limit.toString());
-      url.searchParams.append('offset', offset.toString());
+      url.searchParams.append('limit', validLimit.toString());
+      url.searchParams.append('offset', validOffset.toString());
 
       const res = await fetch(url.toString());
       if (!res.ok) throw new Error(`Modrinth API error: ${res.statusText}`);

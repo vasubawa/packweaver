@@ -1,4 +1,15 @@
-export const SOURCE_COLORS: Record<string, any> = {
+import { ModSource } from './types';
+
+export interface SourceColorDef {
+  dot: string;
+  accent: string;
+  accentHover: string;
+  soft: string;
+  label: string;
+  toggleClass: string;
+}
+
+export const SOURCE_COLORS: Record<ModSource, SourceColorDef> = {
   modrinth: {
     dot: '#1bd96a',
     accent: '#1bd96a',

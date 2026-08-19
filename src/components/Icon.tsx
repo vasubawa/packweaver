@@ -9,7 +9,7 @@ export function Icon({
   className?: string;
   style?: React.CSSProperties;
 }) {
-  const s = { width: size, height: size, className, style: st };
+  const s = { width: size, height: size, viewBox: '0 0 24 24', className, style: st };
   const p = {
     strokeWidth: 1.5,
     strokeLinecap: 'round' as const,
