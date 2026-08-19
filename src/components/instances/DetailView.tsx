@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { Instance } from '../../types';
 import { DetailHeader } from '../detail/DetailHeader';
 import { OverviewTab } from '../detail/OverviewTab';
@@ -15,12 +16,27 @@ interface DetailViewProps {
 export function DetailView({ instance, onBack, onExport, onUpdateInstance }: DetailViewProps) {
   const [activeTab, setActiveTab] = useState('overview');
 
-  const handleUpdate = (updates: Partial<Instance>) => {
+  const handleUpdate = async (updates: Partial<Instance>) => {
     const nextInstance = { ...instance, ...updates };
     if (updates.customMods) {
       nextInstance.totalModCount =
         nextInstance.basePackMods.length + nextInstance.customMods.filter(m => m.enabled).length;
     }
+
+    // If core details changed, persist to backend
+    if ('name' in updates || 'description' in updates || 'bannerUrl' in updates) {
+      try {
+        await invoke('update_instance_details', {
+          id: instance.id,
+          name: updates.name,
+          description: updates.description,
+          bannerUrl: updates.bannerUrl,
+        });
+      } catch (e) {
+        console.error('Failed to update instance details in DB', e);
+      }
+    }
+
     onUpdateInstance(nextInstance);
   };
 

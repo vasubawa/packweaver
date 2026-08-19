@@ -1,8 +1,10 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Icon } from './Icon';
 import { SOURCE_COLORS } from '../constants';
 import { ModSource, LoaderType } from '../types';
+import { PLUGINS } from '../plugins';
+import { open } from '@tauri-apps/plugin-dialog';
 
 const MODRINTH_CATALOG = [
   { name: 'Better Minecraft', version: 'v5.4.0', mc: '1.20.1', loader: 'Fabric', mods: 156 },
@@ -33,40 +35,32 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
   const [mcVersion, setMcVersion] = useState('1.20.1');
   const [loader, setLoader] = useState<LoaderType>('Fabric');
   const [showResults, setShowResults] = useState(false);
-  const [isDragOver, setIsDragOver] = useState(false);
   const [localFile, setLocalFile] = useState<any>(null);
 
   const [liveCatalog, setLiveCatalog] = useState<any[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (source === 'modrinth' && searchQuery.trim().length > 2) {
+    const plugin = PLUGINS[source];
+    if (plugin && plugin.canSearch && plugin.search && searchQuery.trim().length > 2) {
       const timeout = setTimeout(async () => {
         try {
-          const res = await fetch(
-            `https://api.modrinth.com/v2/search?query=${searchQuery}&facets=[["project_type:modpack"]]`
-          );
-          const data = await res.json();
+          const results = await plugin.search!(searchQuery, 20);
           setLiveCatalog(
-            data.hits.map((h: any) => {
-              const loader = h.categories?.find((c: string) =>
-                ['fabric', 'forge', 'neoforge', 'quilt'].includes(c)
-              );
-              return {
-                name: h.title,
-                version: 'latest',
-                mc: h.versions?.[h.versions.length - 1] || '1.20.1', // Just a fallback
-                loader: loader ? loader.charAt(0).toUpperCase() + loader.slice(1) : 'Fabric',
-                mods: '?',
-              };
-            })
+            results.map((r: any) => ({
+              id: r.id, // e.g. modrinth slug
+              name: r.name,
+              version: 'latest',
+              mc: '1.20.1',
+              loader: 'Fabric',
+              mods: '?',
+            }))
           );
         } catch (e) {
           console.error(e);
         }
       }, 500);
       return () => clearTimeout(timeout);
-    } else if (source === 'modrinth' && searchQuery.trim().length <= 2) {
+    } else {
       const timeout = setTimeout(() => setLiveCatalog([]), 0);
       return () => clearTimeout(timeout);
     }
@@ -103,22 +97,37 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
     setShowResults(false);
   };
 
-  const handleLocalUpload = (file?: File) => {
-    if (file) {
-      setLocalFile({ name: file.name, size: (file.size / 1024 / 1024).toFixed(2) + ' MB' });
-      setName(file.name.replace('.zip', ''));
-    } else {
-      if (fileInputRef.current) {
-        fileInputRef.current.click();
+  const handleLocalUpload = async () => {
+    try {
+      const file = await open({
+        multiple: false,
+        directory: false,
+        filters: [
+          {
+            name: 'Modpacks',
+            extensions: ['zip', 'mrpack'],
+          },
+        ],
+      });
+      if (file && typeof file === 'string') {
+        const fileName = file.split('\\').pop()?.split('/').pop() || 'Unknown';
+        setLocalFile({ path: file, name: fileName, size: 'Unknown size' });
+        setName(fileName.replace(/\.(zip|mrpack)$/i, ''));
       }
+    } catch (e) {
+      console.error('File dialog failed', e);
     }
   };
 
   const handleCreate = async () => {
     try {
+      const basePackId =
+        source === 'local'
+          ? localFile?.path || 'custom'
+          : selectedPack?.id || selectedPack?.name || 'custom';
       await invoke('create_instance', {
         name,
-        basePackId: selectedPack?.name || 'custom',
+        basePackId,
         basePackVersionId: version,
         mcVersion,
         loader,
@@ -188,35 +197,7 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
             <div className="mb-5">
               <label className="form-label mb-2">Base Pack</label>
               {source === 'local' ? (
-                <div
-                  className={`dropzone ${isDragOver ? 'drag-over' : ''}`}
-                  style={{ padding: '12px 16px' }}
-                  onDragOver={e => {
-                    e.preventDefault();
-                    setIsDragOver(true);
-                  }}
-                  onDragLeave={() => setIsDragOver(false)}
-                  onDrop={e => {
-                    e.preventDefault();
-                    setIsDragOver(false);
-                    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                      handleLocalUpload(e.dataTransfer.files[0]);
-                    }
-                  }}
-                  onClick={() => handleLocalUpload()}
-                >
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    className="hidden"
-                    accept=".zip"
-                    onChange={e => {
-                      if (e.target.files && e.target.files[0]) {
-                        handleLocalUpload(e.target.files[0]);
-                      }
-                    }}
-                    style={{ display: 'none' }}
-                  />
+                <div onClick={() => handleLocalUpload()}>
                   {localFile ? (
                     <div className="flex items-center justify-center gap-3">
                       <Icon name="fileArchive" size={20} style={{ color: sc.accent }} />

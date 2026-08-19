@@ -29,9 +29,13 @@ pub fn init_db(_app_handle: &tauri::AppHandle) -> Result<Connection> {
     // Enable foreign keys
     conn.execute("PRAGMA foreign_keys = ON;", [])?;
 
-    // Create tables robustly (IF NOT EXISTS prevents crashes on re-initialization)
+    // We are resetting the database schema to the newly defined canonical domain model
+    conn.execute("DROP TABLE IF EXISTS instance_mods", [])?;
+    conn.execute("DROP TABLE IF EXISTS server_files", [])?;
+    conn.execute("DROP TABLE IF EXISTS instances", [])?;
+
     conn.execute(
-        "CREATE TABLE IF NOT EXISTS instances (
+        "CREATE TABLE instances (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
             base_pack_id TEXT NOT NULL,
@@ -40,42 +44,39 @@ pub fn init_db(_app_handle: &tauri::AppHandle) -> Result<Connection> {
             loader TEXT NOT NULL,
             source TEXT NOT NULL,
             status TEXT DEFAULT 'Ready',
+            description TEXT DEFAULT '',
+            last_exported TEXT DEFAULT 'Never',
+            banner_url TEXT DEFAULT '',
+            export_settings TEXT DEFAULT '{}',
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )",
         [],
     )?;
 
-    // Add column if migrating from old schema safely
-    let mut stmt = conn.prepare("PRAGMA table_info(instances)")?;
-    let mut has_status = false;
-    let mut rows = stmt.query([])?;
-    while let Some(row) = rows.next()? {
-        let name: String = row.get(1)?;
-        if name == "status" {
-            has_status = true;
-            break;
-        }
-    }
-    drop(rows);
-    drop(stmt);
-    if !has_status {
-        conn.execute(
-            "ALTER TABLE instances ADD COLUMN status TEXT DEFAULT 'Ready'",
-            [],
-        )?;
-    }
-
     conn.execute(
-        "CREATE TABLE IF NOT EXISTS instance_mods (
+        "CREATE TABLE instance_mods (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             instance_id TEXT NOT NULL,
             mod_id TEXT NOT NULL,
             mod_version_id TEXT NOT NULL,
             source TEXT NOT NULL,
-            env_client TEXT DEFAULT 'required',
-            env_server TEXT DEFAULT 'required',
+            is_base BOOLEAN NOT NULL DEFAULT 0,
+            enabled BOOLEAN NOT NULL DEFAULT 1,
             FOREIGN KEY(instance_id) REFERENCES instances(id) ON DELETE CASCADE,
             UNIQUE(instance_id, mod_id)
+        )",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE server_files (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            instance_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            type TEXT NOT NULL,
+            source TEXT NOT NULL,
+            enabled BOOLEAN NOT NULL DEFAULT 1,
+            FOREIGN KEY(instance_id) REFERENCES instances(id) ON DELETE CASCADE
         )",
         [],
     )?;
@@ -91,7 +92,6 @@ pub fn init_db(_app_handle: &tauri::AppHandle) -> Result<Connection> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use rusqlite::Connection;
 
     #[test]
@@ -101,7 +101,7 @@ mod tests {
         conn.execute("PRAGMA foreign_keys = ON;", []).unwrap();
 
         conn.execute(
-            "CREATE TABLE IF NOT EXISTS instances (
+            "CREATE TABLE instances (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 base_pack_id TEXT NOT NULL,
@@ -110,6 +110,10 @@ mod tests {
                 loader TEXT NOT NULL,
                 source TEXT NOT NULL,
                 status TEXT DEFAULT 'Ready',
+                description TEXT DEFAULT '',
+                last_exported TEXT DEFAULT 'Never',
+                banner_url TEXT DEFAULT '',
+                export_settings TEXT DEFAULT '{}',
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )",
             [],

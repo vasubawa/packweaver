@@ -12,23 +12,6 @@ import { Instance } from './types';
 import { useToast } from './context/ToastContext';
 import './App.css';
 
-const DUMMY_INSTANCES: Record<string, Partial<Instance>> = {
-  default: {
-    description: 'Custom kitchen-sink pack built with added tech mods and performance tweaks.',
-    basePackVersion: 'v1.0.0',
-    customModCount: 0,
-    totalModCount: 0,
-    lastExported: 'Never',
-    fileSize: 'Unknown',
-    hasUpdate: false,
-    bannerGradient: 'linear-gradient(135deg, #1bd96a 0%, #12994a 100%)',
-    basePackMods: [],
-    customMods: [],
-    serverFiles: [],
-    exportSettings: { includeServer: false, version: '1.0.0', format: 'zip' },
-  },
-};
-
 interface ProgressEvent {
   instance_id: string;
   status: string;
@@ -49,13 +32,12 @@ function App() {
       const data = await invoke<any[]>('get_instances');
 
       const augmented: Instance[] = data.map((inst: any) => ({
-        ...DUMMY_INSTANCES.default,
         ...inst,
-        basePack: inst.base_pack_id || 'Unknown',
-        basePackVersion: inst.base_pack_version_id || 'Unknown',
-        mcVersion: inst.mc_version || '1.20.1',
+        basePack: inst.basePack || 'Unknown',
+        basePackVersion: inst.basePackVersion || 'Unknown',
+        mcVersion: inst.mcVersion || '1.20.1',
         loader: inst.loader || 'Fabric',
-        totalModCount: inst.mods_count || 0,
+        totalModCount: inst.totalModCount || 0,
         source: inst.source || 'local',
       }));
 
