@@ -6,16 +6,17 @@ interface LibraryViewProps {
   instances: Instance[];
   searchQuery: string;
   onSelectInstance: (instance: Instance) => void;
-  onExportInstance: (instance: Instance) => void;
+  onExportInstance?: (instance: Instance) => void;
   onNewInstance: () => void;
+  onDeleteInstance?: (id: string) => void;
 }
 
 export function LibraryView({
   instances,
   searchQuery,
   onSelectInstance,
-  onExportInstance,
   onNewInstance,
+  onDeleteInstance,
 }: LibraryViewProps) {
   const filteredInstances = instances.filter(
     i =>
@@ -68,7 +69,7 @@ export function LibraryView({
               key={instance.id}
               instance={instance}
               onClick={onSelectInstance}
-              onExport={onExportInstance}
+              onDelete={onDeleteInstance}
             />
           ))}
           {filteredInstances.length <= 3 && !searchQuery && (

@@ -6,15 +6,25 @@ import { OverviewTab } from '../detail/OverviewTab';
 import { ClientModsTab } from '../detail/ClientModsTab';
 import { ServerFilesTab } from '../detail/ServerFilesTab';
 
+import { SOURCE_COLORS } from '../../constants';
+
 interface DetailViewProps {
   instance: Instance;
   onBack: () => void;
   onExport: (instance: Instance) => void;
   onUpdateInstance: (updated: Instance) => void;
+  onDeleteInstance?: (id: string) => void;
 }
 
-export function DetailView({ instance, onBack, onExport, onUpdateInstance }: DetailViewProps) {
+export function DetailView({
+  instance,
+  onBack,
+  onExport,
+  onUpdateInstance,
+  onDeleteInstance,
+}: DetailViewProps) {
   const [activeTab, setActiveTab] = useState('overview');
+  const sc = SOURCE_COLORS[instance.source] || SOURCE_COLORS.local;
 
   const handleUpdate = async (updates: Partial<Instance>) => {
     const nextInstance = { ...instance, ...updates };
@@ -50,6 +60,7 @@ export function DetailView({ instance, onBack, onExport, onUpdateInstance }: Det
         onBack={onBack}
         onExport={() => onExport(instance)}
         onUpdate={handleUpdate}
+        onDelete={onDeleteInstance}
       />
 
       <div
@@ -60,15 +71,22 @@ export function DetailView({ instance, onBack, onExport, onUpdateInstance }: Det
           { key: 'overview', label: 'Overview' },
           { key: 'client', label: 'Client Mods' },
           { key: 'server', label: 'Server Files' },
-        ].map(tab => (
-          <button
-            key={tab.key}
-            className={`pb-2.5 text-[13px] font-medium transition-colors ${activeTab === tab.key ? 'tab-active' : 'tab-inactive'}`}
-            onClick={() => setActiveTab(tab.key)}
-          >
-            {tab.label}
-          </button>
-        ))}
+        ].map(tab => {
+          const isActive = activeTab === tab.key;
+          return (
+            <button
+              key={tab.key}
+              className="pb-2.5 text-[13px] font-medium transition-colors relative"
+              style={{
+                color: isActive ? 'var(--text-primary)' : 'var(--text-muted)',
+                borderBottom: isActive ? `2px solid ${sc.accent}` : '2px solid transparent',
+              }}
+              onClick={() => setActiveTab(tab.key)}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
       </div>
 
       <div className="flex-1 overflow-y-auto scrollbar-thin px-6 py-5">
