@@ -88,6 +88,9 @@ export function OverviewTab({ instance, onUpdate }: OverviewTabProps) {
               </div>
             </div>
             <button
+              role="switch"
+              aria-checked={instance.exportSettings.includeServer}
+              aria-label="Include server files"
               className={`toggle-track ${instance.exportSettings.includeServer ? 'on' : ''}`}
               onClick={() =>
                 onUpdate({
