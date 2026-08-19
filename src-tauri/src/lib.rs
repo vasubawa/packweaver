@@ -35,17 +35,29 @@ fn get_instances(state: tauri::State<AppState>) -> Result<Vec<Instance>, String>
             let id: String = row.get(0)?;
             Ok((
                 id,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, String>(4)?,
-                row.get::<_, String>(5)?,
-                row.get::<_, String>(6)?,
-                row.get::<_, String>(7)?,
-                row.get::<_, String>(8)?,
-                row.get::<_, String>(9)?,
-                row.get::<_, String>(10)?,
-                row.get::<_, String>(11)?,
+                row.get::<_, String>(1).unwrap_or_default(),
+                row.get::<_, String>(2).unwrap_or_default(),
+                row.get::<_, String>(3).unwrap_or_default(),
+                row.get::<_, String>(4)
+                    .unwrap_or_else(|_| "1.20.1".to_string()),
+                row.get::<_, String>(5)
+                    .unwrap_or_else(|_| "Fabric".to_string()),
+                row.get::<_, String>(6)
+                    .unwrap_or_else(|_| "local".to_string()),
+                row.get::<_, String>(7)
+                    .unwrap_or_else(|_| "Ready".to_string()),
+                row.get::<_, Option<String>>(8)
+                    .unwrap_or_default()
+                    .unwrap_or_default(),
+                row.get::<_, Option<String>>(9)
+                    .unwrap_or_default()
+                    .unwrap_or_default(),
+                row.get::<_, Option<String>>(10)
+                    .unwrap_or_default()
+                    .unwrap_or_default(),
+                row.get::<_, Option<String>>(11)
+                    .unwrap_or_default()
+                    .unwrap_or_else(|| "{}".to_string()),
             ))
         })
         .map_err(|e| e.to_string())?;
