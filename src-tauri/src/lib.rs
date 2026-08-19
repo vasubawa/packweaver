@@ -13,7 +13,10 @@ struct AppState {
 
 #[tauri::command]
 fn get_instances(state: tauri::State<AppState>) -> Result<Vec<Instance>, String> {
-    let conn = state.db.lock().unwrap();
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| "Database lock poisoned".to_string())?;
 
     let query = "
         SELECT 
@@ -67,7 +70,10 @@ fn create_instance(
 
     // Insert dummy record to show in UI immediately
     {
-        let conn = state.db.lock().unwrap();
+        let conn = state
+            .db
+            .lock()
+            .map_err(|_| "Database lock poisoned".to_string())?;
         conn.execute(
             "INSERT INTO instances (id, name, base_pack_id, base_pack_version_id, mc_version, loader, source, status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             (&id, &name, &base_pack_id, &base_pack_version_id, &mc_version, &loader, &source, "Starting..."),
@@ -89,7 +95,7 @@ fn create_instance(
         )
         .await
         {
-            println!("Pipeline error: {}", e);
+            eprintln!("Pipeline error: {}", e);
             let state = app.state::<AppState>();
             if let Ok(conn) = state.db.lock() {
                 let _ = conn.execute(
@@ -114,9 +120,39 @@ fn create_instance(
 
 #[tauri::command]
 fn delete_instance(id: String, state: tauri::State<AppState>) -> Result<(), String> {
-    let conn = state.db.lock().unwrap();
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| "Database lock poisoned".to_string())?;
     conn.execute("DELETE FROM instances WHERE id = ?1", [&id])
         .map_err(|e| e.to_string())?;
+
+    // Delete from filesystem
+    let instance_dir = db::get_portable_data_dir().join("instances").join(&id);
+    if instance_dir.exists() {
+        std::fs::remove_dir_all(instance_dir).map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn toggle_mod_state(
+    instance_id: String,
+    mod_id: String,
+    enabled: bool,
+    state: tauri::State<AppState>,
+) -> Result<(), String> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| "Database lock poisoned".to_string())?;
+    let env_state = if enabled { "required" } else { "unsupported" };
+    conn.execute(
+        "UPDATE instance_mods SET env_client = ?1 WHERE instance_id = ?2 AND mod_id = ?3",
+        rusqlite::params![env_state, instance_id, mod_id],
+    )
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -134,7 +170,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_instances,
             create_instance,
-            delete_instance
+            delete_instance,
+            toggle_mod_state
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

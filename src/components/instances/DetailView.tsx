@@ -16,7 +16,12 @@ export function DetailView({ instance, onBack, onExport, onUpdateInstance }: Det
   const [activeTab, setActiveTab] = useState('overview');
 
   const handleUpdate = (updates: Partial<Instance>) => {
-    onUpdateInstance({ ...instance, ...updates });
+    const nextInstance = { ...instance, ...updates };
+    if (updates.customMods) {
+      nextInstance.totalModCount =
+        nextInstance.basePackMods.length + nextInstance.customMods.filter(m => m.enabled).length;
+    }
+    onUpdateInstance(nextInstance);
   };
 
   return (

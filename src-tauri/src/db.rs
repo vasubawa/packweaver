@@ -19,7 +19,8 @@ pub fn init_db(_app_handle: &tauri::AppHandle) -> Result<Connection> {
     let app_dir = get_portable_data_dir();
 
     // Ensure the directory exists
-    std::fs::create_dir_all(&app_dir).expect("Failed to create app data dir");
+    std::fs::create_dir_all(&app_dir)
+        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
 
     let db_path = app_dir.join("packweaver.db");
 
@@ -44,11 +45,25 @@ pub fn init_db(_app_handle: &tauri::AppHandle) -> Result<Connection> {
         [],
     )?;
 
-    // Add column if migrating from old schema
-    let _ = conn.execute(
-        "ALTER TABLE instances ADD COLUMN status TEXT DEFAULT 'Ready'",
-        [],
-    );
+    // Add column if migrating from old schema safely
+    let mut stmt = conn.prepare("PRAGMA table_info(instances)")?;
+    let mut has_status = false;
+    let mut rows = stmt.query([])?;
+    while let Some(row) = rows.next()? {
+        let name: String = row.get(1)?;
+        if name == "status" {
+            has_status = true;
+            break;
+        }
+    }
+    drop(rows);
+    drop(stmt);
+    if !has_status {
+        conn.execute(
+            "ALTER TABLE instances ADD COLUMN status TEXT DEFAULT 'Ready'",
+            [],
+        )?;
+    }
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS instance_mods (
@@ -59,8 +74,15 @@ pub fn init_db(_app_handle: &tauri::AppHandle) -> Result<Connection> {
             source TEXT NOT NULL,
             env_client TEXT DEFAULT 'required',
             env_server TEXT DEFAULT 'required',
-            FOREIGN KEY(instance_id) REFERENCES instances(id) ON DELETE CASCADE
+            FOREIGN KEY(instance_id) REFERENCES instances(id) ON DELETE CASCADE,
+            UNIQUE(instance_id, mod_id)
         )",
+        [],
+    )?;
+
+    // Ensure unique constraint for upserts
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_instance_mods_unique ON instance_mods(instance_id, mod_id)",
         [],
     )?;
 

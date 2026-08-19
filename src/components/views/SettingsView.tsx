@@ -42,6 +42,9 @@ export function SettingsView() {
               </div>
             </div>
             <button
+              role="switch"
+              aria-checked={theme === 'dark'}
+              aria-label="Toggle dark mode"
               className={`theme-toggle-track ${theme === 'dark' ? 'on' : ''}`}
               onClick={toggleTheme}
             >
@@ -75,6 +78,8 @@ export function SettingsView() {
                   }}
                   onClick={() => setAccent(color)}
                   title={color}
+                  aria-label={`Select ${color} accent`}
+                  aria-pressed={accent === color}
                 />
               ))}
             </div>

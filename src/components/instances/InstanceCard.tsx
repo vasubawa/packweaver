@@ -16,7 +16,12 @@ export function InstanceCard({ instance, onClick, onExport }: InstanceCardProps)
       onClick={() => onClick(instance)}
       role="button"
       tabIndex={0}
-      onKeyDown={e => e.key === 'Enter' && onClick(instance)}
+      onKeyDown={e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick(instance);
+        }
+      }}
     >
       <div
         className="relative overflow-hidden shrink-0"

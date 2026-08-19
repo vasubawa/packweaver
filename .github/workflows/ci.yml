@@ -17,6 +17,8 @@ jobs:
     
     steps:
     - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
     
     - name: Install pnpm
       uses: pnpm/action-setup@v3
@@ -46,6 +48,9 @@ jobs:
         
     - name: Run All Checks (Format, Lint, Types, Rust Clippy)
       run: pnpm check
+      
+    - name: Run Tests
+      run: pnpm test
       
     - name: Check Rust Build
       run: cargo check --manifest-path src-tauri/Cargo.toml

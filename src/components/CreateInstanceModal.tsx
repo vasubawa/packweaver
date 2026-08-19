@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { Icon } from './Icon';
 import { SOURCE_COLORS } from '../constants';
 import { ModSource, LoaderType } from '../types';
@@ -61,6 +62,7 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
     setName(pack.name);
     setMcVersion(pack.mc);
     setLoader(pack.loader);
+    setVersion(pack.version);
     setSearchQuery('');
     setShowResults(false);
   };
@@ -70,9 +72,21 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
     setName('My Modpack');
   };
 
-  const handleCreate = () => {
-    onCreated();
-    onClose();
+  const handleCreate = async () => {
+    try {
+      await invoke('create_instance', {
+        name,
+        basePackId: selectedPack?.name || 'custom',
+        basePackVersionId: version,
+        mcVersion,
+        loader,
+        source,
+      });
+      onCreated();
+      onClose();
+    } catch (e) {
+      console.error('Failed to create instance', e);
+    }
   };
 
   const sourceStyles: Record<string, string> = {
@@ -83,7 +97,12 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-content" onClick={e => e.stopPropagation()}>
+      <div
+        className="modal-content"
+        onClick={e => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+      >
         <div
           className="flex items-center justify-between px-6 py-4"
           style={{ borderBottom: '1px solid var(--border)' }}
@@ -279,8 +298,8 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
                 <label className="form-label">Pack Version</label>
                 <input
                   className="form-input"
-                  readOnly
-                  value={selectedPack ? 'v1.0.0' : version}
+                  value={version}
+                  onChange={e => setVersion(e.target.value)}
                   style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12.5 }}
                 />
               </div>
