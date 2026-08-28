@@ -13,17 +13,15 @@ export function ServerFilesTab({ instance, onUpdate }: ServerFilesTabProps) {
   const [addFileSource, setAddFileSource] = useState<ModSource>('local');
   const sc = SOURCE_COLORS[instance.source] || SOURCE_COLORS.local;
 
-  const toggleFile = (idx: number) => {
+  const toggleFile = (id: string) => {
     onUpdate({
-      serverFiles: instance.serverFiles.map((f, i) =>
-        i === idx ? { ...f, enabled: !f.enabled } : f
-      ),
+      serverFiles: instance.serverFiles.map(f => (f.id === id ? { ...f, enabled: !f.enabled } : f)),
     });
   };
 
-  const removeFile = (idx: number) => {
+  const removeFile = (id: string) => {
     onUpdate({
-      serverFiles: instance.serverFiles.filter((_, i) => i !== idx),
+      serverFiles: instance.serverFiles.filter(f => f.id !== id),
     });
   };
 
@@ -32,7 +30,13 @@ export function ServerFilesTab({ instance, onUpdate }: ServerFilesTabProps) {
     onUpdate({
       serverFiles: [
         ...instance.serverFiles,
-        { name: newFileName.trim(), type: 'config', source: addFileSource, enabled: true },
+        {
+          id: crypto.randomUUID(),
+          name: newFileName.trim(),
+          type: 'config',
+          source: addFileSource,
+          enabled: true,
+        },
       ],
     });
     setNewFileName('');
@@ -79,7 +83,7 @@ export function ServerFilesTab({ instance, onUpdate }: ServerFilesTabProps) {
           <span className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
             Server-Only Files & Overrides
           </span>
-          <span className="badge text-[10.5px] px-1.5 py-0.2">{instance.serverFiles.length}</span>
+          <span className="badge text-[10.5px] px-1.5 py-0.5">{instance.serverFiles.length}</span>
         </div>
 
         {instance.serverFiles.length === 0 ? (
@@ -106,10 +110,10 @@ export function ServerFilesTab({ instance, onUpdate }: ServerFilesTabProps) {
             className="rounded-xl overflow-hidden divide-y divide-[var(--border)]"
             style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
           >
-            {instance.serverFiles.map((file, idx) => {
+            {instance.serverFiles.map(file => {
               const fileSc = SOURCE_COLORS[file.source] || SOURCE_COLORS.local;
               return (
-                <div key={idx} className="p-3 flex items-center justify-between gap-3">
+                <div key={file.id} className="p-3 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3 min-w-0 flex-1">
                     <Icon
                       name={file.type === 'script' ? 'fileCode' : 'settings'}
@@ -126,7 +130,7 @@ export function ServerFilesTab({ instance, onUpdate }: ServerFilesTabProps) {
                         </span>
                         <span>&middot;</span>
                         <span
-                          className="px-1.5 py-0.2 text-[10px] rounded font-medium"
+                          className="px-1.5 py-0.5 text-[10px] rounded font-medium"
                           style={{ background: fileSc.soft, color: fileSc.accent }}
                         >
                           {fileSc.label}
@@ -142,13 +146,13 @@ export function ServerFilesTab({ instance, onUpdate }: ServerFilesTabProps) {
                       aria-label={`Toggle ${file.name}`}
                       className={`theme-toggle-track ${file.enabled ? 'on' : ''}`}
                       style={file.enabled ? { background: fileSc.accent } : {}}
-                      onClick={() => toggleFile(idx)}
+                      onClick={() => toggleFile(file.id)}
                     >
                       <div className="theme-toggle-knob" />
                     </button>
                     <button
                       className="btn-ghost p-1.5 rounded text-red-400 hover:text-red-300 hover:bg-red-500/10"
-                      onClick={() => removeFile(idx)}
+                      onClick={() => removeFile(file.id)}
                       title="Remove file"
                     >
                       <Icon name="trash" size={13} />

@@ -223,15 +223,29 @@ pub async fn run_pipeline(
             for res in results {
                 match res {
                     Ok((mod_id, enabled)) => {
+                        let display_name = mod_id
+                            .rsplit('/')
+                            .next()
+                            .unwrap_or(&mod_id)
+                            .to_string();
                         let _ = conn.execute(
-                            "INSERT INTO instance_mods (instance_id, mod_id, mod_version_id, source, is_base, enabled) 
-                             VALUES (?1, ?2, ?3, ?4, ?5, ?6) 
-                             ON CONFLICT(instance_id, mod_id) DO UPDATE SET 
-                                mod_version_id=excluded.mod_version_id, 
-                                source=excluded.source, 
-                                is_base=excluded.is_base, 
+                            "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, source, is_base, enabled)
+                             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                             ON CONFLICT(instance_id, mod_id) DO UPDATE SET
+                                name=excluded.name,
+                                mod_version_id=excluded.mod_version_id,
+                                source=excluded.source,
+                                is_base=excluded.is_base,
                                 enabled=excluded.enabled",
-                            params![&instance_id, &mod_id, "latest", "modrinth", 1, enabled],
+                            params![
+                                &instance_id,
+                                &mod_id,
+                                &display_name,
+                                "latest",
+                                "modrinth",
+                                1,
+                                enabled
+                            ],
                         );
                         completed += 1;
                         emit_progress("Downloading Mods...", completed, total_files);
@@ -265,14 +279,23 @@ pub async fn run_pipeline(
                     if path.is_file() {
                         if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
                             let _ = conn.execute(
-                                "INSERT INTO instance_mods (instance_id, mod_id, mod_version_id, source, is_base, enabled) 
-                                 VALUES (?1, ?2, ?3, ?4, ?5, ?6) 
-                                 ON CONFLICT(instance_id, mod_id) DO UPDATE SET 
-                                    mod_version_id=excluded.mod_version_id, 
-                                    source=excluded.source, 
-                                    is_base=excluded.is_base, 
+                                "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, source, is_base, enabled)
+                                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                                 ON CONFLICT(instance_id, mod_id) DO UPDATE SET
+                                    name=excluded.name,
+                                    mod_version_id=excluded.mod_version_id,
+                                    source=excluded.source,
+                                    is_base=excluded.is_base,
                                     enabled=excluded.enabled",
-                                params![&instance_id, file_name, "local", "local", 1, true],
+                                params![
+                                    &instance_id,
+                                    file_name,
+                                    file_name,
+                                    "local",
+                                    "local",
+                                    1,
+                                    true
+                                ],
                             );
                             mod_count += 1;
                         }

@@ -7,7 +7,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 }));
 
 describe('CreateInstanceModal', () => {
-  it.skip('renders the modal when isOpen is true', () => {
+  it('renders the modal when isOpen is true', () => {
     render(<CreateInstanceModal isOpen={true} onClose={() => {}} onCreated={() => {}} />);
 
     expect(screen.getByText('Create New Pack')).toBeInTheDocument();
@@ -16,14 +16,14 @@ describe('CreateInstanceModal', () => {
     expect(modrinthBtn).toBeInTheDocument();
   });
 
-  it.skip('does not render when isOpen is false', () => {
+  it('does not render when isOpen is false', () => {
     const { container } = render(
       <CreateInstanceModal isOpen={false} onClose={() => {}} onCreated={() => {}} />
     );
     expect(container).toBeEmptyDOMElement();
   });
 
-  it.skip('allows typing an instance name', () => {
+  it('allows typing an instance name', () => {
     render(<CreateInstanceModal isOpen={true} onClose={() => {}} onCreated={() => {}} />);
 
     const input = screen.getByPlaceholderText('Autofills from base pack...') as HTMLInputElement;

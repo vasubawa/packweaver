@@ -1,3 +1,5 @@
+import type { ReactNode, CSSProperties } from 'react';
+
 export function Icon({
   name,
   size = 18,
@@ -7,7 +9,7 @@ export function Icon({
   name: string;
   size?: number;
   className?: string;
-  style?: React.CSSProperties;
+  style?: CSSProperties;
 }) {
   const s = { width: size, height: size, viewBox: '0 0 24 24', className, style: st };
   const p = {
@@ -17,7 +19,14 @@ export function Icon({
     fill: 'none',
     stroke: 'currentColor',
   };
-  const icons: Record<string, React.ReactNode> = {
+  const icons: Record<string, ReactNode> = {
+    info: (
+      <svg {...s} {...p}>
+        <circle cx="12" cy="12" r="10" />
+        <line x1="12" y1="16" x2="12" y2="12" />
+        <line x1="12" y1="8" x2="12.01" y2="8" />
+      </svg>
+    ),
     grid: (
       <svg {...s} {...p}>
         <rect x="3" y="3" width="7" height="7" rx="1.5" />

@@ -15,14 +15,14 @@ export function LibraryView({
   instances,
   searchQuery,
   onSelectInstance,
-  onNewInstance,
+  // onNewInstance,
   onDeleteInstance,
 }: LibraryViewProps) {
   const filteredInstances = instances.filter(
     i =>
       i.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      i.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      i.basePack.toLowerCase().includes(searchQuery.toLowerCase())
+      (i.description ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (i.basePack ?? '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
@@ -61,7 +61,7 @@ export function LibraryView({
         </div>
       ) : (
         <div
-          className="grid gap-4 scrollbar-thin"
+          className="grid gap-4"
           style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}
         >
           {filteredInstances.map(instance => (
@@ -72,36 +72,6 @@ export function LibraryView({
               onDelete={onDeleteInstance}
             />
           ))}
-          {filteredInstances.length <= 3 && !searchQuery && (
-            <div
-              role="button"
-              tabIndex={0}
-              className="instance-card flex flex-col items-center justify-center cursor-pointer opacity-70 hover:opacity-100 transition-opacity"
-              style={{ minHeight: 180, borderStyle: 'dashed', backgroundColor: 'transparent' }}
-              onClick={onNewInstance}
-              onKeyDown={e => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  onNewInstance();
-                }
-              }}
-            >
-              <div
-                className="flex items-center justify-center rounded-full mb-3"
-                style={{
-                  width: 40,
-                  height: 40,
-                  background: 'var(--accent-soft)',
-                  color: 'var(--accent)',
-                }}
-              >
-                <Icon name="plus" size={18} />
-              </div>
-              <span className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
-                Create another pack
-              </span>
-            </div>
-          )}
         </div>
       )}
     </div>
