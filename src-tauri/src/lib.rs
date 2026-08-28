@@ -85,16 +85,17 @@ fn get_instances(state: tauri::State<AppState>) -> Result<Vec<Instance>, String>
         let mut total_mod_count = 0;
         let mut custom_mod_count = 0;
 
-        if let Ok(mut m_stmt) = conn.prepare("SELECT mod_id, mod_version_id, source, is_base, enabled FROM instance_mods WHERE instance_id = ?") {
+        if let Ok(mut m_stmt) = conn.prepare("SELECT mod_id, name, mod_version_id, source, is_base, enabled FROM instance_mods WHERE instance_id = ?") {
             if let Ok(m_iter) = m_stmt.query_map([&id], |mr| {
                 let mod_id: String = mr.get(0)?;
+                let name: String = mr.get(1)?;
                 Ok(InstanceMod {
                     id: mod_id.clone(),
-                    name: mod_id,
-                    version: mr.get(1)?,
-                    source: mr.get(2)?,
-                    is_base: mr.get(3)?,
-                    enabled: mr.get(4)?,
+                    name: if name.is_empty() { mod_id } else { name },
+                    version: mr.get(2)?,
+                    source: mr.get(3)?,
+                    is_base: mr.get(4)?,
+                    enabled: mr.get(5)?,
                 })
             }) {
                 for m in m_iter.flatten() {
@@ -260,6 +261,7 @@ fn update_instance_details(
     name: Option<String>,
     description: Option<String>,
     banner_url: Option<String>,
+    export_settings: Option<String>,
     state: tauri::State<AppState>,
 ) -> Result<(), String> {
     let conn = state
@@ -288,6 +290,13 @@ fn update_instance_details(
         )
         .map_err(|e| e.to_string())?;
     }
+    if let Some(es) = export_settings {
+        conn.execute(
+            "UPDATE instances SET export_settings = ?1 WHERE id = ?2",
+            rusqlite::params![es, id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
 
     Ok(())
 }
@@ -296,7 +305,8 @@ fn update_instance_details(
 fn add_custom_mod(
     instance_id: String,
     mod_id: String,
-    _name: String,
+    name: String,
+    version: Option<String>,
     source: String,
     state: tauri::State<AppState>,
 ) -> Result<(), String> {
@@ -305,9 +315,15 @@ fn add_custom_mod(
         .lock()
         .map_err(|_| "Database lock poisoned".to_string())?;
     conn.execute(
-        "INSERT INTO instance_mods (instance_id, mod_id, mod_version_id, source, is_base, enabled) 
-         VALUES (?1, ?2, 'latest', ?3, 0, 1)",
-        rusqlite::params![instance_id, mod_id, source],
+        "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, source, is_base, enabled)
+         VALUES (?1, ?2, ?3, ?4, ?5, 0, 1)",
+        rusqlite::params![
+            instance_id,
+            mod_id,
+            name,
+            version.unwrap_or_else(|| "latest".to_string()),
+            source
+        ],
     )
     .map_err(|e| e.to_string())?;
     Ok(())

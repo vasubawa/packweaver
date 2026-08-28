@@ -12,6 +12,13 @@ interface OverviewTabProps {
 export function OverviewTab({ instance, onUpdate }: OverviewTabProps) {
   const [isEditingDesc, setIsEditingDesc] = useState(false);
   const [descInput, setDescInput] = useState(instance.description || '');
+  const [prevInstanceId, setPrevInstanceId] = useState(instance.id);
+
+  if (instance.id !== prevInstanceId) {
+    setPrevInstanceId(instance.id);
+    setDescInput(instance.description || '');
+  }
+
   const sc = SOURCE_COLORS[instance.source] || SOURCE_COLORS.local;
   const exporterPlugins = getActiveExporterPlugins();
 

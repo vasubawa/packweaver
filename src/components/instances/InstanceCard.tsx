@@ -3,7 +3,7 @@ import { Icon } from '../Icon';
 import { Instance } from '../../types';
 import { SOURCE_COLORS } from '../../constants';
 import { ConfirmDeleteModal } from '../ConfirmDeleteModal';
-import { invoke } from '@tauri-apps/api/core';
+import { useDeleteInstance } from '../../hooks/useDeleteInstance';
 
 interface InstanceCardProps {
   instance: Instance;
@@ -13,9 +13,12 @@ interface InstanceCardProps {
 
 export function InstanceCard({ instance, onClick, onDelete }: InstanceCardProps) {
   const [showMenu, setShowMenu] = useState(false);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const sc = SOURCE_COLORS[instance.source] || SOURCE_COLORS.local;
+  const { showDeleteModal, requestDelete, cancelDelete, confirmDelete } = useDeleteInstance(
+    instance.id,
+    id => onDelete?.(id)
+  );
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -31,16 +34,6 @@ export function InstanceCard({ instance, onClick, onDelete }: InstanceCardProps)
     };
   }, [showMenu]);
 
-  const handleDeleteConfirm = async () => {
-    try {
-      await invoke('delete_instance', { id: instance.id });
-      setShowDeleteModal(false);
-      if (onDelete) onDelete(instance.id);
-    } catch (e) {
-      console.error('Failed to delete instance:', e);
-    }
-  };
-
   return (
     <>
       <div
@@ -49,14 +42,15 @@ export function InstanceCard({ instance, onClick, onDelete }: InstanceCardProps)
         role="button"
         tabIndex={0}
         style={{
-          border: '1px solid var(--border)',
+          border: `1px solid ${sc.border || 'var(--border)'}`,
+          background: sc.soft,
         }}
         onMouseEnter={e => {
           e.currentTarget.style.borderColor = sc.accent;
           e.currentTarget.style.boxShadow = `0 4px 20px -2px ${sc.soft}`;
         }}
         onMouseLeave={e => {
-          e.currentTarget.style.borderColor = 'var(--border)';
+          e.currentTarget.style.borderColor = sc.border || 'var(--border)';
           e.currentTarget.style.boxShadow = 'none';
         }}
         onKeyDown={e => {
@@ -112,7 +106,7 @@ export function InstanceCard({ instance, onClick, onDelete }: InstanceCardProps)
                     className="w-full text-left px-3.5 py-1.5 text-xs text-red-500 hover:bg-red-500/10 flex items-center gap-2"
                     onClick={() => {
                       setShowMenu(false);
-                      setShowDeleteModal(true);
+                      requestDelete();
                     }}
                   >
                     <Icon name="trash" size={13} />
@@ -156,19 +150,26 @@ export function InstanceCard({ instance, onClick, onDelete }: InstanceCardProps)
             )}
           </div>
 
-          {instance.status === 'syncing' && instance.progress !== undefined && (
-            <div>
-              <div className="progress-track">
-                <div
-                  className="progress-fill"
-                  style={{ width: `${instance.progress}%`, background: sc.accent }}
-                />
-              </div>
-              <span className="text-[10.5px] mt-1 block" style={{ color: 'var(--text-muted)' }}>
-                {instance.progress}%
-              </span>
-            </div>
-          )}
+          {instance.status === 'syncing' &&
+            instance.progress !== undefined &&
+            (() => {
+              const pct = instance.total
+                ? Math.min(100, Math.round((instance.progress! / instance.total) * 100))
+                : 0;
+              return (
+                <div>
+                  <div className="progress-track">
+                    <div
+                      className="progress-fill"
+                      style={{ width: `${pct}%`, background: sc.accent }}
+                    />
+                  </div>
+                  <span className="text-[10.5px] mt-1 block" style={{ color: 'var(--text-muted)' }}>
+                    {pct}%
+                  </span>
+                </div>
+              );
+            })()}
 
           {/* Tags */}
           <div className="flex items-center gap-1.5 flex-wrap">
@@ -188,25 +189,14 @@ export function InstanceCard({ instance, onClick, onDelete }: InstanceCardProps)
               </span>
             )}
           </div>
-
-          {/* Card Footer */}
-          <div
-            className="flex items-center justify-between pt-2.5 text-[11px]"
-            style={{ borderTop: '1px solid var(--border)', color: 'var(--text-muted)' }}
-          >
-            <span>v{instance.exportSettings?.version || instance.basePackVersion || '1.0.0'}</span>
-            <span>
-              {instance.lastExported ? `Exported ${instance.lastExported}` : 'Not exported'}
-            </span>
-          </div>
         </div>
       </div>
 
       <ConfirmDeleteModal
         isOpen={showDeleteModal}
         packName={instance.name}
-        onConfirm={handleDeleteConfirm}
-        onCancel={() => setShowDeleteModal(false)}
+        onConfirm={confirmDelete}
+        onCancel={cancelDelete}
       />
     </>
   );

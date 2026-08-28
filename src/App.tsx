@@ -39,6 +39,11 @@ function App() {
         loader: inst.loader || 'Fabric',
         totalModCount: inst.totalModCount || 0,
         source: inst.source || 'local',
+        description: inst.description ?? '',
+        serverFiles: (inst.serverFiles || []).map((f: any) => ({
+          ...f,
+          id: f.id || crypto.randomUUID(),
+        })),
       }));
 
       setInstances(augmented);
@@ -95,7 +100,7 @@ function App() {
 
   const handleExport = useCallback(
     (instance: Instance) => {
-      addToast(`Exporting "${instance.name}" as universal pack...`, 'success');
+      addToast(`Export is not yet available for "${instance.name}".`, 'info');
     },
     [addToast]
   );
@@ -147,7 +152,7 @@ function App() {
           />
         )}
 
-        <main className="flex-1 overflow-y-auto scrollbar-thin">
+        <main className="flex-1 overflow-y-auto">
           {screen === 'library' && (
             <LibraryView
               instances={instances}

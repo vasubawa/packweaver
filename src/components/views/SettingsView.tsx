@@ -8,7 +8,7 @@ export function SettingsView() {
   const { theme, toggleTheme, accent, setAccent } = useTheme();
   const { addToast } = useToast();
   const [dataDir, setDataDir] = useState<string>('Loading...');
-  const [appVersion, setAppVersion] = useState<string>('v0.1.0');
+  const [appVersion, setAppVersion] = useState<string>('Unknown');
 
   useEffect(() => {
     invoke<{ data_dir: string; version: string }>('get_app_info')
@@ -18,6 +18,7 @@ export function SettingsView() {
       })
       .catch(() => {
         setDataDir('packweaver-data');
+        setAppVersion('Unknown');
       });
   }, []);
 
@@ -30,7 +31,7 @@ export function SettingsView() {
   };
 
   const handleClearCache = () => {
-    addToast('Temporary download cache cleared', 'success');
+    addToast('Cache clearing is not yet available', 'info');
   };
 
   return (
@@ -155,7 +156,13 @@ export function SettingsView() {
                 Clear downloaded temporary zip and archive cache
               </div>
             </div>
-            <button className="btn-ghost text-[11px] px-3 py-1.5" onClick={handleClearCache}>
+            <button
+              className="btn-ghost text-[11px] px-3 py-1.5"
+              onClick={handleClearCache}
+              disabled
+              title="Coming soon"
+              style={{ opacity: 0.5, cursor: 'not-allowed' }}
+            >
               Clear Cache
             </button>
           </div>
@@ -167,16 +174,6 @@ export function SettingsView() {
           Packweaver {appVersion}
         </p>
         <div className="flex justify-center gap-4 text-[11.5px]">
-          <a
-            href="https://github.com"
-            target="_blank"
-            rel="noreferrer"
-            className="hover:underline"
-            style={{ color: 'var(--accent)' }}
-          >
-            GitHub
-          </a>
-          <span style={{ color: 'var(--border)' }}>&bull;</span>
           <span style={{ color: 'var(--text-muted)' }}>MIT License</span>
         </div>
       </div>

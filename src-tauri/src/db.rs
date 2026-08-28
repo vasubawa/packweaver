@@ -53,6 +53,7 @@ pub fn init_db(_app_handle: &tauri::AppHandle) -> Result<Connection> {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             instance_id TEXT NOT NULL,
             mod_id TEXT NOT NULL,
+            name TEXT NOT NULL DEFAULT '',
             mod_version_id TEXT NOT NULL,
             source TEXT NOT NULL,
             is_base BOOLEAN NOT NULL DEFAULT 0,
@@ -62,6 +63,18 @@ pub fn init_db(_app_handle: &tauri::AppHandle) -> Result<Connection> {
         )",
         [],
     )?;
+
+    // Migrate older databases created before the `name` column existed
+    let has_name_column = conn
+        .prepare("SELECT name FROM pragma_table_info('instance_mods') WHERE name = 'name'")
+        .and_then(|mut stmt| stmt.exists([]))
+        .unwrap_or(true);
+    if !has_name_column {
+        conn.execute(
+            "ALTER TABLE instance_mods ADD COLUMN name TEXT NOT NULL DEFAULT ''",
+            [],
+        )?;
+    }
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS server_files (

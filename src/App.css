@@ -25,7 +25,7 @@
     --radius-lg: 14px;
     --radius-pill: 9999px;
     --transition: 180ms ease;
-    --font-heading: 'Newsreader', georgia, 'Cambria', serif;
+    --font-heading: 'Poppins', Arial, sans-serif;
     --modrinth: #16a34a;
     --modrinth-soft: rgba(22, 163, 74, 0.1);
     --modrinth-border: rgba(22, 163, 74, 0.25);
@@ -71,12 +71,7 @@
   }
 
   body {
-    font-family:
-      Inter,
-      ui-sans-serif,
-      system-ui,
-      -apple-system,
-      sans-serif;
+    font-family: Lora, Georgia, serif;
     background: var(--bg-canvas);
     color: var(--text-primary);
     -webkit-font-smoothing: antialiased;
@@ -91,17 +86,18 @@
       color 250ms ease,
       border-color 250ms ease;
   }
-  .scrollbar-thin::-webkit-scrollbar {
+  ::-webkit-scrollbar {
     width: 6px;
+    height: 6px;
   }
-  .scrollbar-thin::-webkit-scrollbar-track {
+  ::-webkit-scrollbar-track {
     background: transparent;
   }
-  .scrollbar-thin::-webkit-scrollbar-thumb {
+  ::-webkit-scrollbar-thumb {
     background: var(--border);
     border-radius: 3px;
   }
-  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  ::-webkit-scrollbar-thumb:hover {
     background: var(--border-focus);
   }
   .sidebar-link {
@@ -148,7 +144,6 @@
     font-size: 13px;
     color: var(--text-secondary);
     width: 100%;
-    max-width: 360px;
     outline: none;
     font-family: inherit;
     transition:
@@ -162,7 +157,7 @@
   .search-pill:focus {
     border-color: var(--border-focus);
     background: var(--bg-surface);
-    box-shadow: 0 0 0 3px rgba(217, 115, 85, 0.08);
+    box-shadow: 0 0 0 3px var(--accent-soft);
   }
   .btn-primary {
     background: var(--text-primary);
@@ -224,9 +219,9 @@
     background: var(--bg-surface);
   }
   .btn-danger {
-    background: none;
-    color: var(--danger);
-    border: 1px solid var(--border);
+    background: var(--danger);
+    color: #fff;
+    border: none;
     border-radius: var(--radius-sm);
     padding: 8px 16px;
     font-size: 13px;
@@ -241,8 +236,8 @@
     gap: 6px;
   }
   .btn-danger:hover {
-    background: var(--danger-soft);
-    border-color: var(--danger);
+    background: var(--danger-hover, var(--danger));
+    opacity: 0.9;
   }
   .btn-ghost {
     background: none;
@@ -347,7 +342,8 @@
     box-shadow: var(--shadow-lg);
     width: 100%;
     max-width: 560px;
-    height: 600px;
+    height: auto;
+    max-height: min(600px, 90vh);
     display: flex;
     flex-direction: column;
     animation: modal-in 200ms ease;
@@ -380,7 +376,7 @@
   }
   .form-input:focus {
     border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(217, 115, 85, 0.1);
+    box-shadow: 0 0 0 3px var(--accent-soft);
   }
   .form-input::placeholder {
     color: var(--text-muted);
@@ -410,7 +406,7 @@
   }
   .form-select:focus {
     border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(217, 115, 85, 0.1);
+    box-shadow: 0 0 0 3px var(--accent-soft);
   }
   .form-label {
     display: block;
@@ -600,7 +596,6 @@
     transform: translateX(16px);
   }
   .detail-banner {
-    height: 200px;
     position: relative;
     overflow: hidden;
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;

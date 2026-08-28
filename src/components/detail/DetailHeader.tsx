@@ -1,16 +1,16 @@
 import { useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import { Icon } from '../Icon';
 import { Instance } from '../../types';
 import { SOURCE_COLORS, formatBasePackName } from '../../constants';
 import { ConfirmDeleteModal } from '../ConfirmDeleteModal';
+import { useDeleteInstance } from '../../hooks/useDeleteInstance';
 
 interface DetailHeaderProps {
   instance: Instance;
   onBack: () => void;
   onExport: () => void;
   onUpdate: (updates: Partial<Instance>) => void;
-  onDelete?: (id: string) => void;
+  onDelete: (id: string) => void;
 }
 
 export function DetailHeader({
@@ -22,9 +22,17 @@ export function DetailHeader({
 }: DetailHeaderProps) {
   const [isEditingName, setIsEditingName] = useState(false);
   const [editName, setEditName] = useState(instance.name);
-  const [isUpdating, setIsUpdating] = useState(false);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [prevName, setPrevName] = useState(instance.name);
   const sc = SOURCE_COLORS[instance.source] || SOURCE_COLORS.local;
+  const { showDeleteModal, requestDelete, cancelDelete, confirmDelete } = useDeleteInstance(
+    instance.id,
+    onDelete
+  );
+
+  if (instance.name !== prevName) {
+    setPrevName(instance.name);
+    setEditName(instance.name);
+  }
 
   const handleNameSave = () => {
     if (editName.trim()) {
@@ -33,28 +41,6 @@ export function DetailHeader({
       setEditName(instance.name);
     }
     setIsEditingName(false);
-  };
-
-  const handleUpdatePack = () => {
-    setIsUpdating(true);
-    setTimeout(() => {
-      setIsUpdating(false);
-      alert(`No updates available for "${instance.name}"`);
-    }, 1500);
-  };
-
-  const handleDeleteConfirm = async () => {
-    try {
-      await invoke('delete_instance', { id: instance.id });
-      setShowDeleteModal(false);
-      if (onDelete) {
-        onDelete(instance.id);
-      } else {
-        onBack();
-      }
-    } catch (e) {
-      console.error('Failed to delete instance:', e);
-    }
   };
 
   const displayBasePack = formatBasePackName(instance.basePack);
@@ -75,7 +61,7 @@ export function DetailHeader({
           }}
         />
         <button
-          className="btn-ghost absolute top-4 left-6 z-10 flex items-center gap-1.5 backdrop-blur-md"
+          className="absolute top-4 left-6 z-10 flex items-center gap-1.5 backdrop-blur-md"
           onClick={onBack}
           style={{
             background: 'var(--bg-surface)',
@@ -155,8 +141,8 @@ export function DetailHeader({
               style={{ color: 'var(--text-muted)' }}
             >
               <span
-                className="font-medium truncate max-w-[200px]"
-                style={{ color: 'var(--text-secondary)' }}
+                className="font-medium max-w-full overflow-hidden text-ellipsis whitespace-nowrap"
+                style={{ color: 'var(--text-secondary)', maxWidth: '300px' }}
               >
                 {displayBasePack}
               </span>
@@ -181,22 +167,24 @@ export function DetailHeader({
             )}
             <button
               className="btn-secondary text-xs px-3 py-2"
-              onClick={handleUpdatePack}
-              disabled={isUpdating}
-              style={{ opacity: isUpdating ? 0.7 : 1 }}
+              disabled
+              title="Coming soon"
+              style={{ opacity: 0.5, cursor: 'not-allowed' }}
             >
-              <div className={isUpdating ? 'animate-spin' : ''}>
-                <Icon name="refresh" size={14} />
-              </div>
-              <span>{isUpdating ? 'Checking...' : 'Check Updates'}</span>
+              <Icon name="refresh" size={14} />
+              <span>Check Updates</span>
             </button>
             <button
               className="btn-accent text-xs px-3.5 py-2 font-medium"
               onClick={onExport}
+              disabled
+              title="Coming soon"
               style={{
                 background: sc.accent,
                 borderColor: sc.accent,
                 boxShadow: `0 2px 10px ${sc.soft}`,
+                opacity: 0.5,
+                cursor: 'not-allowed',
               }}
             >
               <Icon name="package" size={14} />
@@ -204,7 +192,7 @@ export function DetailHeader({
             </button>
             <button
               className="btn-ghost text-red-400 hover:text-red-300 hover:bg-red-500/10 p-2 rounded-md"
-              onClick={() => setShowDeleteModal(true)}
+              onClick={requestDelete}
               title="Delete pack"
               style={{ border: '1px solid var(--border)' }}
             >
@@ -217,8 +205,8 @@ export function DetailHeader({
       <ConfirmDeleteModal
         isOpen={showDeleteModal}
         packName={instance.name}
-        onConfirm={handleDeleteConfirm}
-        onCancel={() => setShowDeleteModal(false)}
+        onConfirm={confirmDelete}
+        onCancel={cancelDelete}
       />
     </>
   );
