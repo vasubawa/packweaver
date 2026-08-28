@@ -13,7 +13,7 @@ interface DetailViewProps {
   onBack: () => void;
   onExport: (instance: Instance) => void;
   onUpdateInstance: (updated: Instance) => void;
-  onDeleteInstance?: (id: string) => void;
+  onDeleteInstance: (id: string) => void;
 }
 
 export function DetailView({
@@ -34,13 +34,21 @@ export function DetailView({
     }
 
     // If core details changed, persist to backend
-    if ('name' in updates || 'description' in updates || 'bannerUrl' in updates) {
+    if (
+      'name' in updates ||
+      'description' in updates ||
+      'bannerUrl' in updates ||
+      'exportSettings' in updates
+    ) {
       try {
         await invoke('update_instance_details', {
           id: instance.id,
           name: updates.name,
           description: updates.description,
           bannerUrl: updates.bannerUrl,
+          exportSettings: updates.exportSettings
+            ? JSON.stringify(updates.exportSettings)
+            : undefined,
         });
       } catch (e) {
         console.error('Failed to update instance details in DB', e);
@@ -89,7 +97,7 @@ export function DetailView({
         })}
       </div>
 
-      <div className="flex-1 overflow-y-auto scrollbar-thin px-6 py-5">
+      <div className="flex-1 overflow-y-auto px-6 py-5">
         {activeTab === 'overview' && <OverviewTab instance={instance} onUpdate={handleUpdate} />}
         {activeTab === 'client' && <ClientModsTab instance={instance} onUpdate={handleUpdate} />}
         {activeTab === 'server' && <ServerFilesTab instance={instance} onUpdate={handleUpdate} />}

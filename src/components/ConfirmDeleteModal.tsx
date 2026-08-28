@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Icon } from './Icon';
 
 interface ConfirmDeleteModalProps {
@@ -13,6 +14,15 @@ export function ConfirmDeleteModal({
   onConfirm,
   onCancel,
 }: ConfirmDeleteModalProps) {
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel();
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [isOpen, onCancel]);
+
   if (!isOpen) return null;
 
   return (
@@ -47,7 +57,10 @@ export function ConfirmDeleteModal({
         <div className="p-6">
           <p className="text-[13px] leading-relaxed mb-1" style={{ color: 'var(--text-primary)' }}>
             Are you sure you want to delete{' '}
-            <span className="font-semibold text-white">"{packName}"</span>?
+            <span className="font-semibold" style={{ color: 'var(--danger)' }}>
+              "{packName}"
+            </span>
+            ?
           </p>
           <p className="text-[12px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
             This action will remove all custom mods, server files, and workspace configuration for
@@ -64,7 +77,6 @@ export function ConfirmDeleteModal({
           </button>
           <button
             className="btn-danger text-[13px] px-4 py-2 flex items-center gap-1.5"
-            style={{ background: 'var(--danger)', color: '#fff', border: 'none' }}
             onClick={onConfirm}
           >
             <Icon name="trash" size={14} />

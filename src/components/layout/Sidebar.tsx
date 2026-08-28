@@ -42,16 +42,20 @@ export function Sidebar({ activeScreen, onNavigate }: SidebarProps) {
         </span>
       </div>
       <nav className="flex-1 flex flex-col gap-0.5 px-3 pt-4 pb-3">
-        {NAV.map(item => (
-          <button
-            key={item.id}
-            className={`sidebar-link ${activeScreen === item.id ? 'active' : ''}`}
-            onClick={() => onNavigate(item.id)}
-          >
-            <Icon name={item.icon} />
-            {item.label}
-          </button>
-        ))}
+        {NAV.map(item => {
+          const isActive =
+            activeScreen === item.id || (item.id === 'library' && activeScreen === 'detail');
+          return (
+            <button
+              key={item.id}
+              className={`sidebar-link ${isActive ? 'active' : ''}`}
+              onClick={() => onNavigate(item.id)}
+            >
+              <Icon name={item.icon} />
+              {item.label}
+            </button>
+          );
+        })}
       </nav>
       <div className="mx-3" style={{ borderTop: '1px solid var(--border)' }} />
       <div className="flex flex-col gap-0.5 px-3 pt-3 pb-4">

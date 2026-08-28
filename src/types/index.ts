@@ -11,6 +11,7 @@ export interface CustomModItem {
 }
 
 export interface ServerFileItem {
+  id: string;
   name: string;
   type: 'config' | 'script';
   source: ModSource;

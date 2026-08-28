@@ -38,7 +38,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             style={{
               background: 'var(--bg-surface)',
               color: 'var(--text-primary)',
-              border: `1px solid ${toast.type === 'error' ? 'var(--danger)' : toast.type === 'success' ? 'var(--modrinth)' : 'var(--border)'}`,
+              border: `1px solid ${toast.type === 'error' ? 'var(--danger)' : toast.type === 'success' ? 'var(--modrinth)' : '#3b82f6'}`,
               borderLeftWidth: '4px',
             }}
           >
@@ -48,9 +48,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             {toast.type === 'error' && (
               <Icon name="x" size={16} style={{ color: 'var(--danger)' }} />
             )}
-            {toast.type === 'info' && (
-              <Icon name="info" size={16} style={{ color: 'var(--accent)' }} />
-            )}
+            {toast.type === 'info' && <Icon name="info" size={16} style={{ color: '#3b82f6' }} />}
             {toast.message}
           </div>
         ))}

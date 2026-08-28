@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Icon } from '../Icon';
 import { getAllPlugins, savePluginSetting, AnyPlugin, PluginCategory } from '../../plugins';
 import { useToast } from '../../context/ToastContext';
+import { PluginCard } from './PluginCard';
 
 export function PluginsView() {
   const [plugins, setPlugins] = useState<AnyPlugin[]>(() => getAllPlugins());
@@ -59,7 +60,7 @@ export function PluginsView() {
         </div>
 
         <div
-          className="flex p-1 rounded-lg"
+          className="flex p-1 gap-1.5 rounded-lg"
           style={{ background: 'var(--bg-muted)', border: '1px solid var(--border)' }}
         >
           {(
@@ -98,90 +99,13 @@ export function PluginsView() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {sources.map(plugin => (
-              <div
+              <PluginCard
                 key={plugin.id}
-                className="rounded-xl p-4 flex flex-col justify-between transition-all"
-                style={{
-                  background: 'var(--bg-surface)',
-                  border: `1px solid ${plugin.enabled ? 'var(--border)' : 'var(--border-subtle, var(--border))'}`,
-                  opacity: plugin.enabled ? 1 : 0.75,
-                }}
-              >
-                <div>
-                  <div className="flex items-start justify-between gap-3 mb-2">
-                    <div className="flex items-center gap-2.5">
-                      <div
-                        className="w-8 h-8 rounded-lg flex items-center justify-center text-base shrink-0"
-                        style={{ background: 'var(--bg-muted)', border: '1px solid var(--border)' }}
-                      >
-                        {plugin.fallbackEmoji}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span
-                            className="text-[13px] font-semibold"
-                            style={{ color: 'var(--text-primary)' }}
-                          >
-                            {plugin.name}
-                          </span>
-                          <span
-                            className="text-[10px] px-1.5 py-0.5 rounded font-mono"
-                            style={{ background: 'var(--bg-muted)', color: 'var(--text-muted)' }}
-                          >
-                            v{plugin.version}
-                          </span>
-                        </div>
-                        <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
-                          by {plugin.author}
-                        </span>
-                      </div>
-                    </div>
-
-                    {plugin.isCore ? (
-                      <span
-                        className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full"
-                        style={{
-                          background: 'var(--accent-soft)',
-                          color: 'var(--accent)',
-                        }}
-                      >
-                        Core
-                      </span>
-                    ) : (
-                      <button
-                        role="switch"
-                        aria-checked={plugin.enabled}
-                        aria-label={`Toggle ${plugin.name}`}
-                        className={`theme-toggle-track ${plugin.enabled ? 'on' : ''}`}
-                        onClick={() => handleToggle(plugin)}
-                      >
-                        <div className="theme-toggle-knob" />
-                      </button>
-                    )}
-                  </div>
-
-                  <p
-                    className="text-[12px] leading-relaxed mb-3"
-                    style={{ color: 'var(--text-muted)' }}
-                  >
-                    {plugin.description}
-                  </p>
-                </div>
-
-                <div
-                  className="pt-2 flex items-center justify-between"
-                  style={{ borderTop: '1px solid var(--border)' }}
-                >
-                  <span
-                    className="text-[11px] font-medium"
-                    style={{
-                      color: plugin.enabled ? 'var(--accent)' : 'var(--text-muted)',
-                    }}
-                  >
-                    {plugin.isCore ? '● Always Active' : plugin.enabled ? '● Active' : '○ Disabled'}
-                  </span>
-
-                  {plugin.requiresApiKey && (
+                plugin={plugin}
+                onToggle={handleToggle}
+                subtitle={`by ${plugin.author}`}
+                footerRight={
+                  plugin.requiresApiKey ? (
                     <button
                       className="btn-secondary text-[11px] px-2.5 py-1 flex items-center gap-1"
                       onClick={() => {
@@ -192,9 +116,9 @@ export function PluginsView() {
                       <Icon name="key" size={12} />
                       {plugin.apiKey ? 'Change API Key' : 'Set API Key'}
                     </button>
-                  )}
-                </div>
-
+                  ) : undefined
+                }
+              >
                 {editingApiKeyId === plugin.id && (
                   <div
                     className="mt-3 p-3 rounded-lg flex flex-col gap-2"
@@ -229,7 +153,7 @@ export function PluginsView() {
                     </div>
                   </div>
                 )}
-              </div>
+              </PluginCard>
             ))}
           </div>
         </div>
@@ -249,100 +173,21 @@ export function PluginsView() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {exporters.map(plugin => (
-              <div
+              <PluginCard
                 key={plugin.id}
-                className="rounded-xl p-4 flex flex-col justify-between transition-all"
-                style={{
-                  background: 'var(--bg-surface)',
-                  border: `1px solid ${plugin.enabled ? 'var(--border)' : 'var(--border-subtle, var(--border))'}`,
-                  opacity: plugin.enabled ? 1 : 0.75,
-                }}
-              >
-                <div>
-                  <div className="flex items-start justify-between gap-3 mb-2">
-                    <div className="flex items-center gap-2.5">
-                      <div
-                        className="w-8 h-8 rounded-lg flex items-center justify-center text-base shrink-0"
-                        style={{ background: 'var(--bg-muted)', border: '1px solid var(--border)' }}
-                      >
-                        {plugin.fallbackEmoji}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span
-                            className="text-[13px] font-semibold"
-                            style={{ color: 'var(--text-primary)' }}
-                          >
-                            {plugin.name}
-                          </span>
-                          <span
-                            className="text-[10px] px-1.5 py-0.5 rounded font-mono"
-                            style={{ background: 'var(--bg-muted)', color: 'var(--text-muted)' }}
-                          >
-                            v{plugin.version}
-                          </span>
-                        </div>
-                        <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
-                          Target: {plugin.fileExtension}
-                        </span>
-                      </div>
-                    </div>
-
-                    {plugin.isCore ? (
-                      <span
-                        className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full"
-                        style={{
-                          background: 'var(--accent-soft)',
-                          color: 'var(--accent)',
-                        }}
-                      >
-                        Core
-                      </span>
-                    ) : (
-                      <button
-                        role="switch"
-                        aria-checked={plugin.enabled}
-                        aria-label={`Toggle ${plugin.name}`}
-                        className={`theme-toggle-track ${plugin.enabled ? 'on' : ''}`}
-                        onClick={() => handleToggle(plugin)}
-                      >
-                        <div className="theme-toggle-knob" />
-                      </button>
-                    )}
-                  </div>
-
-                  <p
-                    className="text-[12px] leading-relaxed mb-3"
-                    style={{ color: 'var(--text-muted)' }}
-                  >
-                    {plugin.description}
-                  </p>
-                </div>
-
-                <div
-                  className="pt-2 flex items-center justify-between"
-                  style={{ borderTop: '1px solid var(--border)' }}
-                >
-                  <span
-                    className="text-[11px] font-medium"
-                    style={{
-                      color: plugin.enabled ? 'var(--accent)' : 'var(--text-muted)',
-                    }}
-                  >
-                    {plugin.isCore
-                      ? '● Always Active'
-                      : plugin.enabled
-                        ? '● Enabled'
-                        : '○ Disabled'}
-                  </span>
+                plugin={plugin}
+                onToggle={handleToggle}
+                subtitle={`Target: ${plugin.fileExtension}`}
+                statusEnabledLabel="Enabled"
+                footerRight={
                   <span
                     className="text-[10.5px] font-mono px-2 py-0.5 rounded"
                     style={{ background: 'var(--bg-muted)', color: 'var(--text-muted)' }}
                   >
                     Format: {plugin.targetFormat}
                   </span>
-                </div>
-              </div>
+                }
+              />
             ))}
           </div>
         </div>
