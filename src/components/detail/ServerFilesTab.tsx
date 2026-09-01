@@ -43,7 +43,7 @@ export function ServerFilesTab({ instance, onUpdate }: ServerFilesTabProps) {
   };
 
   return (
-    <div className="animate-slide-in max-w-3xl flex flex-col gap-6">
+    <div className="animate-slide-in flex flex-col gap-6">
       {/* Add Server File Bar */}
       <div
         className="p-3 rounded-xl flex items-center gap-3"

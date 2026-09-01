@@ -50,7 +50,7 @@ export function DetailHeader({
       <div
         className="detail-banner relative overflow-hidden shrink-0"
         style={{
-          height: 140,
+          height: 'clamp(120px, 12vh, 200px)',
           background: instance.bannerGradient || sc.gradient,
         }}
       >
@@ -77,7 +77,7 @@ export function DetailHeader({
         </button>
       </div>
 
-      <div className="px-6 -mt-8 relative z-10 shrink-0">
+      <div className="px-6 xl:px-10 -mt-8 relative z-10 shrink-0">
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 mb-2">

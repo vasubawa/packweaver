@@ -26,7 +26,7 @@ export function LibraryView({
   );
 
   return (
-    <div className="p-6 animate-slide-in">
+    <div className="p-6 xl:p-10 animate-slide-in">
       <div className="flex items-baseline justify-between mb-5">
         <h2
           className="text-xl font-semibold tracking-tight"
@@ -62,7 +62,9 @@ export function LibraryView({
       ) : (
         <div
           className="grid gap-4"
-          style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}
+          style={{
+            gridTemplateColumns: 'repeat(auto-fill, minmax(clamp(280px, 20vw, 360px), 1fr))',
+          }}
         >
           {filteredInstances.map(instance => (
             <InstanceCard
