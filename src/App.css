@@ -77,8 +77,8 @@
     color: var(--text-primary);
     -webkit-font-smoothing: antialiased;
     @apply h-screen overflow-hidden;
-    /* Scale the entire UI linearly based on window width compared to 480p (854px) */
-    zoom: calc(100vw / 854);
+    /* Scale the entire UI linearly based on window width compared to default (1280px) */
+    zoom: calc(100vw / 1280);
   }
 }
 

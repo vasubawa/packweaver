@@ -78,8 +78,8 @@ export function DetailHeader({
         </button>
       </div>
 
-      <div className="px-6 xl:px-10 -mt-8 relative z-10 shrink-0">
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+      <div className="px-8 -mt-8 relative z-10 shrink-0">
+        <div className="flex flex-row items-end justify-between gap-4">
           <div className="min-w-0 flex-1 flex items-end gap-4">
             {instance.iconUrl && (
               <div
