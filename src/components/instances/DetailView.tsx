@@ -127,7 +127,7 @@ export function DetailView({
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        <div className="px-6 xl:px-10 py-5 max-w-[var(--content-max)] w-full">
+        <div className="px-6 xl:px-10 py-5 w-full">
           {activeTab === 'overview' && <OverviewTab instance={instance} onUpdate={handleUpdate} />}
           {activeTab === 'client' && <ClientModsTab instance={instance} onUpdate={handleUpdate} />}
           {activeTab === 'server' && <ServerFilesTab instance={instance} onUpdate={handleUpdate} />}

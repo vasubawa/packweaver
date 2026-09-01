@@ -59,8 +59,8 @@ export function InstanceCard({ instance, onClick }: InstanceCardProps) {
         <div>
           <div className="flex items-baseline justify-between gap-2 mb-1">
             <h3
-              className="text-[14.5px] font-semibold tracking-tight leading-snug truncate"
-              style={{ color: 'var(--text-primary)' }}
+              className="text-[14.5px] font-semibold tracking-tight leading-snug line-clamp-2"
+              style={{ color: 'var(--text-primary)', wordBreak: 'break-word' }}
             >
               {instance.name}
             </h3>

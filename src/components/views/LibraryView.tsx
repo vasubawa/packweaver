@@ -69,7 +69,7 @@ export function LibraryView({
         <div
           className="grid gap-4"
           style={{
-            gridTemplateColumns: 'repeat(auto-fill, minmax(clamp(280px, 20vw, 360px), 1fr))',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
           }}
         >
           {filteredInstances.map(instance => (
