@@ -21,7 +21,7 @@ fn get_instances(state: tauri::State<AppState>) -> Result<Vec<Instance>, String>
     let query = "
         SELECT 
             id, name, base_pack_id, base_pack_version_id, mc_version, loader, source, status,
-            description, last_exported, banner_url, export_settings
+            description, last_exported, banner_url, icon_url, export_settings
         FROM instances
         ORDER BY created_at DESC
     ";
@@ -57,6 +57,9 @@ fn get_instances(state: tauri::State<AppState>) -> Result<Vec<Instance>, String>
                     .unwrap_or_default(),
                 row.get::<_, Option<String>>(11)
                     .unwrap_or_default()
+                    .unwrap_or_default(),
+                row.get::<_, Option<String>>(12)
+                    .unwrap_or_default()
                     .unwrap_or_else(|| "{}".to_string()),
             ))
         })
@@ -74,6 +77,7 @@ fn get_instances(state: tauri::State<AppState>) -> Result<Vec<Instance>, String>
         description,
         last_exported,
         banner_url,
+        icon_url,
         export_settings_str,
     ) in rows.flatten()
     {
@@ -85,7 +89,7 @@ fn get_instances(state: tauri::State<AppState>) -> Result<Vec<Instance>, String>
         let mut total_mod_count = 0;
         let mut custom_mod_count = 0;
 
-        if let Ok(mut m_stmt) = conn.prepare("SELECT mod_id, name, mod_version_id, source, is_base, enabled FROM instance_mods WHERE instance_id = ?") {
+        if let Ok(mut m_stmt) = conn.prepare("SELECT mod_id, name, mod_version_id, source, is_base, enabled, icon_url FROM instance_mods WHERE instance_id = ?") {
             if let Ok(m_iter) = m_stmt.query_map([&id], |mr| {
                 let mod_id: String = mr.get(0)?;
                 let name: String = mr.get(1)?;
@@ -96,12 +100,13 @@ fn get_instances(state: tauri::State<AppState>) -> Result<Vec<Instance>, String>
                     source: mr.get(3)?,
                     is_base: mr.get(4)?,
                     enabled: mr.get(5)?,
+                    icon_url: mr.get(6).unwrap_or(None),
                 })
             }) {
                 for m in m_iter.flatten() {
                     total_mod_count += 1;
                     if m.is_base {
-                        base_pack_mods.push(m.name.clone());
+                        base_pack_mods.push(m.clone());
                     } else {
                         custom_mod_count += 1;
                         custom_mods.push(m);
@@ -141,6 +146,7 @@ fn get_instances(state: tauri::State<AppState>) -> Result<Vec<Instance>, String>
             description,
             last_exported,
             banner_url,
+            icon_url,
             export_settings,
             custom_mod_count,
             total_mod_count,
@@ -153,6 +159,13 @@ fn get_instances(state: tauri::State<AppState>) -> Result<Vec<Instance>, String>
     Ok(instances)
 }
 
+#[derive(serde::Deserialize)]
+pub struct BasePackMod {
+    id: String,
+    name: String,
+    icon_url: Option<String>,
+}
+
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 fn create_instance(
@@ -162,6 +175,10 @@ fn create_instance(
     mc_version: String,
     loader: String,
     source: String,
+    description: Option<String>,
+    banner_url: Option<String>,
+    icon_url: Option<String>,
+    base_pack_mods: Option<Vec<BasePackMod>>,
     app: tauri::AppHandle,
     state: tauri::State<AppState>,
 ) -> Result<(), String> {
@@ -174,9 +191,19 @@ fn create_instance(
             .lock()
             .map_err(|_| "Database lock poisoned".to_string())?;
         conn.execute(
-            "INSERT INTO instances (id, name, base_pack_id, base_pack_version_id, mc_version, loader, source, status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            (&id, &name, &base_pack_id, &base_pack_version_id, &mc_version, &loader, &source, "Starting..."),
+            "INSERT INTO instances (id, name, base_pack_id, base_pack_version_id, mc_version, loader, source, status, description, banner_url, icon_url) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            rusqlite::params![&id, &name, &base_pack_id, &base_pack_version_id, &mc_version, &loader, &source, "Starting...", description.unwrap_or_default(), banner_url.unwrap_or_default(), icon_url.unwrap_or_default()],
         ).map_err(|e| e.to_string())?;
+
+        if let Some(mods) = base_pack_mods {
+            for mod_info in mods {
+                let _ = conn.execute(
+                    "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, source, is_base, enabled, icon_url)
+                     VALUES (?1, ?2, ?3, 'latest', ?4, 1, 1, ?5)",
+                    rusqlite::params![&id, &mod_info.id, &mod_info.name, &source, &mod_info.icon_url.unwrap_or_default()],
+                );
+            }
+        }
     }
 
     // Clone state inside an Arc or just re-access it via app handle in the task
@@ -308,6 +335,7 @@ fn add_custom_mod(
     name: String,
     version: Option<String>,
     source: String,
+    icon_url: Option<String>,
     state: tauri::State<AppState>,
 ) -> Result<(), String> {
     let conn = state
@@ -315,14 +343,15 @@ fn add_custom_mod(
         .lock()
         .map_err(|_| "Database lock poisoned".to_string())?;
     conn.execute(
-        "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, source, is_base, enabled)
-         VALUES (?1, ?2, ?3, ?4, ?5, 0, 1)",
+        "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, source, is_base, enabled, icon_url)
+         VALUES (?1, ?2, ?3, ?4, ?5, 0, 1, ?6)",
         rusqlite::params![
             instance_id,
             mod_id,
             name,
             version.unwrap_or_else(|| "latest".to_string()),
-            source
+            source,
+            icon_url.unwrap_or_default()
         ],
     )
     .map_err(|e| e.to_string())?;

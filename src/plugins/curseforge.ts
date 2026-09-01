@@ -1,4 +1,4 @@
-import { SourcePlugin, SearchResult } from './types';
+import { SourcePlugin, SearchResult, SearchOptions } from './types';
 
 export const CurseForgePlugin: SourcePlugin = {
   id: 'curseforge',
@@ -20,11 +20,7 @@ export const CurseForgePlugin: SourcePlugin = {
   fallbackEmoji: '⚒️',
 
   canSearch: true,
-  search: async (
-    _query: string,
-    _limit: number = 20,
-    _offset: number = 0
-  ): Promise<SearchResult[]> => {
+  search: async (_query: string, _options?: SearchOptions): Promise<SearchResult[]> => {
     throw new Error('CurseForge API integration is not implemented yet');
   },
 };

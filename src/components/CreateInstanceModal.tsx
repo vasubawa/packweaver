@@ -5,6 +5,7 @@ import { SOURCE_COLORS, normalizeLoaderName, pickNewestGameVersion } from '../co
 import { ModSource, LoaderType } from '../types';
 import { getActiveSourcePlugins, SourcePlugin, PackVersionInfo } from '../plugins';
 import { usePluginSearch } from '../hooks/usePluginSearch';
+import { useToast } from '../context/ToastContext';
 import { open } from '@tauri-apps/plugin-dialog';
 
 const MC_VERSIONS = ['1.21.4', '1.21.1', '1.20.4', '1.20.1', '1.18.2', '1.16.5', '1.12.2'];
@@ -18,6 +19,7 @@ export interface CreateModalProps {
 }
 
 export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalProps) {
+  const { addToast } = useToast();
   const [activeSources, setActiveSources] = useState<SourcePlugin[]>(() =>
     getActiveSourcePlugins()
   );
@@ -32,6 +34,7 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
   const [loader, setLoader] = useState<LoaderType>('Fabric');
   const [showResults, setShowResults] = useState(false);
   const [localFile, setLocalFile] = useState<any>(null);
+  const [isCreating, setIsCreating] = useState(false);
 
   const [resolvedVersion, setResolvedVersion] = useState<PackVersionInfo | null>(null);
   const [isResolvingVersion, setIsResolvingVersion] = useState(false);
@@ -178,25 +181,64 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
 
   const handleCreate = async () => {
     try {
+      setIsCreating(true);
       const basePackId =
         source === 'local'
           ? localFile?.path || 'custom'
           : selectedPack?.id || selectedPack?.name || 'custom';
+
+      let description = '';
+      let bannerUrl = '';
+      let iconUrl = '';
+      let basePackMods: { id: string; name: string; iconUrl?: string }[] = [];
+
+      if (source === 'modrinth' && currentPlugin?.getProjectDetails) {
+        try {
+          const details = await currentPlugin.getProjectDetails(basePackId);
+          if (details) {
+            description = details.description || '';
+            if (details.gallery && details.gallery.length > 0) {
+              const featured = details.gallery.find(g => g.featured) || details.gallery[0];
+              bannerUrl = featured.url || '';
+            }
+            if (details.iconUrl) {
+              iconUrl = details.iconUrl;
+            }
+          }
+          if (currentPlugin.getDependencies) {
+            const deps = await currentPlugin.getDependencies(basePackId);
+            basePackMods = deps
+              .filter(d => Boolean(d.projectId))
+              .map(d => ({
+                id: d.projectId as string,
+                name: d.name || (d.projectId as string),
+                icon_url: d.iconUrl || undefined, // matching the rust struct's snake_case for basePackMods
+              }));
+          }
+        } catch (e) {
+          console.error('Failed to pre-fetch modrinth details:', e);
+        }
+      }
+
       await invoke('create_instance', {
         name,
         basePackId,
-        // When auto-detected, pass the provider's internal version ID so the
-        // backend can fetch the exact release without guessing. Fall back to
-        // the human-readable version string for manual / local flows.
         basePackVersionId: resolvedVersion?.versionId ?? version,
         mcVersion,
         loader,
         source,
+        description: description || undefined,
+        bannerUrl: bannerUrl || undefined,
+        iconUrl: iconUrl || undefined,
+        basePackMods: basePackMods.length > 0 ? basePackMods : undefined,
       });
       onCreated();
       handleClose();
-    } catch (e) {
+    } catch (e: any) {
       console.error('Failed to create instance', e);
+      addToast(typeof e === 'string' ? e : 'Failed to create instance', 'error');
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -372,21 +414,34 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
                                 handleSelectPack(pack);
                               }}
                             >
-                              <div>
-                                <div
-                                  className="font-medium"
-                                  style={{ color: 'var(--text-primary)' }}
-                                >
-                                  {pack.name}
-                                </div>
-                                {pack.author && (
-                                  <div
-                                    className="text-[11px]"
-                                    style={{ color: 'var(--text-muted)' }}
-                                  >
-                                    by {pack.author}
+                              <div className="flex items-center gap-2.5">
+                                {pack.iconUrl ? (
+                                  <img
+                                    src={pack.iconUrl}
+                                    alt={pack.name}
+                                    className="w-8 h-8 rounded-md bg-black/20 object-cover"
+                                  />
+                                ) : (
+                                  <div className="w-8 h-8 rounded-md bg-black/10 flex items-center justify-center text-black/40 dark:bg-white/10 dark:text-white/40">
+                                    <Icon name="package" size={16} />
                                   </div>
                                 )}
+                                <div>
+                                  <div
+                                    className="font-medium"
+                                    style={{ color: 'var(--text-primary)' }}
+                                  >
+                                    {pack.name}
+                                  </div>
+                                  {pack.author && (
+                                    <div
+                                      className="text-[11px]"
+                                      style={{ color: 'var(--text-muted)' }}
+                                    >
+                                      by {pack.author}
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           ))}
@@ -398,7 +453,15 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
                           style={{ background: sc.soft, border: `1px solid ${sc.accent}20` }}
                         >
                           <div className="flex items-center gap-2">
-                            <span className="seg-dot" style={{ background: sc.dot }} />
+                            {selectedPack.iconUrl ? (
+                              <img
+                                src={selectedPack.iconUrl}
+                                alt={selectedPack.name}
+                                className="w-6 h-6 rounded-md bg-black/20 object-cover"
+                              />
+                            ) : (
+                              <span className="seg-dot" style={{ background: sc.dot }} />
+                            )}
                             <span className="text-[12px] font-medium" style={{ color: sc.accent }}>
                               {selectedPack.name}
                             </span>
@@ -579,14 +642,14 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
           <button
             className="btn-accent"
             onClick={handleCreate}
-            disabled={!canCreate}
+            disabled={!canCreate || isCreating}
             style={{
-              opacity: canCreate ? 1 : 0.5,
+              opacity: canCreate && !isCreating ? 1 : 0.5,
               background: sc.accent,
             }}
           >
             <Icon name="package" size={14} />
-            {isResolvingVersion ? 'Resolving...' : 'Create Pack'}
+            {isCreating ? 'Creating...' : isResolvingVersion ? 'Resolving...' : 'Create Pack'}
           </button>
         </div>
       </div>
