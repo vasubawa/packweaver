@@ -2,8 +2,9 @@
 
 @layer base {
   :root {
-    --sidebar-w: 240px;
-    --header-h: 56px;
+    --sidebar-w: clamp(220px, 17vw, 300px);
+    --header-h: clamp(52px, 4vh, 64px);
+    --content-max: 1400px;
     --bg-canvas: #faf9f7;
     --bg-surface: #ffffff;
     --bg-muted: #f5f4f2;

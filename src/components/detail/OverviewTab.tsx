@@ -57,7 +57,7 @@ export function OverviewTab({ instance, onUpdate }: OverviewTabProps) {
   ];
 
   return (
-    <div className="animate-slide-in max-w-3xl flex flex-col gap-6">
+    <div className="animate-slide-in flex flex-col gap-6">
       {/* Description Card */}
       <div
         className="p-4 rounded-xl relative group transition-colors"
@@ -119,7 +119,7 @@ export function OverviewTab({ instance, onUpdate }: OverviewTabProps) {
         <h3 className="text-xs font-semibold uppercase tracking-wider mb-3 text-[var(--text-muted)]">
           Pack Specifications
         </h3>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
           {statCards.map(item => (
             <div
               key={item.label}

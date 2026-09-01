@@ -43,7 +43,7 @@ export function Header({
         </div>
 
         {showSearchAndActions && onSearchChange && (
-          <div className="relative flex-1 min-w-[160px]">
+          <div className="relative flex-1 min-w-[160px] max-w-sm lg:max-w-lg xl:max-w-2xl">
             <div
               className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
               style={{ color: 'var(--text-muted)' }}

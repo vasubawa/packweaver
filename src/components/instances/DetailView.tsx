@@ -72,7 +72,7 @@ export function DetailView({
       />
 
       <div
-        className="px-6 mt-6 flex gap-6 flex-shrink-0"
+        className="px-6 xl:px-10 mt-6 flex gap-6 flex-shrink-0"
         style={{ borderBottom: '1px solid var(--border)' }}
       >
         {[
@@ -97,10 +97,12 @@ export function DetailView({
         })}
       </div>
 
-      <div className="flex-1 overflow-y-auto px-6 py-5">
-        {activeTab === 'overview' && <OverviewTab instance={instance} onUpdate={handleUpdate} />}
-        {activeTab === 'client' && <ClientModsTab instance={instance} onUpdate={handleUpdate} />}
-        {activeTab === 'server' && <ServerFilesTab instance={instance} onUpdate={handleUpdate} />}
+      <div className="flex-1 overflow-y-auto">
+        <div className="px-6 xl:px-10 py-5 max-w-[var(--content-max)] w-full">
+          {activeTab === 'overview' && <OverviewTab instance={instance} onUpdate={handleUpdate} />}
+          {activeTab === 'client' && <ClientModsTab instance={instance} onUpdate={handleUpdate} />}
+          {activeTab === 'server' && <ServerFilesTab instance={instance} onUpdate={handleUpdate} />}
+        </div>
       </div>
     </div>
   );

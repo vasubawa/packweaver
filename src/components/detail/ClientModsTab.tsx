@@ -16,9 +16,6 @@ interface ClientModsTabProps {
   onUpdate: (updates: Partial<Instance>) => void;
 }
 
-// ── Jar filename parser ────────────────────────────────────────────────────────
-// Turns raw filenames like "BOMD-1.7.5-1.20.1.jar" or "fabric-api-0.91.0+1.20.1.jar"
-// into a human-readable { name, version } pair for display.
 interface ParsedMod {
   name: string;
   version: string | null;
@@ -74,7 +71,6 @@ function hashHue(str: string): number {
   return h % 360;
 }
 
-// ── Component ──────────────────────────────────────────────────────────────────
 export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
   const sc = SOURCE_COLORS[instance.source] || SOURCE_COLORS.local;
   const { addToast } = useToast();
@@ -84,7 +80,6 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
     instance.customMods.length > 0 ? 'custom' : 'base'
   );
 
-  // ── Base Mods tab state ───────────────────────────────────────────────────
   const [baseFilter, setBaseFilter] = useState('');
   const [baseShowCount, setBaseShowCount] = useState(BASE_MODS_PAGE_SIZE);
 
@@ -97,7 +92,6 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
 
   const visibleBaseMods = filteredBaseMods.slice(0, baseShowCount);
 
-  // ── Custom Mods draft state ───────────────────────────────────────────────
   // Draft starts from saved state; changes stage locally until Save is clicked.
   // We store the instance ID alongside the draft so we can detect when the user
   // navigates to a different instance. On mismatch, we reset during render (React
@@ -165,7 +159,6 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
     }
   };
 
-  // ── Add-mod source picker ─────────────────────────────────────────────────
   const [activeSources] = useState<SourcePlugin[]>(() => getActiveSourcePlugins());
   const [addModSource, setAddModSource] = useState<ModSource>(
     () => (activeSources[0]?.id as ModSource) || 'local'
@@ -228,7 +221,7 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
   };
 
   return (
-    <div className="animate-slide-in max-w-3xl flex flex-col gap-0">
+    <div className="animate-slide-in flex flex-col gap-0">
       {/* ── Inner tab bar ──────────────────────────────────────────────────── */}
       <div
         className="flex items-center gap-1 mb-4 p-1 rounded-xl"
