@@ -35,7 +35,7 @@ export function SettingsView() {
   };
 
   return (
-    <div className="p-6 max-w-2xl animate-slide-in">
+    <div className="p-6 xl:p-10 max-w-3xl xl:max-w-4xl animate-slide-in flex flex-col min-h-full">
       <h2
         className="text-xl font-semibold tracking-tight mb-1"
         style={{ color: 'var(--text-primary)', fontFamily: "'Newsreader', Georgia, serif" }}
@@ -169,6 +169,7 @@ export function SettingsView() {
         </div>
       </div>
 
+      <div className="flex-1" />
       <div className="mb-8 text-center mt-12">
         <p className="text-[11px] mb-2" style={{ color: 'var(--text-muted)' }}>
           Packweaver {appVersion}
