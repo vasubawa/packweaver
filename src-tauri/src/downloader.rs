@@ -223,11 +223,7 @@ pub async fn run_pipeline(
             for res in results {
                 match res {
                     Ok((mod_id, enabled)) => {
-                        let display_name = mod_id
-                            .rsplit('/')
-                            .next()
-                            .unwrap_or(&mod_id)
-                            .to_string();
+                        let display_name = mod_id.rsplit('/').next().unwrap_or(&mod_id).to_string();
                         let _ = conn.execute(
                             "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, source, is_base, enabled)
                              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
