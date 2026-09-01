@@ -8,6 +8,7 @@ export interface CustomModItem {
   enabled: boolean;
   source: ModSource;
   isBase: boolean;
+  iconUrl?: string;
 }
 
 export interface ServerFileItem {
@@ -45,7 +46,8 @@ export interface Instance {
   hasUpdate: boolean;
   bannerGradient?: string;
   bannerUrl?: string;
-  basePackMods: string[];
+  iconUrl?: string;
+  basePackMods: CustomModItem[];
   customMods: CustomModItem[];
   serverFiles: ServerFileItem[];
   exportSettings: ExportSettings;

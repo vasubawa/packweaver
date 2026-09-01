@@ -24,10 +24,8 @@ export function DetailHeader({
   const [editName, setEditName] = useState(instance.name);
   const [prevName, setPrevName] = useState(instance.name);
   const sc = SOURCE_COLORS[instance.source] || SOURCE_COLORS.local;
-  const { showDeleteModal, requestDelete, cancelDelete, confirmDelete } = useDeleteInstance(
-    instance.id,
-    onDelete
-  );
+  const { showDeleteModal, isDeleting, requestDelete, cancelDelete, confirmDelete } =
+    useDeleteInstance(instance.id, onDelete);
 
   if (instance.name !== prevName) {
     setPrevName(instance.name);
@@ -51,7 +49,10 @@ export function DetailHeader({
         className="detail-banner relative overflow-hidden shrink-0"
         style={{
           height: 'clamp(120px, 12vh, 200px)',
-          background: instance.bannerGradient || sc.gradient,
+          background:
+            instance.bannerUrl || instance.iconUrl
+              ? `url(${instance.bannerUrl || instance.iconUrl}) center/cover no-repeat`
+              : instance.bannerGradient || sc.gradient,
         }}
       >
         <div
@@ -79,85 +80,98 @@ export function DetailHeader({
 
       <div className="px-6 xl:px-10 -mt-8 relative z-10 shrink-0">
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 mb-2">
-              <span
-                className="badge text-[11px] font-medium px-2.5 py-0.5 rounded-full"
+          <div className="min-w-0 flex-1 flex items-end gap-4">
+            {instance.iconUrl && (
+              <div
+                className="w-20 h-20 rounded-2xl shadow-lg shrink-0 overflow-hidden"
                 style={{
-                  background: sc.soft,
-                  color: sc.accent,
-                  border: `1px solid ${sc.border}`,
+                  border: '4px solid var(--bg-canvas)',
+                  backgroundColor: 'var(--bg-surface)',
                 }}
               >
-                <span
-                  className="w-2 h-2 rounded-full mr-1.5 inline-block"
-                  style={{ background: sc.dot }}
-                />
-                {sc.label}
-              </span>
-            </div>
-
-            {isEditingName ? (
-              <div className="flex items-center gap-2 mb-2">
-                <input
-                  className="form-input text-xl font-bold tracking-tight py-1"
-                  style={{ fontFamily: "'Newsreader', Georgia, serif", maxWidth: '360px' }}
-                  value={editName}
-                  onChange={e => setEditName(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') handleNameSave();
-                    if (e.key === 'Escape') {
-                      setEditName(instance.name);
-                      setIsEditingName(false);
-                    }
-                  }}
-                  autoFocus
-                  onBlur={handleNameSave}
-                />
-              </div>
-            ) : (
-              <div className="flex items-center gap-2 mb-2 group min-w-0">
-                <h2
-                  className="text-2xl font-bold tracking-tight truncate"
-                  style={{
-                    color: 'var(--text-primary)',
-                    fontFamily: "'Newsreader', Georgia, serif",
-                  }}
-                >
-                  {instance.name}
-                </h2>
-                <button
-                  className="btn-ghost opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                  onClick={() => setIsEditingName(true)}
-                  title="Edit Pack Name"
-                >
-                  <Icon name="pencil" size={14} />
-                </button>
+                <img src={instance.iconUrl} alt="" className="w-full h-full object-cover" />
               </div>
             )}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 mb-2">
+                <span
+                  className="badge text-[11px] font-medium px-2.5 py-0.5 rounded-full"
+                  style={{
+                    background: sc.soft,
+                    color: sc.accent,
+                    border: `1px solid ${sc.border}`,
+                  }}
+                >
+                  <span
+                    className="w-2 h-2 rounded-full mr-1.5 inline-block"
+                    style={{ background: sc.dot }}
+                  />
+                  {sc.label}
+                </span>
+              </div>
 
-            <div
-              className="flex items-center gap-2 text-xs flex-wrap"
-              style={{ color: 'var(--text-muted)' }}
-            >
-              <span
-                className="font-medium max-w-full overflow-hidden text-ellipsis whitespace-nowrap"
-                style={{ color: 'var(--text-secondary)', maxWidth: '300px' }}
-              >
-                {displayBasePack}
-              </span>
-              <span>&middot;</span>
-              <span>{instance.mcVersion}</span>
-              <span>&middot;</span>
-              <span>{instance.loader}</span>
-              <span>&middot;</span>
-              <span>{instance.totalModCount} mods</span>
-              {instance.customModCount > 0 && (
-                <>
-                  <span>&middot;</span>
-                  <span style={{ color: sc.accent }}>+{instance.customModCount} custom</span>
-                </>
+              {isEditingName ? (
+                <div className="flex items-center gap-2 mb-2">
+                  <input
+                    className="form-input text-xl font-bold tracking-tight py-1"
+                    style={{ fontFamily: "'Newsreader', Georgia, serif", maxWidth: '360px' }}
+                    value={editName}
+                    onChange={e => setEditName(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') handleNameSave();
+                      if (e.key === 'Escape') {
+                        setEditName(instance.name);
+                        setIsEditingName(false);
+                      }
+                    }}
+                    autoFocus
+                    onBlur={handleNameSave}
+                  />
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 mb-2 group min-w-0">
+                  <h2
+                    className="text-2xl font-bold tracking-tight truncate"
+                    style={{
+                      color: 'var(--text-primary)',
+                      fontFamily: "'Newsreader', Georgia, serif",
+                    }}
+                  >
+                    {instance.name}
+                  </h2>
+                  <button
+                    className="btn-ghost opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                    onClick={() => setIsEditingName(true)}
+                    title="Edit Pack Name"
+                  >
+                    <Icon name="pencil" size={14} />
+                  </button>
+                </div>
               )}
+
+              <div
+                className="flex items-center gap-2 text-xs flex-wrap"
+                style={{ color: 'var(--text-muted)' }}
+              >
+                <span
+                  className="font-medium max-w-full overflow-hidden text-ellipsis whitespace-nowrap"
+                  style={{ color: 'var(--text-secondary)', maxWidth: '300px' }}
+                >
+                  {displayBasePack}
+                </span>
+                <span>&middot;</span>
+                <span>{instance.mcVersion}</span>
+                <span>&middot;</span>
+                <span>{instance.loader}</span>
+                <span>&middot;</span>
+                <span>{instance.totalModCount} mods</span>
+                {instance.customModCount > 0 && (
+                  <>
+                    <span>&middot;</span>
+                    <span style={{ color: sc.accent }}>+{instance.customModCount} custom</span>
+                  </>
+                )}
+              </div>
             </div>
           </div>
 
@@ -205,6 +219,7 @@ export function DetailHeader({
       <ConfirmDeleteModal
         isOpen={showDeleteModal}
         packName={instance.name}
+        isDeleting={isDeleting}
         onConfirm={confirmDelete}
         onCancel={cancelDelete}
       />

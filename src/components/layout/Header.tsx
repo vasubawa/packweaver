@@ -64,7 +64,7 @@ export function Header({
 
       {showSearchAndActions && onNewInstance && (
         <button
-          className="btn-primary shrink-0 flex items-center gap-1.5 whitespace-nowrap"
+          className="btn-accent shrink-0 flex items-center gap-1.5 whitespace-nowrap"
           onClick={onNewInstance}
         >
           <Icon name="plus" size={14} />

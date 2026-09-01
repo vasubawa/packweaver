@@ -14,7 +14,7 @@ export function usePluginSearch(
     if (searchFn && query.trim().length > 2) {
       const timeout = setTimeout(async () => {
         try {
-          const r = await searchFn(query, 20);
+          const r = await searchFn(query, { limit: 20 });
           setResults(r);
         } catch (e) {
           console.error(e);

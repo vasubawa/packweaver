@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct InstanceMod {
     pub id: String,
@@ -9,6 +9,7 @@ pub struct InstanceMod {
     pub source: String,
     pub is_base: bool,
     pub enabled: bool,
+    pub icon_url: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -34,13 +35,14 @@ pub struct Instance {
     pub description: String,
     pub last_exported: String,
     pub banner_url: String,
+    pub icon_url: String,
     pub export_settings: serde_json::Value,
 
     // UI needs customModCount and totalModCount
     pub custom_mod_count: u32,
     pub total_mod_count: u32,
 
-    pub base_pack_mods: Vec<String>,
+    pub base_pack_mods: Vec<InstanceMod>,
     pub custom_mods: Vec<InstanceMod>,
     pub server_files: Vec<ServerFile>,
 }
