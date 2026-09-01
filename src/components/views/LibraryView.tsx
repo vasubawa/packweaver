@@ -67,14 +67,27 @@ export function LibraryView({
         </div>
       ) : (
         <div className="grid grid-cols-4 gap-4">
-          {filteredInstances.map(instance => (
-            <InstanceCard
-              key={instance.id}
-              instance={instance}
-              onClick={onSelectInstance}
-              onDelete={onDeleteInstance}
-            />
-          ))}
+          {filteredInstances.map((instance, idx, arr) => {
+            const rowIndex = Math.floor(idx / 4);
+            const itemsInRow = Math.min(4, arr.length - rowIndex * 4);
+            const positionInRow = idx % 4;
+
+            let spanClass = 'col-span-1';
+            if (itemsInRow === 1) spanClass = 'col-span-2';
+            else if (itemsInRow === 2) spanClass = 'col-span-2';
+            else if (itemsInRow === 3)
+              spanClass = positionInRow === 2 ? 'col-span-2' : 'col-span-1';
+
+            return (
+              <div key={instance.id} className={spanClass}>
+                <InstanceCard
+                  instance={instance}
+                  onClick={onSelectInstance}
+                  onDelete={onDeleteInstance}
+                />
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
