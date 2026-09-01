@@ -7,12 +7,12 @@ vi.mock('@tauri-apps/api/core', () => ({
 }));
 
 describe('CreateInstanceModal', () => {
-  it('renders the modal when isOpen is true', () => {
+  it('renders the modal when isOpen is true', async () => {
     render(<CreateInstanceModal isOpen={true} onClose={() => {}} onCreated={() => {}} />);
 
-    expect(screen.getByText('Create New Pack')).toBeInTheDocument();
+    expect(await screen.findByText('Create New Pack')).toBeInTheDocument();
 
-    const modrinthBtn = screen.getByText('Modrinth');
+    const modrinthBtn = await screen.findByText('Modrinth');
     expect(modrinthBtn).toBeInTheDocument();
   });
 
@@ -23,10 +23,12 @@ describe('CreateInstanceModal', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('allows typing an instance name', () => {
+  it('allows typing an instance name', async () => {
     render(<CreateInstanceModal isOpen={true} onClose={() => {}} onCreated={() => {}} />);
 
-    const input = screen.getByPlaceholderText('Autofills from base pack...') as HTMLInputElement;
+    const input = (await screen.findByPlaceholderText(
+      'Autofills from base pack...'
+    )) as HTMLInputElement;
     fireEvent.change(input, { target: { value: 'Test Modpack' } });
 
     expect(input.value).toBe('Test Modpack');
