@@ -10,9 +10,9 @@
     "tauri": "tauri",
     "test": "vitest run && cargo test --manifest-path src-tauri/Cargo.toml",
     "test:ui": "vitest",
-    "check": "prettier --check \"src/**/*.{ts,tsx,css,json}\" && eslint \"src/**/*.{ts,tsx}\" && tsc --noEmit && cargo fmt --manifest-path src-tauri/Cargo.toml --check && cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings",
+    "check": "prettier --check \"src/**/*.{ts,tsx,css,json}\" && eslint \"src/**/*.{ts,tsx}\" && tsc --noEmit && cargo fmt --manifest-path src-tauri/Cargo.toml --check && cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings && pnpm test",
     "fix": "prettier --write \"src/**/*.{ts,tsx,css,json}\" && eslint \"src/**/*.{ts,tsx}\" --fix && cargo fmt --manifest-path src-tauri/Cargo.toml",
-    "update": "pnpm up && cargo update --manifest-path src-tauri/Cargo.toml",
+    "update": "pnpm up && cargo update --manifest-path src-tauri/Cargo.toml && pnpm test",
     "build:zip:win": "pnpm tauri build && powershell -Command \"Compress-Archive -Path src-tauri\\target\\release\\packweaver.exe -DestinationPath packweaver-windows.zip -Force\"",
     "prepare": "husky"
   },

@@ -132,6 +132,7 @@ mod tests {
 
         conn.execute("PRAGMA foreign_keys = ON;", []).unwrap();
 
+        // Instances table
         conn.execute(
             "CREATE TABLE instances (
                 id TEXT PRIMARY KEY,
@@ -145,6 +146,7 @@ mod tests {
                 description TEXT DEFAULT '',
                 last_exported TEXT DEFAULT 'Never',
                 banner_url TEXT DEFAULT '',
+                icon_url TEXT DEFAULT '',
                 export_settings TEXT DEFAULT '{}',
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )",
@@ -152,10 +154,45 @@ mod tests {
         )
         .expect("Failed to create instances table");
 
-        let mut stmt = conn
+        // Instance Mods table
+        conn.execute(
+            "CREATE TABLE instance_mods (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                instance_id TEXT NOT NULL,
+                mod_id TEXT NOT NULL,
+                name TEXT NOT NULL DEFAULT '',
+                mod_version_id TEXT NOT NULL,
+                source TEXT NOT NULL,
+                icon_url TEXT DEFAULT '',
+                is_base BOOLEAN NOT NULL DEFAULT 0,
+                enabled BOOLEAN NOT NULL DEFAULT 1,
+                FOREIGN KEY(instance_id) REFERENCES instances(id) ON DELETE CASCADE,
+                UNIQUE(instance_id, mod_id)
+            )",
+            [],
+        )
+        .expect("Failed to create instance_mods table");
+
+        let mut stmt1 = conn
             .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='instances'")
             .unwrap();
-        let exists = stmt.exists([]).unwrap();
-        assert!(exists, "instances table should exist");
+        assert!(stmt1.exists([]).unwrap(), "instances table should exist");
+
+        let mut stmt2 = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='instance_mods'")
+            .unwrap();
+        assert!(
+            stmt2.exists([]).unwrap(),
+            "instance_mods table should exist"
+        );
+
+        // Verify unique constraint
+        conn.execute("INSERT INTO instances (id, name, base_pack_id, base_pack_version_id, mc_version, loader, source) VALUES ('1', 'test', 'test', 'test', 'test', 'test', 'test')", []).unwrap();
+        conn.execute("INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, source) VALUES ('1', 'm1', 'mod', '1.0', 'local')", []).unwrap();
+        let res = conn.execute("INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, source) VALUES ('1', 'm1', 'mod2', '1.1', 'local')", []);
+        assert!(
+            res.is_err(),
+            "Should enforce unique constraint on instance_id and mod_id"
+        );
     }
 }
