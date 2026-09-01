@@ -45,8 +45,8 @@ export function PluginsView() {
   const exporters = filtered.filter(p => p.category === 'exporter');
 
   return (
-    <div className="p-6 xl:p-10 max-w-[var(--content-max)] animate-slide-in">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+    <div className="p-8 max-w-[var(--content-max)] animate-slide-in">
+      <div className="flex flex-row items-center justify-between gap-4 mb-6">
         <div>
           <h2
             className="text-xl font-semibold tracking-tight mb-1"
@@ -97,7 +97,7 @@ export function PluginsView() {
             </h3>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             {sources.map(plugin => (
               <PluginCard
                 key={plugin.id}
@@ -171,7 +171,7 @@ export function PluginsView() {
             </h3>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             {exporters.map(plugin => (
               <PluginCard
                 key={plugin.id}
