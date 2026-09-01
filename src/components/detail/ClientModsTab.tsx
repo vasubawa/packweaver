@@ -92,74 +92,6 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
 
   const visibleBaseMods = filteredBaseMods.slice(0, baseShowCount);
 
-  // Draft starts from saved state; changes stage locally until Save is clicked.
-  // We store the instance ID alongside the draft so we can detect when the user
-  // navigates to a different instance. On mismatch, we reset during render (React
-  // documents this as the safe alternative to useEffect for derived-from-props state).
-  const [{ draftInstanceId, draft }, setDraftState] = useState({
-    draftInstanceId: instance.id,
-    draft: instance.customMods,
-  });
-  if (draftInstanceId !== instance.id) {
-    setDraftState({ draftInstanceId: instance.id, draft: instance.customMods });
-  }
-  const setDraft = (updater: CustomModItem[] | ((prev: CustomModItem[]) => CustomModItem[])) => {
-    setDraftState(prev => ({
-      draftInstanceId: prev.draftInstanceId,
-      draft: typeof updater === 'function' ? updater(prev.draft) : updater,
-    }));
-  };
-  const [isSaving, setIsSaving] = useState(false);
-
-  const isDirty = JSON.stringify(draft) !== JSON.stringify(instance.customMods);
-  const handleRevert = () => {
-    setDraft(instance.customMods);
-  };
-
-  const handleSave = async () => {
-    setIsSaving(true);
-    try {
-      const savedIds = new Set(instance.customMods.map(m => m.id));
-      const draftIds = new Set(draft.map(m => m.id));
-
-      for (const saved of instance.customMods) {
-        if (!draftIds.has(saved.id)) {
-          await invoke('remove_custom_mod', { instanceId: instance.id, modId: saved.id });
-        }
-      }
-      for (const mod of draft) {
-        if (!savedIds.has(mod.id)) {
-          await invoke('add_custom_mod', {
-            instanceId: instance.id,
-            modId: mod.id,
-            name: mod.name,
-            version: mod.version,
-            source: mod.source,
-            iconUrl: mod.iconUrl || undefined,
-          });
-        }
-      }
-      for (const mod of draft) {
-        const saved = instance.customMods.find(m => m.id === mod.id);
-        if (saved && saved.enabled !== mod.enabled) {
-          await invoke('toggle_mod_state', {
-            instanceId: instance.id,
-            modId: mod.id,
-            enabled: mod.enabled,
-          });
-        }
-      }
-
-      onUpdate({ customMods: draft });
-      addToast('Custom mods saved', 'success');
-    } catch (e) {
-      console.error('Failed to save custom mods:', e);
-      addToast('Failed to save custom mods', 'error');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   const [activeSources] = useState<SourcePlugin[]>(() => getActiveSourcePlugins());
   const [addModSource, setAddModSource] = useState<ModSource>(
     () => (activeSources[0]?.id as ModSource) || 'local'
@@ -176,8 +108,8 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
     'mod'
   );
 
-  const addModToDraft = async (modId: string, name: string, iconUrl?: string) => {
-    if (draft.some(m => m.id === modId)) {
+  const addCustomMod = async (modId: string, name: string, iconUrl?: string) => {
+    if (instance.customMods.some(m => m.id === modId)) {
       addToast(`"${name}" is already added`, 'info');
       return;
     }
@@ -197,12 +129,23 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
         source: addModSource,
         iconUrl,
       };
-      setDraft(prev => [...prev, newMod]);
+
+      await invoke('add_custom_mod', {
+        instanceId: instance.id,
+        modId: newMod.id,
+        name: newMod.name,
+        version: newMod.version,
+        source: newMod.source,
+        iconUrl: newMod.iconUrl || undefined,
+      });
+
+      onUpdate({ customMods: [...instance.customMods, newMod] });
       setModQuery('');
       setManualModName('');
       setShowModResults(false);
+      addToast(`Added "${name}"`, 'success');
     } catch (e) {
-      console.error('Failed to resolve mod version:', e);
+      console.error('Failed to resolve/add custom mod:', e);
       addToast(`Failed to add "${name}"`, 'error');
     } finally {
       setIsAddingMod(false);
@@ -211,15 +154,39 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
 
   const handleAddManual = () => {
     if (!manualModName.trim()) return;
-    addModToDraft(`custom-${Date.now()}`, manualModName.trim());
+    addCustomMod(`custom-${Date.now()}`, manualModName.trim());
   };
 
-  const toggleDraftMod = (id: string) => {
-    setDraft(prev => prev.map(m => (m.id === id ? { ...m, enabled: !m.enabled } : m)));
+  const toggleCustomMod = async (id: string, currentEnabled: boolean) => {
+    try {
+      const nextEnabled = !currentEnabled;
+      await invoke('toggle_mod_state', {
+        instanceId: instance.id,
+        modId: id,
+        enabled: nextEnabled,
+      });
+      onUpdate({
+        customMods: instance.customMods.map(m =>
+          m.id === id ? { ...m, enabled: nextEnabled } : m
+        ),
+      });
+    } catch (e) {
+      console.error('Failed to toggle mod:', e);
+      addToast('Failed to toggle mod', 'error');
+    }
   };
 
-  const removeDraftMod = (id: string) => {
-    setDraft(prev => prev.filter(m => m.id !== id));
+  const removeCustomMod = async (id: string) => {
+    try {
+      await invoke('remove_custom_mod', { instanceId: instance.id, modId: id });
+      onUpdate({
+        customMods: instance.customMods.filter(m => m.id !== id),
+      });
+      addToast('Mod removed', 'success');
+    } catch (e) {
+      console.error('Failed to remove mod:', e);
+      addToast('Failed to remove mod', 'error');
+    }
   };
 
   return (
@@ -262,14 +229,7 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
         >
           <Icon name="wrench" size={12} />
           Custom Mods
-          <span className="badge text-[10.5px] px-1.5 py-0.5">{draft.length}</span>
-          {isDirty && (
-            <span
-              className="w-1.5 h-1.5 rounded-full shrink-0"
-              style={{ background: sc.accent }}
-              title="Unsaved changes"
-            />
-          )}
+          <span className="badge text-[10.5px] px-1.5 py-0.5">{instance.customMods.length}</span>
         </button>
       </div>
 
@@ -309,10 +269,9 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
                 />
               </div>
 
-              {/* Mod card list */}
               <div
-                className="rounded-xl overflow-hidden divide-y divide-[var(--border)]"
-                style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+                className="rounded-xl overflow-x-auto border"
+                style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}
               >
                 {filteredBaseMods.length === 0 ? (
                   <div
@@ -323,68 +282,88 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
                   </div>
                 ) : (
                   <>
-                    {visibleBaseMods.map((mod, i) => {
-                      const parsed = parseModJar(mod.name);
-                      const hue = hashHue(parsed.name);
-                      return (
-                        <div
-                          key={`base-${i}`}
-                          className="flex items-center gap-3 px-3 py-2.5"
-                          title={mod.name}
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr
+                          className="text-[11px] uppercase tracking-wider"
+                          style={{
+                            background: 'var(--bg-muted)',
+                            color: 'var(--text-muted)',
+                            borderBottom: '1px solid var(--border)',
+                          }}
                         >
-                          {/* Colour avatar or icon */}
-                          <div
-                            className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 text-[10px] font-bold select-none overflow-hidden"
-                            style={
-                              mod.iconUrl
-                                ? { background: 'transparent' }
-                                : {
-                                    background: `hsl(${hue} 55% 18%)`,
-                                    color: `hsl(${hue} 80% 72%)`,
-                                    border: `1px solid hsl(${hue} 55% 28%)`,
-                                  }
-                            }
-                          >
-                            {mod.iconUrl ? (
-                              <img
-                                src={mod.iconUrl}
-                                alt=""
-                                className="w-full h-full object-cover"
-                              />
-                            ) : (
-                              parsed.initials
-                            )}
-                          </div>
-
-                          {/* Name + version */}
-                          <div className="min-w-0 flex-1">
-                            <div
-                              className="text-[12.5px] font-medium truncate"
-                              style={{ color: 'var(--text-primary)' }}
+                          <th className="font-medium px-4 py-2.5">Mod</th>
+                          <th className="font-medium px-4 py-2.5 w-32">Version</th>
+                          <th className="font-medium px-4 py-2.5 w-24 text-right">Source</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[var(--border)]">
+                        {visibleBaseMods.map((mod, i) => {
+                          const parsed = parseModJar(mod.name);
+                          const hue = hashHue(parsed.name);
+                          return (
+                            <tr
+                              key={`base-${i}`}
+                              className="group transition-colors"
+                              style={{ ':hover': { background: 'var(--bg-muted)' } } as any}
+                              title={mod.name}
                             >
-                              {parsed.name}
-                            </div>
-                            {parsed.version && (
-                              <div
-                                className="text-[10.5px] mt-0.5"
+                              <td className="px-4 py-2.5 flex items-center gap-3">
+                                {/* Colour avatar or icon */}
+                                <div
+                                  className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 text-[10px] font-bold select-none overflow-hidden"
+                                  style={
+                                    mod.iconUrl
+                                      ? { background: 'transparent' }
+                                      : {
+                                          background: `hsl(${hue} 55% 18%)`,
+                                          color: `hsl(${hue} 80% 72%)`,
+                                          border: `1px solid hsl(${hue} 55% 28%)`,
+                                        }
+                                  }
+                                >
+                                  {mod.iconUrl ? (
+                                    <img
+                                      src={mod.iconUrl}
+                                      alt=""
+                                      className="w-full h-full object-cover"
+                                    />
+                                  ) : (
+                                    parsed.initials
+                                  )}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div
+                                    className="text-[12.5px] font-medium truncate"
+                                    style={{ color: 'var(--text-primary)' }}
+                                  >
+                                    {parsed.name}
+                                  </div>
+                                </div>
+                              </td>
+                              <td
+                                className="px-4 py-2.5 text-[11px]"
                                 style={{ color: 'var(--text-muted)' }}
                               >
-                                v{parsed.version}
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Lock badge */}
-                          <div
-                            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] shrink-0"
-                            style={{ background: 'var(--bg-muted)', color: 'var(--text-muted)' }}
-                          >
-                            <Icon name="lock" size={9} />
-                            base
-                          </div>
-                        </div>
-                      );
-                    })}
+                                {parsed.version ? `v${parsed.version}` : 'Unknown'}
+                              </td>
+                              <td className="px-4 py-2.5 text-right">
+                                <div
+                                  className="inline-flex items-center justify-center gap-1 px-1.5 py-0.5 rounded text-[10px] shrink-0"
+                                  style={{
+                                    background: 'var(--bg-muted)',
+                                    color: 'var(--text-muted)',
+                                  }}
+                                >
+                                  <Icon name="lock" size={9} />
+                                  base
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
 
                     {filteredBaseMods.length > baseShowCount && (
                       <div className="px-3 py-3 flex items-center justify-center">
@@ -457,63 +436,96 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
             style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
           >
             {currentSourcePlugin?.searchMods ? (
-              <div className="relative flex-1">
-                <div
-                  className="absolute left-3 top-1/2 -translate-y-1/2"
-                  style={{ color: 'var(--text-muted)' }}
-                >
-                  {isAddingMod ? (
-                    <span style={{ color: sc.accent, fontSize: 10 }}>…</span>
-                  ) : (
-                    <Icon name="search" size={13} />
+              <>
+                <div className="relative flex-1">
+                  <div
+                    className="absolute left-3 top-1/2 -translate-y-1/2"
+                    style={{ color: 'var(--text-muted)' }}
+                  >
+                    {isAddingMod ? (
+                      <span style={{ color: sc.accent, fontSize: 10 }}>…</span>
+                    ) : (
+                      <Icon name="search" size={13} />
+                    )}
+                  </div>
+                  <input
+                    className="form-input text-xs"
+                    style={{ paddingLeft: 32 }}
+                    placeholder={`Search ${currentSourcePlugin.name} mods...`}
+                    value={modQuery}
+                    disabled={isAddingMod}
+                    onChange={e => {
+                      setModQuery(e.target.value);
+                      setShowModResults(true);
+                    }}
+                    onFocus={() => setShowModResults(true)}
+                    onBlur={() => setShowModResults(false)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && modQuery.trim()) {
+                        addCustomMod(modQuery.trim(), modQuery.trim());
+                      }
+                    }}
+                  />
+                  {showModResults && isSearchingMods && (
+                    <div className="search-results">
+                      <div
+                        className="px-3 py-2.5 text-[12px]"
+                        style={{ color: 'var(--text-muted)' }}
+                      >
+                        Searching...
+                      </div>
+                    </div>
+                  )}
+                  {showModResults && !isSearchingMods && modResults.length > 0 && (
+                    <div className="search-results">
+                      {modResults.map((r: SearchResult) => {
+                        const resultSc = SOURCE_COLORS[addModSource] || SOURCE_COLORS.local;
+                        return (
+                          <div
+                            key={r.id}
+                            className="search-result-item flex items-center justify-between"
+                            onMouseDown={e => {
+                              e.preventDefault();
+                              addCustomMod(r.id, r.name, r.iconUrl);
+                            }}
+                          >
+                            <div>
+                              <div className="font-medium" style={{ color: 'var(--text-primary)' }}>
+                                {r.name}
+                              </div>
+                              {r.author && (
+                                <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                                  by {r.author}
+                                </div>
+                              )}
+                            </div>
+                            <button
+                              className="btn-accent text-[11px] px-2 py-0.5 rounded flex items-center gap-1 shrink-0"
+                              style={{ background: resultSc.accent }}
+                            >
+                              <Icon name="plus" size={11} />
+                              Add
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
                   )}
                 </div>
-                <input
-                  className="form-input text-xs"
-                  style={{ paddingLeft: 32 }}
-                  placeholder={`Search ${currentSourcePlugin.name} mods...`}
-                  value={modQuery}
-                  disabled={isAddingMod}
-                  onChange={e => {
-                    setModQuery(e.target.value);
-                    setShowModResults(true);
+                <button
+                  className="btn-accent text-xs px-3.5 py-1.5 font-medium shrink-0"
+                  style={{
+                    background: (SOURCE_COLORS[addModSource] || SOURCE_COLORS.local).accent,
                   }}
-                  onFocus={() => setShowModResults(true)}
-                  onBlur={() => setShowModResults(false)}
-                />
-                {showModResults && isSearchingMods && (
-                  <div className="search-results">
-                    <div className="px-3 py-2.5 text-[12px]" style={{ color: 'var(--text-muted)' }}>
-                      Searching...
-                    </div>
-                  </div>
-                )}
-                {showModResults && !isSearchingMods && modResults.length > 0 && (
-                  <div className="search-results">
-                    {modResults.map((r: SearchResult) => (
-                      <div
-                        key={r.id}
-                        className="search-result-item"
-                        onMouseDown={e => {
-                          e.preventDefault();
-                          addModToDraft(r.id, r.name, r.iconUrl);
-                        }}
-                      >
-                        <div>
-                          <div className="font-medium" style={{ color: 'var(--text-primary)' }}>
-                            {r.name}
-                          </div>
-                          {r.author && (
-                            <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
-                              by {r.author}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+                  onClick={() => {
+                    if (modQuery.trim()) addCustomMod(modQuery.trim(), modQuery.trim());
+                  }}
+                  disabled={isAddingMod || !modQuery.trim()}
+                >
+                  <Icon name="plus" size={13} />
+                  <span>Add</span>
+                </button>
+              </>
             ) : (
               <>
                 <input
@@ -526,7 +538,9 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
                 />
                 <button
                   className="btn-accent text-xs px-3.5 py-1.5 font-medium shrink-0"
-                  style={{ background: sc.accent }}
+                  style={{
+                    background: (SOURCE_COLORS[addModSource] || SOURCE_COLORS.local).accent,
+                  }}
                   onClick={handleAddManual}
                   disabled={isAddingMod || !manualModName.trim()}
                 >
@@ -536,9 +550,8 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
               </>
             )}
           </div>
-
-          {/* Draft mod list */}
-          {draft.length === 0 ? (
+          {/* Custom mod list */}
+          {instance.customMods.length === 0 ? (
             <div
               className="p-10 text-center rounded-xl"
               style={{ background: 'var(--bg-surface)', border: '1px dashed var(--border)' }}
@@ -549,126 +562,118 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
             </div>
           ) : (
             <div
-              className="rounded-xl overflow-hidden divide-y divide-[var(--border)]"
-              style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+              className="rounded-xl overflow-x-auto border"
+              style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}
             >
-              {draft.map(mod => {
-                const modSc = SOURCE_COLORS[mod.source] || SOURCE_COLORS.local;
-                const isSavedMod = instance.customMods.some(m => m.id === mod.id);
-                const hue = hashHue(mod.name);
-                const initials = mod.name
-                  .split(' ')
-                  .filter(Boolean)
-                  .slice(0, 2)
-                  .map(w => w[0].toUpperCase())
-                  .join('');
-
-                return (
-                  <div
-                    key={mod.id}
-                    className="flex items-center justify-between gap-3 px-3 py-2.5"
-                    style={{ opacity: mod.enabled ? 1 : 0.55 }}
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr
+                    className="text-[11px] uppercase tracking-wider"
+                    style={{
+                      background: 'var(--bg-muted)',
+                      color: 'var(--text-muted)',
+                      borderBottom: '1px solid var(--border)',
+                    }}
                   >
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      {/* Colour avatar or icon */}
-                      <div
-                        className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 text-[10px] font-bold select-none overflow-hidden"
-                        style={
-                          mod.iconUrl
-                            ? { background: 'transparent' }
-                            : {
-                                background: `hsl(${hue} 55% 18%)`,
-                                color: `hsl(${hue} 80% 72%)`,
-                                border: `1px solid hsl(${hue} 55% 28%)`,
-                              }
-                        }
-                      >
-                        {mod.iconUrl ? (
-                          <img src={mod.iconUrl} alt="" className="w-full h-full object-cover" />
-                        ) : (
-                          initials || mod.name.slice(0, 2).toUpperCase()
-                        )}
-                      </div>
+                    <th className="font-medium px-4 py-2.5 w-12 text-center">Enable</th>
+                    <th className="font-medium px-4 py-2.5">Mod</th>
+                    <th className="font-medium px-4 py-2.5 w-32">Version</th>
+                    <th className="font-medium px-4 py-2.5 w-32 text-center">Source</th>
+                    <th className="font-medium px-4 py-2.5 w-16 text-center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--border)]">
+                  {instance.customMods.map(mod => {
+                    const initials = mod.name.match(/[A-Z]/g)?.join('').slice(0, 2) || '';
+                    const modSc = SOURCE_COLORS[mod.source] || SOURCE_COLORS.local;
+                    const hue = hashHue(mod.name);
 
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <div
-                            className="text-[13px] font-medium truncate"
-                            style={{ color: 'var(--text-primary)' }}
+                    return (
+                      <tr
+                        key={mod.id}
+                        className="group transition-colors"
+                        style={{ opacity: mod.enabled ? 1 : 0.55 }}
+                      >
+                        <td className="px-4 py-2.5 text-center">
+                          <button
+                            role="switch"
+                            aria-checked={mod.enabled}
+                            aria-label={`Toggle ${mod.name}`}
+                            className={`theme-toggle-track ${mod.enabled ? 'on' : ''}`}
+                            style={mod.enabled ? { background: modSc.accent } : {}}
+                            onClick={() => toggleCustomMod(mod.id, mod.enabled)}
                           >
-                            {mod.name}
-                          </div>
-                          {!isSavedMod && (
-                            <span
-                              className="text-[9.5px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide shrink-0"
-                              style={{ background: sc.soft, color: sc.accent }}
+                            <div className="theme-toggle-knob" />
+                          </button>
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <div className="flex items-center gap-3">
+                            {/* Colour avatar or icon */}
+                            <div
+                              className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 text-[10px] font-bold select-none overflow-hidden"
+                              style={
+                                mod.iconUrl
+                                  ? { background: 'transparent' }
+                                  : {
+                                      background: `hsl(${hue} 55% 18%)`,
+                                      color: `hsl(${hue} 80% 72%)`,
+                                      border: `1px solid hsl(${hue} 55% 28%)`,
+                                    }
+                              }
                             >
-                              unsaved
-                            </span>
-                          )}
-                        </div>
-                        <div
-                          className="text-[11px] flex items-center gap-2 mt-0.5"
+                              {mod.iconUrl ? (
+                                <img
+                                  src={mod.iconUrl}
+                                  alt=""
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                initials || mod.name.slice(0, 2).toUpperCase()
+                              )}
+                            </div>
+
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <div
+                                  className="text-[13px] font-medium truncate"
+                                  style={{ color: 'var(--text-primary)' }}
+                                >
+                                  {mod.name}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td
+                          className="px-4 py-2.5 text-[11px]"
                           style={{ color: 'var(--text-muted)' }}
                         >
-                          <span>v{mod.version}</span>
+                          v{mod.version}
+                        </td>
+                        <td className="px-4 py-2.5 text-center">
                           <span
-                            className="px-1.5 py-0.5 text-[10px] rounded font-medium"
+                            className="px-2 py-0.5 text-[10px] rounded font-medium inline-block"
                             style={{ background: modSc.soft, color: modSc.accent }}
                           >
                             {modSc.label}
                           </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2.5 shrink-0">
-                      <button
-                        role="switch"
-                        aria-checked={mod.enabled}
-                        aria-label={`Toggle ${mod.name}`}
-                        className={`theme-toggle-track ${mod.enabled ? 'on' : ''}`}
-                        style={mod.enabled ? { background: modSc.accent } : {}}
-                        onClick={() => toggleDraftMod(mod.id)}
-                      >
-                        <div className="theme-toggle-knob" />
-                      </button>
-                      <button
-                        className="btn-ghost p-1.5 rounded text-red-400 hover:text-red-300 hover:bg-red-500/10"
-                        onClick={() => removeDraftMod(mod.id)}
-                        title="Remove mod"
-                      >
-                        <Icon name="trash" size={13} />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
+                        </td>
+                        <td className="px-4 py-2.5 text-center">
+                          <button
+                            className="btn-ghost p-1.5 rounded text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                            onClick={() => removeCustomMod(mod.id)}
+                            title="Remove mod"
+                          >
+                            <Icon name="trash" size={13} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
-
-          {/* Save / Revert footer */}
-          <div className="flex items-center justify-end gap-2 pt-1">
-            <button
-              className="btn-ghost text-xs px-3 py-1.5"
-              onClick={handleRevert}
-              disabled={!isDirty || isSaving}
-              style={{ opacity: isDirty && !isSaving ? 1 : 0.4 }}
-            >
-              Revert
-            </button>
-            <button
-              className="btn-accent text-xs px-3.5 py-1.5 font-medium"
-              style={{
-                background: isDirty && !isSaving ? sc.accent : undefined,
-                opacity: isDirty && !isSaving ? 1 : 0.4,
-              }}
-              onClick={handleSave}
-              disabled={!isDirty || isSaving}
-            >
-              {isSaving ? 'Saving...' : 'Save Changes'}
-            </button>
-          </div>
         </div>
       )}
     </div>
