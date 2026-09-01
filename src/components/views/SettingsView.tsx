@@ -35,7 +35,7 @@ export function SettingsView() {
   };
 
   return (
-    <div className="p-6 xl:p-10 max-w-3xl xl:max-w-4xl animate-slide-in flex flex-col min-h-full">
+    <div className="p-8 max-w-4xl animate-slide-in flex flex-col min-h-full">
       <h2
         className="text-xl font-semibold tracking-tight mb-1"
         style={{ color: 'var(--text-primary)', fontFamily: "'Newsreader', Georgia, serif" }}

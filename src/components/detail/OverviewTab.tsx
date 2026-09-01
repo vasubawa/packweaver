@@ -119,7 +119,7 @@ export function OverviewTab({ instance, onUpdate }: OverviewTabProps) {
         <h3 className="text-xs font-semibold uppercase tracking-wider mb-3 text-[var(--text-muted)]">
           Pack Specifications
         </h3>
-        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
+        <div className="grid grid-cols-3 gap-3">
           {statCards.map(item => (
             <div
               key={item.label}
@@ -154,7 +154,7 @@ export function OverviewTab({ instance, onUpdate }: OverviewTabProps) {
           className="p-4 rounded-xl flex flex-col gap-4"
           style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
         >
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="form-label mb-1.5 block text-xs font-medium">
                 Pack Release Version
