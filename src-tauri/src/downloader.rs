@@ -373,4 +373,36 @@ mod tests {
         assert_eq!(index.files[0].path, "mods/sodium.jar");
         assert_eq!(index.files[0].env.as_ref().unwrap().client, "required");
     }
+
+    #[test]
+    fn test_parse_modrinth_index_no_env() {
+        let json_data = r#"{
+            "dependencies": {},
+            "files": [
+                {
+                    "path": "config/test.json",
+                    "downloads": []
+                }
+            ]
+        }"#;
+
+        let index: ModrinthIndex = serde_json::from_str(json_data).expect("Failed to parse");
+        assert_eq!(index.files.len(), 1);
+        assert!(index.files[0].env.is_none());
+    }
+
+    #[test]
+    fn test_parse_modrinth_index_invalid() {
+        let json_data = r#"{
+            "dependencies": {},
+            "files": [
+                {
+                    "downloads": []
+                }
+            ]
+        }"#;
+
+        let res: Result<ModrinthIndex, _> = serde_json::from_str(json_data);
+        assert!(res.is_err(), "Should fail if path is missing");
+    }
 }
