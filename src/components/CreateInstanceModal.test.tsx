@@ -1,6 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { CreateInstanceModal } from './CreateInstanceModal';
+import { ToastProvider } from '../context/ToastContext';
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
@@ -8,7 +9,11 @@ vi.mock('@tauri-apps/api/core', () => ({
 
 describe('CreateInstanceModal', () => {
   it('renders the modal when isOpen is true', async () => {
-    render(<CreateInstanceModal isOpen={true} onClose={() => {}} onCreated={() => {}} />);
+    render(
+      <ToastProvider>
+        <CreateInstanceModal isOpen={true} onClose={() => {}} onCreated={() => {}} />
+      </ToastProvider>
+    );
 
     expect(await screen.findByText('Create New Pack')).toBeInTheDocument();
 
@@ -18,13 +23,19 @@ describe('CreateInstanceModal', () => {
 
   it('does not render when isOpen is false', () => {
     const { container } = render(
-      <CreateInstanceModal isOpen={false} onClose={() => {}} onCreated={() => {}} />
+      <ToastProvider>
+        <CreateInstanceModal isOpen={false} onClose={() => {}} onCreated={() => {}} />
+      </ToastProvider>
     );
     expect(container).toBeEmptyDOMElement();
   });
 
   it('allows typing an instance name', async () => {
-    render(<CreateInstanceModal isOpen={true} onClose={() => {}} onCreated={() => {}} />);
+    render(
+      <ToastProvider>
+        <CreateInstanceModal isOpen={true} onClose={() => {}} onCreated={() => {}} />
+      </ToastProvider>
+    );
 
     const input = (await screen.findByPlaceholderText(
       'Autofills from base pack...'

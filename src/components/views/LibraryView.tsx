@@ -15,7 +15,7 @@ export function LibraryView({
   instances,
   searchQuery,
   onSelectInstance,
-  // onNewInstance,
+  onNewInstance,
   onDeleteInstance,
 }: LibraryViewProps) {
   const filteredInstances = instances.filter(
@@ -55,9 +55,15 @@ export function LibraryView({
           <p className="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
             No packs found
           </p>
-          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+          <p className="text-xs mb-4" style={{ color: 'var(--text-muted)' }}>
             {searchQuery ? 'Try a different search term' : 'Create your first pack to get started'}
           </p>
+          {!searchQuery && (
+            <button className="btn-accent text-[13px] px-4 py-2" onClick={onNewInstance}>
+              <Icon name="plus" size={14} />
+              New Pack
+            </button>
+          )}
         </div>
       ) : (
         <div

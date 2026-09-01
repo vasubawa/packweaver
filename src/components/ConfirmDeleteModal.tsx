@@ -4,6 +4,7 @@ import { Icon } from './Icon';
 interface ConfirmDeleteModalProps {
   isOpen: boolean;
   packName: string;
+  isDeleting?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -11,6 +12,7 @@ interface ConfirmDeleteModalProps {
 export function ConfirmDeleteModal({
   isOpen,
   packName,
+  isDeleting = false,
   onConfirm,
   onCancel,
 }: ConfirmDeleteModalProps) {
@@ -72,15 +74,22 @@ export function ConfirmDeleteModal({
           className="flex items-center justify-end gap-3 px-6 py-4"
           style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-muted)' }}
         >
-          <button className="btn-secondary text-[13px] px-4 py-2" onClick={onCancel}>
+          <button
+            className="btn-secondary text-[13px] px-4 py-2"
+            onClick={onCancel}
+            disabled={isDeleting}
+            style={{ opacity: isDeleting ? 0.5 : 1 }}
+          >
             Cancel
           </button>
           <button
             className="btn-danger text-[13px] px-4 py-2 flex items-center gap-1.5"
             onClick={onConfirm}
+            disabled={isDeleting}
+            style={{ opacity: isDeleting ? 0.5 : 1 }}
           >
             <Icon name="trash" size={14} />
-            Delete Pack
+            {isDeleting ? 'Deleting...' : 'Delete Pack'}
           </button>
         </div>
       </div>

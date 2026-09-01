@@ -42,6 +42,7 @@ pub fn init_db(_app_handle: &tauri::AppHandle) -> Result<Connection> {
             description TEXT DEFAULT '',
             last_exported TEXT DEFAULT 'Never',
             banner_url TEXT DEFAULT '',
+            icon_url TEXT DEFAULT '',
             export_settings TEXT DEFAULT '{}',
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )",
@@ -56,6 +57,7 @@ pub fn init_db(_app_handle: &tauri::AppHandle) -> Result<Connection> {
             name TEXT NOT NULL DEFAULT '',
             mod_version_id TEXT NOT NULL,
             source TEXT NOT NULL,
+            icon_url TEXT DEFAULT '',
             is_base BOOLEAN NOT NULL DEFAULT 0,
             enabled BOOLEAN NOT NULL DEFAULT 1,
             FOREIGN KEY(instance_id) REFERENCES instances(id) ON DELETE CASCADE,
@@ -72,6 +74,28 @@ pub fn init_db(_app_handle: &tauri::AppHandle) -> Result<Connection> {
     if !has_name_column {
         conn.execute(
             "ALTER TABLE instance_mods ADD COLUMN name TEXT NOT NULL DEFAULT ''",
+            [],
+        )?;
+    }
+
+    let has_instance_icon = conn
+        .prepare("SELECT name FROM pragma_table_info('instances') WHERE name = 'icon_url'")
+        .and_then(|mut stmt| stmt.exists([]))
+        .unwrap_or(true);
+    if !has_instance_icon {
+        conn.execute(
+            "ALTER TABLE instances ADD COLUMN icon_url TEXT DEFAULT ''",
+            [],
+        )?;
+    }
+
+    let has_mod_icon = conn
+        .prepare("SELECT name FROM pragma_table_info('instance_mods') WHERE name = 'icon_url'")
+        .and_then(|mut stmt| stmt.exists([]))
+        .unwrap_or(true);
+    if !has_mod_icon {
+        conn.execute(
+            "ALTER TABLE instance_mods ADD COLUMN icon_url TEXT DEFAULT ''",
             [],
         )?;
     }

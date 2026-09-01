@@ -86,7 +86,7 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
   const filteredBaseMods = useMemo(() => {
     const q = baseFilter.trim().toLowerCase();
     return q
-      ? instance.basePackMods.filter(m => m.toLowerCase().includes(q))
+      ? instance.basePackMods.filter(m => m.name.toLowerCase().includes(q))
       : instance.basePackMods;
   }, [instance.basePackMods, baseFilter]);
 
@@ -135,6 +135,7 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
             name: mod.name,
             version: mod.version,
             source: mod.source,
+            iconUrl: mod.iconUrl || undefined,
           });
         }
       }
@@ -175,7 +176,7 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
     'mod'
   );
 
-  const addModToDraft = async (modId: string, name: string) => {
+  const addModToDraft = async (modId: string, name: string, iconUrl?: string) => {
     if (draft.some(m => m.id === modId)) {
       addToast(`"${name}" is already added`, 'info');
       return;
@@ -194,6 +195,7 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
         enabled: true,
         isBase: false,
         source: addModSource,
+        iconUrl,
       };
       setDraft(prev => [...prev, newMod]);
       setModQuery('');
@@ -280,7 +282,9 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
               style={{ background: 'var(--bg-surface)', border: '1px dashed var(--border)' }}
             >
               <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                This pack has no base mods listed.
+                {instance.status !== 'Ready'
+                  ? 'Base pack is currently downloading or processing...'
+                  : 'This pack has no base mods listed.'}
               </p>
             </div>
           ) : (
@@ -319,25 +323,37 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
                   </div>
                 ) : (
                   <>
-                    {visibleBaseMods.map((rawName, i) => {
-                      const parsed = parseModJar(rawName);
+                    {visibleBaseMods.map((mod, i) => {
+                      const parsed = parseModJar(mod.name);
                       const hue = hashHue(parsed.name);
                       return (
                         <div
                           key={`base-${i}`}
                           className="flex items-center gap-3 px-3 py-2.5"
-                          title={rawName}
+                          title={mod.name}
                         >
-                          {/* Colour avatar */}
+                          {/* Colour avatar or icon */}
                           <div
-                            className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 text-[10px] font-bold select-none"
-                            style={{
-                              background: `hsl(${hue} 55% 18%)`,
-                              color: `hsl(${hue} 80% 72%)`,
-                              border: `1px solid hsl(${hue} 55% 28%)`,
-                            }}
+                            className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 text-[10px] font-bold select-none overflow-hidden"
+                            style={
+                              mod.iconUrl
+                                ? { background: 'transparent' }
+                                : {
+                                    background: `hsl(${hue} 55% 18%)`,
+                                    color: `hsl(${hue} 80% 72%)`,
+                                    border: `1px solid hsl(${hue} 55% 28%)`,
+                                  }
+                            }
                           >
-                            {parsed.initials}
+                            {mod.iconUrl ? (
+                              <img
+                                src={mod.iconUrl}
+                                alt=""
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              parsed.initials
+                            )}
                           </div>
 
                           {/* Name + version */}
@@ -480,7 +496,7 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
                         className="search-result-item"
                         onMouseDown={e => {
                           e.preventDefault();
-                          addModToDraft(r.id, r.name);
+                          addModToDraft(r.id, r.name, r.iconUrl);
                         }}
                       >
                         <div>
@@ -554,16 +570,24 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
                     style={{ opacity: mod.enabled ? 1 : 0.55 }}
                   >
                     <div className="flex items-center gap-3 min-w-0 flex-1">
-                      {/* Colour avatar */}
+                      {/* Colour avatar or icon */}
                       <div
-                        className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 text-[10px] font-bold select-none"
-                        style={{
-                          background: `hsl(${hue} 55% 18%)`,
-                          color: `hsl(${hue} 80% 72%)`,
-                          border: `1px solid hsl(${hue} 55% 28%)`,
-                        }}
+                        className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 text-[10px] font-bold select-none overflow-hidden"
+                        style={
+                          mod.iconUrl
+                            ? { background: 'transparent' }
+                            : {
+                                background: `hsl(${hue} 55% 18%)`,
+                                color: `hsl(${hue} 80% 72%)`,
+                                border: `1px solid hsl(${hue} 55% 28%)`,
+                              }
+                        }
                       >
-                        {initials || mod.name.slice(0, 2).toUpperCase()}
+                        {mod.iconUrl ? (
+                          <img src={mod.iconUrl} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          initials || mod.name.slice(0, 2).toUpperCase()
+                        )}
                       </div>
 
                       <div className="min-w-0 flex-1">
