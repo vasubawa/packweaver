@@ -409,6 +409,7 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
                             <div
                               key={pack.id}
                               className="search-result-item"
+                              style={{ '--hover-bg': sc.soft } as React.CSSProperties}
                               onMouseDown={e => {
                                 e.preventDefault();
                                 handleSelectPack(pack);

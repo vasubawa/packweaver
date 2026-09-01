@@ -48,7 +48,7 @@ export function DetailHeader({
       <div
         className="detail-banner relative overflow-hidden shrink-0"
         style={{
-          height: 'clamp(120px, 12vh, 200px)',
+          height: 'clamp(140px, 25vh, 360px)',
           background:
             instance.bannerUrl || instance.iconUrl
               ? `url(${instance.bannerUrl || instance.iconUrl}) center/cover no-repeat`
@@ -205,10 +205,9 @@ export function DetailHeader({
               <span>Export Pack</span>
             </button>
             <button
-              className="btn-ghost text-red-400 hover:text-red-300 hover:bg-red-500/10 p-2 rounded-md"
+              className="btn-danger text-xs px-3.5 py-2 font-medium rounded-md"
               onClick={requestDelete}
               title="Delete pack"
-              style={{ border: '1px solid var(--border)' }}
             >
               <Icon name="trash" size={15} />
             </button>

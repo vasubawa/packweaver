@@ -77,6 +77,8 @@
     color: var(--text-primary);
     -webkit-font-smoothing: antialiased;
     @apply h-screen overflow-hidden;
+    /* Scale the entire UI linearly based on window width compared to 480p (854px) */
+    zoom: calc(100vw / 854);
   }
 }
 
@@ -520,7 +522,7 @@
     font-size: 13px;
   }
   .search-result-item:hover {
-    background: var(--bg-muted);
+    background: var(--hover-bg, var(--bg-muted));
   }
   .toggle-track {
     width: 34px;
