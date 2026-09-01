@@ -56,8 +56,11 @@ pub fn init_db(_app_handle: &tauri::AppHandle) -> Result<Connection> {
             mod_id TEXT NOT NULL,
             name TEXT NOT NULL DEFAULT '',
             mod_version_id TEXT NOT NULL,
+            file_name TEXT,
             source TEXT NOT NULL,
             icon_url TEXT DEFAULT '',
+            author TEXT DEFAULT '',
+            description TEXT DEFAULT '',
             is_base BOOLEAN NOT NULL DEFAULT 0,
             enabled BOOLEAN NOT NULL DEFAULT 1,
             FOREIGN KEY(instance_id) REFERENCES instances(id) ON DELETE CASCADE,
@@ -78,6 +81,14 @@ pub fn init_db(_app_handle: &tauri::AppHandle) -> Result<Connection> {
         )?;
     }
 
+    let has_file_name_column = conn
+        .prepare("SELECT name FROM pragma_table_info('instance_mods') WHERE name = 'file_name'")
+        .and_then(|mut stmt| stmt.exists([]))
+        .unwrap_or(true);
+    if !has_file_name_column {
+        conn.execute("ALTER TABLE instance_mods ADD COLUMN file_name TEXT", [])?;
+    }
+
     let has_instance_icon = conn
         .prepare("SELECT name FROM pragma_table_info('instances') WHERE name = 'icon_url'")
         .and_then(|mut stmt| stmt.exists([]))
@@ -96,6 +107,28 @@ pub fn init_db(_app_handle: &tauri::AppHandle) -> Result<Connection> {
     if !has_mod_icon {
         conn.execute(
             "ALTER TABLE instance_mods ADD COLUMN icon_url TEXT DEFAULT ''",
+            [],
+        )?;
+    }
+
+    let has_mod_author = conn
+        .prepare("SELECT name FROM pragma_table_info('instance_mods') WHERE name = 'author'")
+        .and_then(|mut stmt| stmt.exists([]))
+        .unwrap_or(true);
+    if !has_mod_author {
+        conn.execute(
+            "ALTER TABLE instance_mods ADD COLUMN author TEXT DEFAULT ''",
+            [],
+        )?;
+    }
+
+    let has_mod_description = conn
+        .prepare("SELECT name FROM pragma_table_info('instance_mods') WHERE name = 'description'")
+        .and_then(|mut stmt| stmt.exists([]))
+        .unwrap_or(true);
+    if !has_mod_description {
+        conn.execute(
+            "ALTER TABLE instance_mods ADD COLUMN description TEXT DEFAULT ''",
             [],
         )?;
     }
@@ -164,6 +197,8 @@ mod tests {
                 mod_version_id TEXT NOT NULL,
                 source TEXT NOT NULL,
                 icon_url TEXT DEFAULT '',
+                author TEXT DEFAULT '',
+                description TEXT DEFAULT '',
                 is_base BOOLEAN NOT NULL DEFAULT 0,
                 enabled BOOLEAN NOT NULL DEFAULT 1,
                 FOREIGN KEY(instance_id) REFERENCES instances(id) ON DELETE CASCADE,

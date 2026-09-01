@@ -6,10 +6,13 @@ pub struct InstanceMod {
     pub id: String,
     pub name: String,
     pub version: String,
+    pub file_name: Option<String>,
     pub source: String,
     pub is_base: bool,
     pub enabled: bool,
     pub icon_url: Option<String>,
+    pub author: Option<String>,
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

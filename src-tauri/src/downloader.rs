@@ -36,6 +36,7 @@ struct ModrinthIndex {
 #[derive(Deserialize, Debug)]
 struct ModrinthFile {
     path: String,
+    hashes: Option<std::collections::HashMap<String, String>>,
     downloads: Vec<String>,
     env: Option<ModrinthEnv>,
 }
@@ -43,6 +44,112 @@ struct ModrinthFile {
 #[derive(Deserialize, Debug)]
 struct ModrinthEnv {
     client: String,
+}
+
+#[derive(Deserialize, Debug)]
+struct ModrinthVersionInfo {
+    project_id: String,
+    version_number: String,
+}
+
+#[derive(Deserialize, Debug)]
+struct ModrinthProjectInfo {
+    id: String,
+    title: String,
+    description: Option<String>,
+    icon_url: Option<String>,
+    organization: Option<String>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct ModEnrichment {
+    name: String,
+    version: String,
+    author: Option<String>,
+    description: Option<String>,
+    icon_url: Option<String>,
+}
+
+async fn fetch_modrinth_enrichment(
+    client: &Client,
+    hashes: &[String],
+) -> std::collections::HashMap<String, ModEnrichment> {
+    let mut map = std::collections::HashMap::new();
+    if hashes.is_empty() {
+        return map;
+    }
+
+    let payload = serde_json::json!({
+        "hashes": hashes,
+        "algorithm": "sha1"
+    });
+
+    let version_resp = match client
+        .post("https://api.modrinth.com/v2/version_files")
+        .json(&payload)
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(_) => return map,
+    };
+
+    let version_map: std::collections::HashMap<String, ModrinthVersionInfo> =
+        match version_resp.json().await {
+            Ok(v) => v,
+            Err(_) => return map,
+        };
+
+    let mut project_ids: Vec<String> = version_map.values().map(|v| v.project_id.clone()).collect();
+    project_ids.sort();
+    project_ids.dedup();
+
+    if project_ids.is_empty() {
+        return map;
+    }
+
+    let proj_json_str = match serde_json::to_string(&project_ids) {
+        Ok(s) => s,
+        Err(_) => return map,
+    };
+
+    let mut proj_url = match url::Url::parse("https://api.modrinth.com/v2/projects") {
+        Ok(u) => u,
+        Err(_) => return map,
+    };
+    proj_url
+        .query_pairs_mut()
+        .append_pair("ids", &proj_json_str);
+
+    let proj_resp = match client.get(proj_url.as_str()).send().await {
+        Ok(r) => r,
+        Err(_) => return map,
+    };
+
+    let projects: Vec<ModrinthProjectInfo> = match proj_resp.json().await {
+        Ok(p) => p,
+        Err(_) => return map,
+    };
+
+    let project_map: std::collections::HashMap<String, ModrinthProjectInfo> =
+        projects.into_iter().map(|p| (p.id.clone(), p)).collect();
+
+    for (sha1, v_info) in version_map {
+        if let Some(p_info) = project_map.get(&v_info.project_id) {
+            map.insert(
+                sha1,
+                ModEnrichment {
+                    name: p_info.title.clone(),
+                    version: v_info.version_number.clone(),
+                    author: p_info.organization.clone(),
+                    description: p_info.description.clone(),
+                    icon_url: p_info.icon_url.clone(),
+                },
+            );
+        }
+    }
+
+    map
 }
 
 pub async fn run_pipeline(
@@ -53,7 +160,7 @@ pub async fn run_pipeline(
     source: String,
 ) -> Result<(), String> {
     let client = Client::builder()
-        .user_agent("packweaver/0.1.0")
+        .user_agent("packweaver/0.1.0 (packweaver-app)")
         .connect_timeout(std::time::Duration::from_secs(10))
         .timeout(std::time::Duration::from_secs(120))
         .build()
@@ -158,11 +265,38 @@ pub async fn run_pipeline(
         let total_files = index.files.len() as u32;
         emit_progress("Downloading Mods...", 0, total_files);
 
+        let sha1_hashes: Vec<String> = index
+            .files
+            .iter()
+            .filter_map(|f| f.hashes.as_ref()?.get("sha1").cloned())
+            .collect();
+
+        let enrichment_map = fetch_modrinth_enrichment(&client, &sha1_hashes).await;
+
         let mut completed = 0;
         for chunk in index.files.chunks(5) {
             let mut tasks = Vec::new();
             for file in chunk {
+                // Extract project ID from download URL if possible
+                let mut mod_id = file.path.clone();
                 let dl_url = file.downloads.first().cloned().unwrap_or_default();
+
+                if let Ok(parsed_url) = url::Url::parse(&dl_url) {
+                    if parsed_url.host_str() == Some("cdn.modrinth.com") {
+                        // format is usually: /data/PROJECT_ID/versions/...
+                        let segments: Vec<&str> = parsed_url
+                            .path_segments()
+                            .unwrap_or("".split('/'))
+                            .collect();
+                        if segments.len() >= 2 && segments[0] == "data" {
+                            mod_id = segments[1].to_string();
+                        }
+                    }
+                }
+
+                let file_path = file.path.clone();
+                let sha1 = file.hashes.as_ref().and_then(|h| h.get("sha1").cloned());
+
                 let client_clone = client.clone();
 
                 let enabled = file
@@ -171,8 +305,6 @@ pub async fn run_pipeline(
                     .map(|e| e.client.clone())
                     .unwrap_or_else(|| "required".to_string())
                     != "unsupported";
-                let mod_id = file.path.clone();
-                let file_path = file.path.clone();
 
                 let instance_dir_clone = instance_dir.clone();
 
@@ -208,12 +340,12 @@ pub async fn run_pipeline(
                         return Err(format!("Download failed with status: {}", r.status()));
                     }
 
-                    let mut out = fs::File::create(dest_path).map_err(|e| e.to_string())?;
+                    let mut out = fs::File::create(&dest_path).map_err(|e| e.to_string())?;
                     while let Some(bytes) = r.chunk().await.map_err(|e| e.to_string())? {
                         io::Write::write_all(&mut out, &bytes).map_err(|e| e.to_string())?;
                     }
 
-                    Ok((mod_id, enabled))
+                    Ok((mod_id, file_path, enabled, sha1, dest_path))
                 });
             }
 
@@ -222,27 +354,60 @@ pub async fn run_pipeline(
             let conn = crate::db::init_db(&app).map_err(|e| e.to_string())?;
             for res in results {
                 match res {
-                    Ok((mod_id, enabled)) => {
-                        let display_name = mod_id.rsplit('/').next().unwrap_or(&mod_id).to_string();
-                        let _ = conn.execute(
-                            "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, source, is_base, enabled)
-                             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                    Ok((mod_id, file_path, enabled, sha1, dest_path)) => {
+                        let (name, version, author, description, icon_url) =
+                            if let Some(enrichment) =
+                                sha1.as_ref().and_then(|s| enrichment_map.get(s))
+                            {
+                                (
+                                    enrichment.name.clone(),
+                                    enrichment.version.clone(),
+                                    enrichment.author.clone(),
+                                    enrichment.description.clone(),
+                                    enrichment.icon_url.clone(),
+                                )
+                            } else {
+                                let jar_meta = crate::jar_inspector::inspect_jar(&dest_path);
+                                let default_name =
+                                    mod_id.rsplit('/').next().unwrap_or(&mod_id).to_string();
+                                (
+                                    jar_meta.name.unwrap_or(default_name),
+                                    jar_meta.version.unwrap_or_else(|| "latest".to_string()),
+                                    jar_meta.author,
+                                    jar_meta.description,
+                                    None,
+                                )
+                            };
+
+                        if let Err(e) = conn.execute(
+                            "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, file_name, source, is_base, enabled, icon_url, author, description)
+                             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
                              ON CONFLICT(instance_id, mod_id) DO UPDATE SET
-                                name=excluded.name,
-                                mod_version_id=excluded.mod_version_id,
+                                name=COALESCE(NULLIF(excluded.name, ''), name),
+                                mod_version_id=COALESCE(NULLIF(excluded.mod_version_id, ''), mod_version_id),
+                                file_name=excluded.file_name,
                                 source=excluded.source,
                                 is_base=excluded.is_base,
-                                enabled=excluded.enabled",
+                                enabled=excluded.enabled,
+                                icon_url=COALESCE(NULLIF(excluded.icon_url, ''), icon_url),
+                                author=COALESCE(NULLIF(excluded.author, ''), author),
+                                description=COALESCE(NULLIF(excluded.description, ''), description)",
                             params![
                                 &instance_id,
                                 &mod_id,
-                                &display_name,
-                                "latest",
+                                &name,
+                                &version,
+                                &file_path,
                                 "modrinth",
                                 1,
-                                enabled
+                                enabled,
+                                icon_url.unwrap_or_default(),
+                                author.unwrap_or_default(),
+                                description.unwrap_or_default(),
                             ],
-                        );
+                        ) {
+                            println!("SQL ERROR in downloader: {}", e);
+                        }
                         completed += 1;
                         emit_progress("Downloading Mods...", completed, total_files);
                     }
@@ -274,23 +439,33 @@ pub async fn run_pipeline(
                     let path = entry.path();
                     if path.is_file() {
                         if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
+                            let jar_meta = crate::jar_inspector::inspect_jar(&path);
+                            let name = jar_meta.name.unwrap_or_else(|| file_name.to_string());
+                            let version = jar_meta.version.unwrap_or_else(|| "local".to_string());
+
                             let _ = conn.execute(
-                                "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, source, is_base, enabled)
-                                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                                "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, source, is_base, enabled, icon_url, author, description)
+                                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
                                  ON CONFLICT(instance_id, mod_id) DO UPDATE SET
                                     name=excluded.name,
                                     mod_version_id=excluded.mod_version_id,
                                     source=excluded.source,
                                     is_base=excluded.is_base,
-                                    enabled=excluded.enabled",
+                                    enabled=excluded.enabled,
+                                    icon_url=excluded.icon_url,
+                                    author=excluded.author,
+                                    description=excluded.description",
                                 params![
                                     &instance_id,
                                     file_name,
-                                    file_name,
-                                    "local",
+                                    &name,
+                                    &version,
                                     "local",
                                     1,
-                                    true
+                                    true,
+                                    "",
+                                    jar_meta.author.unwrap_or_default(),
+                                    jar_meta.description.unwrap_or_default(),
                                 ],
                             );
                             mod_count += 1;

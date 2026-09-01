@@ -151,7 +151,7 @@ export function ServerFilesTab({ instance, onUpdate }: ServerFilesTabProps) {
                       <div className="theme-toggle-knob" />
                     </button>
                     <button
-                      className="btn-ghost p-1.5 rounded text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                      className="btn-ghost-danger p-1.5 rounded"
                       onClick={() => removeFile(file.id)}
                       title="Remove file"
                     >

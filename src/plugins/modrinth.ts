@@ -204,6 +204,35 @@ export const ModrinthPlugin: SourcePlugin = {
           });
         }
       }
+      const versionIds = allDeps.map(d => d.versionId).filter(Boolean) as string[];
+      if (versionIds.length > 0) {
+        try {
+          // Fetch version data (for version number)
+          const vRes = await fetch(
+            `https://api.modrinth.com/v2/versions?ids=${encodeURIComponent(JSON.stringify(versionIds))}`
+          );
+          if (vRes.ok) {
+            const vData = await vRes.json();
+            const versionMap = new Map(vData.map((v: any) => [v.id, v]));
+            for (const dep of allDeps) {
+              if (dep.versionId && versionMap.has(dep.versionId)) {
+                const vInfo = versionMap.get(dep.versionId) as any;
+                if (vInfo) {
+                  dep.version = vInfo.version_number;
+                }
+              }
+            }
+          }
+
+          // We intentionally skip fetching Modrinth project data for authors because Modrinth
+          // project objects do not contain human-readable authors (only team IDs).
+          // We will leave dep.author undefined so that the backend JAR scanner can populate it
+          // with the real author from fabric.mod.json when the download completes.
+        } catch (e) {
+          console.error('Failed to bulk fetch extra Modrinth data', e);
+        }
+      }
+
       return allDeps;
     } catch (e) {
       console.error(e);

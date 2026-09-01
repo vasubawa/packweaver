@@ -1,5 +1,6 @@
 mod db;
 mod downloader;
+mod jar_inspector;
 mod models;
 
 use models::{Instance, InstanceMod, ServerFile};
@@ -89,19 +90,64 @@ fn get_instances(state: tauri::State<AppState>) -> Result<Vec<Instance>, String>
         let mut total_mod_count = 0;
         let mut custom_mod_count = 0;
 
-        if let Ok(mut m_stmt) = conn.prepare("SELECT mod_id, name, mod_version_id, source, is_base, enabled, icon_url FROM instance_mods WHERE instance_id = ?") {
+        if let Ok(mut m_stmt) = conn.prepare("SELECT mod_id, name, mod_version_id, source, is_base, enabled, icon_url, author, description, file_name FROM instance_mods WHERE instance_id = ?") {
+            let instance_dir = db::get_portable_data_dir().join("instances").join(&id);
             if let Ok(m_iter) = m_stmt.query_map([&id], |mr| {
                 let mod_id: String = mr.get(0)?;
                 let name: String = mr.get(1)?;
-                Ok(InstanceMod {
+                let mut m = InstanceMod {
                     id: mod_id.clone(),
-                    name: if name.is_empty() { mod_id } else { name },
+                    name: if name.is_empty() { mod_id.clone() } else { name },
                     version: mr.get(2)?,
                     source: mr.get(3)?,
                     is_base: mr.get(4)?,
                     enabled: mr.get(5)?,
                     icon_url: mr.get(6).unwrap_or(None),
-                })
+                    author: mr.get(7).unwrap_or(None),
+                    description: mr.get(8).unwrap_or(None),
+                    file_name: mr.get(9).unwrap_or(None),
+                };
+
+                // If author or name are not yet enriched, inspect local jar on disk
+                let is_author_empty = m.author.as_deref().unwrap_or("").trim().is_empty();
+                let is_version_unknown = m.version.trim().is_empty() || m.version == "latest" || m.version == "local";
+                if is_author_empty || is_version_unknown || m.name.ends_with(".jar") || m.name.ends_with(".zip") {
+                    let clean_id = m.id.replace('\\', "/");
+                    let file_name_str = m.file_name.as_deref().unwrap_or(&clean_id);
+                    let filename = file_name_str.split('/').next_back().unwrap_or(file_name_str);
+                    let normalized_rel = clean_id.replace('/', std::path::MAIN_SEPARATOR_STR);
+                    let mut possible_paths = vec![
+                        instance_dir.join(&normalized_rel),
+                        instance_dir.join("mods").join(filename),
+                        instance_dir.join("workspace").join(&normalized_rel),
+                        instance_dir.join("workspace").join("mods").join(filename),
+                        instance_dir.join(filename),
+                    ];
+
+                    // If clean_id isn't the file name, also check it against mods/
+                    let id_filename = clean_id.split('/').next_back().unwrap_or(&clean_id);
+                    if id_filename != filename {
+                         possible_paths.push(instance_dir.join("mods").join(id_filename));
+                         possible_paths.push(instance_dir.join("workspace").join("mods").join(id_filename));
+                    }
+                    if let Some(jar_path) = possible_paths.iter().find(|p| p.exists() && p.is_file()) {
+                        let meta = jar_inspector::inspect_jar(jar_path);
+                        if let Some(real_name) = meta.name {
+                            m.name = real_name;
+                        }
+                        if let Some(real_ver) = meta.version {
+                            m.version = real_ver;
+                        }
+                        if meta.author.is_some() {
+                            m.author = meta.author;
+                        }
+                        if meta.description.is_some() {
+                            m.description = meta.description;
+                        }
+                    }
+                }
+
+                Ok(m)
             }) {
                 for m in m_iter.flatten() {
                     total_mod_count += 1;
@@ -160,9 +206,11 @@ fn get_instances(state: tauri::State<AppState>) -> Result<Vec<Instance>, String>
 }
 
 #[derive(serde::Deserialize)]
-pub struct BasePackMod {
+struct BasePackMod {
     id: String,
     name: String,
+    version: Option<String>,
+    author: Option<String>,
     icon_url: Option<String>,
 }
 
@@ -198,9 +246,17 @@ fn create_instance(
         if let Some(mods) = base_pack_mods {
             for mod_info in mods {
                 let _ = conn.execute(
-                    "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, source, is_base, enabled, icon_url)
-                     VALUES (?1, ?2, ?3, 'latest', ?4, 1, 1, ?5)",
-                    rusqlite::params![&id, &mod_info.id, &mod_info.name, &source, &mod_info.icon_url.unwrap_or_default()],
+                    "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, author, source, is_base, enabled, icon_url)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, 1, ?7)",
+                    rusqlite::params![
+                        &id,
+                        &mod_info.id,
+                        &mod_info.name,
+                        &mod_info.version.unwrap_or_else(|| "latest".to_string()),
+                        &mod_info.author,
+                        &source,
+                        &mod_info.icon_url.unwrap_or_default()
+                    ],
                 );
             }
         }
@@ -329,6 +385,7 @@ fn update_instance_details(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 fn add_custom_mod(
     instance_id: String,
     mod_id: String,
@@ -336,6 +393,8 @@ fn add_custom_mod(
     version: Option<String>,
     source: String,
     icon_url: Option<String>,
+    author: Option<String>,
+    description: Option<String>,
     state: tauri::State<AppState>,
 ) -> Result<(), String> {
     let conn = state
@@ -343,15 +402,17 @@ fn add_custom_mod(
         .lock()
         .map_err(|_| "Database lock poisoned".to_string())?;
     conn.execute(
-        "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, source, is_base, enabled, icon_url)
-         VALUES (?1, ?2, ?3, ?4, ?5, 0, 1, ?6)",
+        "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, source, is_base, enabled, icon_url, author, description)
+         VALUES (?1, ?2, ?3, ?4, ?5, 0, 1, ?6, ?7, ?8)",
         rusqlite::params![
             instance_id,
             mod_id,
             name,
             version.unwrap_or_else(|| "latest".to_string()),
             source,
-            icon_url.unwrap_or_default()
+            icon_url.unwrap_or_default(),
+            author.unwrap_or_default(),
+            description.unwrap_or_default()
         ],
     )
     .map_err(|e| e.to_string())?;

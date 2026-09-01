@@ -260,6 +260,24 @@
     color: var(--text-primary);
     background: var(--bg-muted);
   }
+  .btn-ghost-danger {
+    background: none;
+    border: none;
+    color: var(--danger);
+    padding: 6px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition:
+      color var(--transition),
+      background var(--transition);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .btn-ghost-danger:hover {
+    color: var(--danger);
+    background: var(--danger-soft);
+  }
   .instance-card {
     background: var(--bg-surface);
     border: 1px solid var(--border);
