@@ -43,7 +43,7 @@ See [`CONTEXT.md`](./CONTEXT.md) for domain terminology (Instance, Base Pack, Cu
 |---|---|
 | Desktop shell | [Tauri v2](https://tauri.app) |
 | Backend | Rust |
-| Frontend | React 18 + TypeScript + Vite |
+| Frontend | React 19 + TypeScript + Vite |
 | Database | SQLite via `rusqlite` |
 | HTTP | `reqwest` (async) |
 | Modpack sources | Modrinth API, local files |
@@ -52,7 +52,7 @@ See [`CONTEXT.md`](./CONTEXT.md) for domain terminology (Instance, Base Pack, Cu
 
 ## Project structure
 
-```
+```text
 src/                    # React frontend
   components/           # UI components
   plugins/              # Source + exporter plugins
@@ -95,7 +95,7 @@ pnpm tauri build
 |---|---|
 | **Instance** | A workspace built on top of a Base Pack |
 | **Base Pack** | The modpack used as the foundation (e.g. a Modrinth pack) |
-| **Platform Source** | Where the Base Pack comes from (Modrinth, CurseForge, local) |
+| **Platform Source** | Where the Base Pack comes from (Modrinth, local) |
 | **Base Mod** | A mod inherited from the Base Pack |
 | **Custom Mod** | A mod added manually by the user on top of the Base Pack |
 | **Enabled** | Whether a mod is included in the exported output |

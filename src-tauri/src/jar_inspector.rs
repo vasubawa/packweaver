@@ -103,39 +103,55 @@ pub fn inspect_jar(path: &Path) -> JarMeta {
         }
     }
 
-    // 3. Try META-INF/mods.toml (Forge / NeoForge)
-    if let Ok(mut mod_file) = archive.by_name("META-INF/mods.toml") {
-        let mut contents = String::new();
-        if mod_file.read_to_string(&mut contents).is_ok() {
-            for line in contents.lines() {
-                let trimmed = line.trim();
-                if meta.name.is_none()
-                    && (trimmed.starts_with("displayName") || trimmed.starts_with("modId"))
-                {
-                    if let Some(val) = extract_toml_string(trimmed) {
-                        meta.name = Some(val);
-                    }
-                }
-                if meta.version.is_none() && trimmed.starts_with("version") {
-                    if let Some(val) = extract_toml_string(trimmed) {
-                        if val != "${file.jarVersion}" {
-                            meta.version = Some(val);
+    // 3. Try META-INF/mods.toml (Forge) or META-INF/neoforge.mods.toml (NeoForge)
+    let toml_paths = ["META-INF/mods.toml", "META-INF/neoforge.mods.toml"];
+    for toml_path in toml_paths {
+        if let Ok(mut mod_file) = archive.by_name(toml_path) {
+            let mut contents = String::new();
+            if mod_file.read_to_string(&mut contents).is_ok() {
+                if let Ok(value) = contents.parse::<toml::Value>() {
+                    if let Some(mods_array) = value.get("mods").and_then(|m| m.as_array()) {
+                        if let Some(first_mod) = mods_array.first() {
+                            if meta.name.is_none() {
+                                if let Some(name) =
+                                    first_mod.get("displayName").and_then(|v| v.as_str())
+                                {
+                                    meta.name = Some(name.to_string());
+                                } else if let Some(mod_id) =
+                                    first_mod.get("modId").and_then(|v| v.as_str())
+                                {
+                                    meta.name = Some(mod_id.to_string());
+                                }
+                            }
+                            if meta.version.is_none() {
+                                if let Some(version) =
+                                    first_mod.get("version").and_then(|v| v.as_str())
+                                {
+                                    if version != "${file.jarVersion}" {
+                                        meta.version = Some(version.to_string());
+                                    }
+                                }
+                            }
+                            if meta.author.is_none() {
+                                if let Some(authors) =
+                                    first_mod.get("authors").and_then(|v| v.as_str())
+                                {
+                                    meta.author = Some(authors.to_string());
+                                }
+                            }
+                            if meta.description.is_none() {
+                                if let Some(desc) =
+                                    first_mod.get("description").and_then(|v| v.as_str())
+                                {
+                                    meta.description = Some(desc.trim().to_string());
+                                }
+                            }
                         }
                     }
                 }
-                if meta.author.is_none() && trimmed.starts_with("authors") {
-                    if let Some(val) = extract_toml_string(trimmed) {
-                        meta.author = Some(val);
-                    }
+                if meta.name.is_some() {
+                    return meta;
                 }
-                if meta.description.is_none() && trimmed.starts_with("description") {
-                    if let Some(val) = extract_toml_string(trimmed) {
-                        meta.description = Some(val);
-                    }
-                }
-            }
-            if meta.name.is_some() {
-                return meta;
             }
         }
     }
@@ -178,15 +194,4 @@ pub fn inspect_jar(path: &Path) -> JarMeta {
     }
 
     meta
-}
-
-fn extract_toml_string(line: &str) -> Option<String> {
-    let parts: Vec<&str> = line.splitn(2, '=').collect();
-    if parts.len() == 2 {
-        let val = parts[1].trim().trim_matches('"').trim_matches('\'').trim();
-        if !val.is_empty() {
-            return Some(val.to_string());
-        }
-    }
-    None
 }

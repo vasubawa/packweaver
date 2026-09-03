@@ -252,6 +252,8 @@ pub async fn run_pipeline(
                 let file_path = file.path.clone();
                 let sha1 = file.hashes.as_ref().and_then(|h| h.get("sha1").cloned());
 
+                let sha512 = file.hashes.as_ref().and_then(|h| h.get("sha512").cloned());
+
                 let client_clone = client.clone();
 
                 let enabled = file
@@ -295,9 +297,46 @@ pub async fn run_pipeline(
                         return Err(format!("Download failed with status: {}", r.status()));
                     }
 
+                    use sha1::{Digest, Sha1};
+                    use sha2::Sha512;
+
+                    let mut hasher1 = Sha1::new();
+                    let mut hasher512 = Sha512::new();
+
                     let mut out = fs::File::create(&dest_path).map_err(|e| e.to_string())?;
                     while let Some(bytes) = r.chunk().await.map_err(|e| e.to_string())? {
                         io::Write::write_all(&mut out, &bytes).map_err(|e| e.to_string())?;
+                        hasher1.update(&bytes);
+                        hasher512.update(&bytes);
+                    }
+
+                    if let Some(expected) = &sha1 {
+                        let result: String = hasher1
+                            .finalize()
+                            .iter()
+                            .map(|b| format!("{:02x}", b))
+                            .collect();
+                        if result != *expected {
+                            let _ = fs::remove_file(&dest_path);
+                            return Err(format!(
+                                "SHA-1 mismatch: expected {}, got {}",
+                                expected, result
+                            ));
+                        }
+                    }
+                    if let Some(expected) = &sha512 {
+                        let result: String = hasher512
+                            .finalize()
+                            .iter()
+                            .map(|b| format!("{:02x}", b))
+                            .collect();
+                        if result != *expected {
+                            let _ = fs::remove_file(&dest_path);
+                            return Err(format!(
+                                "SHA-512 mismatch: expected {}, got {}",
+                                expected, result
+                            ));
+                        }
                     }
 
                     Ok((mod_id, file_path, enabled, sha1, dest_path))
@@ -399,11 +438,12 @@ pub async fn run_pipeline(
                             let version = jar_meta.version.unwrap_or_else(|| "local".to_string());
 
                             let _ = conn.execute(
-                                "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, source, is_base, enabled, icon_url, author, description)
-                                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                                "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, file_name, source, is_base, enabled, icon_url, author, description)
+                                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
                                  ON CONFLICT(instance_id, mod_id) DO UPDATE SET
                                     name=excluded.name,
                                     mod_version_id=excluded.mod_version_id,
+                                    file_name=excluded.file_name,
                                     source=excluded.source,
                                     is_base=excluded.is_base,
                                     enabled=excluded.enabled,
@@ -415,6 +455,7 @@ pub async fn run_pipeline(
                                     file_name,
                                     &name,
                                     &version,
+                                    file_name,
                                     "local",
                                     1,
                                     true,

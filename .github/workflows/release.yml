@@ -54,6 +54,7 @@ jobs:
 
       - name: Zip Artifacts (Windows)
         if: matrix.platform == 'windows-latest'
+        shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path release-staging
           Copy-Item src-tauri\target\release\packweaver.exe release-staging\

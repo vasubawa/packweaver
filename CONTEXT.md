@@ -8,10 +8,10 @@ This glossary defines the canonical language for the Packweaver domain model. Wh
 A workspace created by the user. An Instance always starts from a **Base Pack** chosen from a specific **Platform Source**, and acts as a layer where the user can add their own **Custom Mods**.
 
 ### Base Pack
-An existing modpack (e.g., published on Modrinth or CurseForge) that serves as the foundation for an **Instance**.
+An existing modpack (e.g., published on Modrinth) that serves as the foundation for an **Instance**.
 
 ### Platform Source
-The platform or origin (e.g., Modrinth, CurseForge) from which a Base Pack is searched for and selected.
+The platform or origin (e.g., Modrinth, local files) from which a Base Pack is searched for and selected.
 
 ### Instance Mod
 Any mod that is part of an Instance. This is an umbrella term for two specific types of mods:
@@ -20,4 +20,4 @@ Any mod that is part of an Instance. This is an umbrella term for two specific t
 
 ### Mod State (Enabled)
 A boolean state indicating whether an **Instance Mod** is currently active and should be included when the instance is exported/built.
-*(Note: While the backend might store this as `env_client` (required/unsupported) for Modrinth compatibility, the canonical domain term for this toggle is `Enabled`.)*
+*(Note: The backend stores this as the `enabled` field. While `env_client` conversion applies to Modrinth import/export mapping, `enabled` is the canonical storage value and domain term.)*

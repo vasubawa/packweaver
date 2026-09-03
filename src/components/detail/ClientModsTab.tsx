@@ -332,44 +332,81 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
                           }}
                         >
                           <th
-                            className="font-medium px-4 py-2.5 cursor-pointer hover:text-[var(--text-primary)] select-none"
-                            onClick={() => {
-                              if (baseSortCol === 'name')
-                                setBaseSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
-                              else {
-                                setBaseSortCol('name');
-                                setBaseSortDir('asc');
-                              }
-                            }}
+                            className="font-medium p-0"
+                            aria-sort={
+                              baseSortCol === 'name'
+                                ? baseSortDir === 'asc'
+                                  ? 'ascending'
+                                  : 'descending'
+                                : 'none'
+                            }
                           >
-                            Mod {baseSortCol === 'name' && (baseSortDir === 'asc' ? '↑' : '↓')}
+                            <button
+                              type="button"
+                              className="w-full text-left font-medium px-4 py-2.5 cursor-pointer hover:text-[var(--text-primary)] select-none outline-none focus-visible:bg-[var(--bg-surface)] focus-visible:ring-inset focus-visible:ring-1 focus-visible:ring-[var(--text-muted)]"
+                              onClick={() => {
+                                if (baseSortCol === 'name')
+                                  setBaseSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+                                else {
+                                  setBaseSortCol('name');
+                                  setBaseSortDir('asc');
+                                }
+                              }}
+                            >
+                              Mod {baseSortCol === 'name' && (baseSortDir === 'asc' ? '↑' : '↓')}
+                            </button>
                           </th>
                           <th
-                            className="font-medium px-4 py-2.5 w-32 cursor-pointer hover:text-[var(--text-primary)] select-none"
-                            onClick={() => {
-                              if (baseSortCol === 'author')
-                                setBaseSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
-                              else {
-                                setBaseSortCol('author');
-                                setBaseSortDir('asc');
-                              }
-                            }}
+                            className="font-medium p-0 w-32"
+                            aria-sort={
+                              baseSortCol === 'author'
+                                ? baseSortDir === 'asc'
+                                  ? 'ascending'
+                                  : 'descending'
+                                : 'none'
+                            }
                           >
-                            Author {baseSortCol === 'author' && (baseSortDir === 'asc' ? '↑' : '↓')}
+                            <button
+                              type="button"
+                              className="w-full text-left font-medium px-4 py-2.5 cursor-pointer hover:text-[var(--text-primary)] select-none outline-none focus-visible:bg-[var(--bg-surface)] focus-visible:ring-inset focus-visible:ring-1 focus-visible:ring-[var(--text-muted)]"
+                              onClick={() => {
+                                if (baseSortCol === 'author')
+                                  setBaseSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+                                else {
+                                  setBaseSortCol('author');
+                                  setBaseSortDir('asc');
+                                }
+                              }}
+                            >
+                              Author{' '}
+                              {baseSortCol === 'author' && (baseSortDir === 'asc' ? '↑' : '↓')}
+                            </button>
                           </th>
                           <th
-                            className="font-medium px-4 py-2.5 w-32 cursor-pointer hover:text-[var(--text-primary)] select-none"
-                            onClick={() => {
-                              if (baseSortCol === 'version')
-                                setBaseSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
-                              else {
-                                setBaseSortCol('version');
-                                setBaseSortDir('asc');
-                              }
-                            }}
+                            className="font-medium p-0 w-32"
+                            aria-sort={
+                              baseSortCol === 'version'
+                                ? baseSortDir === 'asc'
+                                  ? 'ascending'
+                                  : 'descending'
+                                : 'none'
+                            }
                           >
-                            Version{' '}
-                            {baseSortCol === 'version' && (baseSortDir === 'asc' ? '↑' : '↓')}
+                            <button
+                              type="button"
+                              className="w-full text-left font-medium px-4 py-2.5 cursor-pointer hover:text-[var(--text-primary)] select-none outline-none focus-visible:bg-[var(--bg-surface)] focus-visible:ring-inset focus-visible:ring-1 focus-visible:ring-[var(--text-muted)]"
+                              onClick={() => {
+                                if (baseSortCol === 'version')
+                                  setBaseSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+                                else {
+                                  setBaseSortCol('version');
+                                  setBaseSortDir('asc');
+                                }
+                              }}
+                            >
+                              Version{' '}
+                              {baseSortCol === 'version' && (baseSortDir === 'asc' ? '↑' : '↓')}
+                            </button>
                           </th>
                           <th className="font-medium px-4 py-2.5 w-24 text-right">Source</th>
                         </tr>
@@ -561,7 +598,12 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
                   onFocus={() => setShowModResults(true)}
                   onBlur={() => setShowModResults(false)}
                   onKeyDown={e => {
-                    if (e.key === 'Enter' && modResults.length > 0) {
+                    if (
+                      e.key === 'Enter' &&
+                      !isSearchingMods &&
+                      modQuery.length > 2 &&
+                      modResults.length > 0
+                    ) {
                       const first = modResults[0];
                       addCustomMod(
                         first.id,
@@ -585,11 +627,10 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
                     {modResults.map((r: SearchResult) => {
                       const resultSc = SOURCE_COLORS[addModSource] || SOURCE_COLORS.local;
                       return (
-                        <div
+                        <button
                           key={r.id}
-                          className="search-result-item flex items-center justify-between"
-                          onMouseDown={e => {
-                            e.preventDefault();
+                          className="search-result-item flex items-center justify-between w-full text-left"
+                          onClick={() => {
                             addCustomMod(r.id, r.name, r.iconUrl, r.author, r.description);
                           }}
                         >
@@ -628,8 +669,7 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
                               )}
                             </div>
                           </div>
-                          <button
-                            type="button"
+                          <div
                             className="text-[11px] px-2.5 py-1 rounded-md flex items-center gap-1 shrink-0 font-medium transition-all"
                             style={{
                               background: resultSc.soft,
@@ -639,8 +679,8 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
                           >
                             <Icon name="plus" size={11} />
                             Add
-                          </button>
-                        </div>
+                          </div>
+                        </button>
                       );
                     })}
                   </div>
