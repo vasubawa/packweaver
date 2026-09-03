@@ -9,7 +9,7 @@ export const MrpackExporterPlugin: ExporterPlugin = {
   category: 'exporter',
   enabled: true,
   builtIn: true,
-  isCore: true,
+  isCore: false,
   fallbackEmoji: '📦',
   targetFormat: 'mrpack',
   fileExtension: '.mrpack',

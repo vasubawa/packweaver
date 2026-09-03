@@ -2852,6 +2852,7 @@ dependencies = [
 name = "packweaver"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "futures",
  "glib 0.22.9",
  "reqwest",

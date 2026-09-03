@@ -1,5 +1,6 @@
 mod db;
 mod downloader;
+pub mod fetchers;
 mod jar_inspector;
 mod models;
 
@@ -232,15 +233,34 @@ fn create_instance(
 ) -> Result<(), String> {
     let id = uuid::Uuid::new_v4().to_string();
 
+    let mut unique_name = name.clone();
+
     // Insert dummy record to show in UI immediately
     {
         let conn = state
             .db
             .lock()
             .map_err(|_| "Database lock poisoned".to_string())?;
+
+        let mut counter = 1;
+        loop {
+            if let Ok(mut stmt) = conn.prepare("SELECT COUNT(*) FROM instances WHERE name = ?1") {
+                let count: i64 = stmt
+                    .query_row([&unique_name], |row| row.get(0))
+                    .unwrap_or(0);
+                if count == 0 {
+                    break;
+                }
+            } else {
+                break;
+            }
+            unique_name = format!("{} ({})", name, counter);
+            counter += 1;
+        }
+
         conn.execute(
             "INSERT INTO instances (id, name, base_pack_id, base_pack_version_id, mc_version, loader, source, status, description, banner_url, icon_url) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-            rusqlite::params![&id, &name, &base_pack_id, &base_pack_version_id, &mc_version, &loader, &source, "Starting...", description.unwrap_or_default(), banner_url.unwrap_or_default(), icon_url.unwrap_or_default()],
+            rusqlite::params![&id, &unique_name, &base_pack_id, &base_pack_version_id, &mc_version, &loader, &source, "Starting...", description.unwrap_or_default(), banner_url.unwrap_or_default(), icon_url.unwrap_or_default()],
         ).map_err(|e| e.to_string())?;
 
         if let Some(mods) = base_pack_mods {
@@ -262,8 +282,7 @@ fn create_instance(
         }
     }
 
-    // Clone state inside an Arc or just re-access it via app handle in the task
-    // Since AppState contains a Mutex<Connection> that is not Clone, we can just use the app handle to get the state inside the task!
+    // Since AppState contains a Mutex<Connection> that is not Clone, we can just use the app handle to get the state inside the task
     let id_clone = id.clone();
     let bp_id_clone = base_pack_id.clone();
 

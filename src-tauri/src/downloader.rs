@@ -16,17 +16,6 @@ pub struct ProgressEvent {
     pub total: u32,
 }
 
-#[derive(Deserialize)]
-struct ModrinthVersion {
-    files: Vec<ModrinthVersionFile>,
-}
-
-#[derive(Deserialize)]
-struct ModrinthVersionFile {
-    url: String,
-    primary: bool,
-}
-
 #[derive(Deserialize, Debug)]
 struct ModrinthIndex {
     dependencies: std::collections::HashMap<String, String>,
@@ -190,49 +179,15 @@ pub async fn run_pipeline(
 
     let mrpack_path = original_dir.join("basepack.mrpack");
 
-    if source == "local" {
-        emit_progress("Copying Local File...", 10, 100);
-        fs::copy(&base_pack_id, &mrpack_path).map_err(|e| e.to_string())?;
-    } else {
-        emit_progress("Fetching Pack Info...", 0, 100);
+    let fetcher: Box<dyn crate::fetchers::BasePackFetcher> = match source.as_str() {
+        "local" => Box::new(crate::fetchers::LocalFetcher),
+        "modrinth" => Box::new(crate::fetchers::ModrinthFetcher::new(client.clone())),
+        _ => return Err(format!("Unsupported source: {}", source)),
+    };
 
-        // 1. Fetch Modrinth Version
-        let url = format!(
-            "https://api.modrinth.com/v2/project/{}/version",
-            base_pack_id
-        );
-        let versions: Vec<ModrinthVersion> = client
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?
-            .json()
-            .await
-            .map_err(|e| e.to_string())?;
-
-        let latest_version = versions.into_iter().next().ok_or("No versions found")?;
-        let mut files = latest_version.files;
-        if files.is_empty() {
-            return Err("No files found in latest version".to_string());
-        }
-        let pack_file = if let Some(idx) = files.iter().position(|f| f.primary) {
-            files.remove(idx)
-        } else {
-            files.remove(0)
-        };
-
-        // 3. Download .mrpack
-        emit_progress("Downloading Basepack...", 10, 100);
-        let mut resp = client
-            .get(&pack_file.url)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        let mut out = fs::File::create(&mrpack_path).map_err(|e| e.to_string())?;
-        while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {
-            io::Write::write_all(&mut out, &chunk).map_err(|e| e.to_string())?;
-        }
-    }
+    fetcher
+        .fetch(&app, &instance_id, &base_pack_id, &mrpack_path)
+        .await?;
 
     // 4. Extract .mrpack to workspace
     emit_progress("Extracting Workspace...", 20, 100);
