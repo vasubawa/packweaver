@@ -54,19 +54,29 @@ jobs:
 
       - name: Zip Artifacts (Windows)
         if: matrix.platform == 'windows-latest'
-        run: Compress-Archive -Path src-tauri\target\release\packweaver.exe -DestinationPath Packweaver-Windows.zip
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release-staging
+          Copy-Item src-tauri\target\release\packweaver.exe release-staging\
+          New-Item -ItemType Directory -Force -Path release-staging\packweaver-data\instances
+          Compress-Archive -Path release-staging\* -DestinationPath Packweaver-Windows.zip
 
       - name: Zip Artifacts (Linux)
         if: matrix.platform == 'ubuntu-22.04'
         run: |
-          cd src-tauri/target/release
-          zip -j ../../../Packweaver-Linux.zip packweaver
+          mkdir -p release-staging/packweaver-data/instances
+          cp src-tauri/target/release/packweaver release-staging/
+          cd release-staging
+          zip -r ../Packweaver-Linux.zip .
           
       - name: Zip Artifacts (macOS)
         if: matrix.platform == 'macos-latest'
         run: |
-          cd src-tauri/target/universal-apple-darwin/release/bundle/macos
-          zip -r ../../../../../../../Packweaver-Mac.zip packweaver.app
+          mkdir -p release-staging/packweaver-data/instances
+          cp -r src-tauri/target/universal-apple-darwin/release/bundle/macos/packweaver.app release-staging/
+          cd release-staging
+          zip -r ../Packweaver-Mac.zip .
+
 
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v3

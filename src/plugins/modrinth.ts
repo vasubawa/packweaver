@@ -44,6 +44,7 @@ async function searchByType(
       id: hit.slug || hit.project_id,
       name: hit.title,
       author: hit.author,
+      description: hit.description,
       iconUrl: hit.icon_url || '',
     }));
   } catch (e) {
@@ -195,15 +196,20 @@ export const ModrinthPlugin: SourcePlugin = {
         const existing = allDeps.find(d => d.projectId === v.project_id);
         if (existing) {
           existing.versionId = v.id;
+          if (v.version_number) {
+            existing.version = v.version_number;
+          }
         } else {
           allDeps.push({
             projectId: v.project_id,
             versionId: v.id,
             name: v.project_id, // If project metadata is missing, use ID as fallback
+            version: v.version_number,
             dependencyType: 'required',
           });
         }
       }
+
       return allDeps;
     } catch (e) {
       console.error(e);

@@ -212,6 +212,8 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
               .map(d => ({
                 id: d.projectId as string,
                 name: d.name || (d.projectId as string),
+                version: d.version || 'latest',
+                author: d.author || undefined,
                 icon_url: d.iconUrl || undefined, // matching the rust struct's snake_case for basePackMods
               }));
           }

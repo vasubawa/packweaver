@@ -83,12 +83,41 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
   const [baseFilter, setBaseFilter] = useState('');
   const [baseShowCount, setBaseShowCount] = useState(BASE_MODS_PAGE_SIZE);
 
+  const [baseSortCol, setBaseSortCol] = useState<'name' | 'author' | 'version' | 'source'>('name');
+  const [baseSortDir, setBaseSortDir] = useState<'asc' | 'desc'>('asc');
+
+  const [customSortCol, setCustomSortCol] = useState<
+    'name' | 'author' | 'version' | 'source' | 'enabled'
+  >('name');
+  const [customSortDir, setCustomSortDir] = useState<'asc' | 'desc'>('asc');
+
   const filteredBaseMods = useMemo(() => {
     const q = baseFilter.trim().toLowerCase();
-    return q
+    const mods = q
       ? instance.basePackMods.filter(m => m.name.toLowerCase().includes(q))
-      : instance.basePackMods;
-  }, [instance.basePackMods, baseFilter]);
+      : [...instance.basePackMods];
+
+    mods.sort((a, b) => {
+      let aVal = '';
+      let bVal = '';
+      if (baseSortCol === 'name') {
+        aVal = a.name || '';
+        bVal = b.name || '';
+      } else if (baseSortCol === 'author') {
+        aVal = a.author || '';
+        bVal = b.author || '';
+      } else if (baseSortCol === 'version') {
+        aVal = a.version || '';
+        bVal = b.version || '';
+      } else if (baseSortCol === 'source') {
+        aVal = 'base';
+        bVal = 'base';
+      }
+      const cmp = aVal.localeCompare(bVal, undefined, { sensitivity: 'base' });
+      return baseSortDir === 'asc' ? cmp : -cmp;
+    });
+    return mods;
+  }, [instance.basePackMods, baseFilter, baseSortCol, baseSortDir]);
 
   const visibleBaseMods = filteredBaseMods.slice(0, baseShowCount);
 
@@ -108,7 +137,13 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
     'mod'
   );
 
-  const addCustomMod = async (modId: string, name: string, iconUrl?: string) => {
+  const addCustomMod = async (
+    modId: string,
+    name: string,
+    iconUrl?: string,
+    author?: string,
+    description?: string
+  ) => {
     if (instance.customMods.some(m => m.id === modId)) {
       addToast(`"${name}" is already added`, 'info');
       return;
@@ -128,6 +163,8 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
         isBase: false,
         source: addModSource,
         iconUrl,
+        author,
+        description,
       };
 
       await invoke('add_custom_mod', {
@@ -137,6 +174,8 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
         version: newMod.version,
         source: newMod.source,
         iconUrl: newMod.iconUrl || undefined,
+        author: newMod.author || undefined,
+        description: newMod.description || undefined,
       });
 
       onUpdate({ customMods: [...instance.customMods, newMod] });
@@ -270,7 +309,7 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
               </div>
 
               <div
-                className="rounded-xl overflow-x-auto border"
+                className="rounded-xl overflow-hidden border"
                 style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}
               >
                 {filteredBaseMods.length === 0 ? (
@@ -282,7 +321,7 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
                   </div>
                 ) : (
                   <>
-                    <table className="w-full text-left border-collapse">
+                    <table className="w-full table-fixed text-left border-collapse">
                       <thead>
                         <tr
                           className="text-[11px] uppercase tracking-wider"
@@ -292,26 +331,109 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
                             borderBottom: '1px solid var(--border)',
                           }}
                         >
-                          <th className="font-medium px-4 py-2.5">Mod</th>
-                          <th className="font-medium px-4 py-2.5 w-32">Version</th>
+                          <th
+                            className="font-medium p-0"
+                            aria-sort={
+                              baseSortCol === 'name'
+                                ? baseSortDir === 'asc'
+                                  ? 'ascending'
+                                  : 'descending'
+                                : 'none'
+                            }
+                          >
+                            <button
+                              type="button"
+                              className="w-full text-left font-medium px-4 py-2.5 cursor-pointer hover:text-[var(--text-primary)] select-none outline-none focus-visible:bg-[var(--bg-surface)] focus-visible:ring-inset focus-visible:ring-1 focus-visible:ring-[var(--text-muted)]"
+                              onClick={() => {
+                                if (baseSortCol === 'name')
+                                  setBaseSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+                                else {
+                                  setBaseSortCol('name');
+                                  setBaseSortDir('asc');
+                                }
+                              }}
+                            >
+                              Mod {baseSortCol === 'name' && (baseSortDir === 'asc' ? '↑' : '↓')}
+                            </button>
+                          </th>
+                          <th
+                            className="font-medium p-0 w-32"
+                            aria-sort={
+                              baseSortCol === 'author'
+                                ? baseSortDir === 'asc'
+                                  ? 'ascending'
+                                  : 'descending'
+                                : 'none'
+                            }
+                          >
+                            <button
+                              type="button"
+                              className="w-full text-left font-medium px-4 py-2.5 cursor-pointer hover:text-[var(--text-primary)] select-none outline-none focus-visible:bg-[var(--bg-surface)] focus-visible:ring-inset focus-visible:ring-1 focus-visible:ring-[var(--text-muted)]"
+                              onClick={() => {
+                                if (baseSortCol === 'author')
+                                  setBaseSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+                                else {
+                                  setBaseSortCol('author');
+                                  setBaseSortDir('asc');
+                                }
+                              }}
+                            >
+                              Author{' '}
+                              {baseSortCol === 'author' && (baseSortDir === 'asc' ? '↑' : '↓')}
+                            </button>
+                          </th>
+                          <th
+                            className="font-medium p-0 w-32"
+                            aria-sort={
+                              baseSortCol === 'version'
+                                ? baseSortDir === 'asc'
+                                  ? 'ascending'
+                                  : 'descending'
+                                : 'none'
+                            }
+                          >
+                            <button
+                              type="button"
+                              className="w-full text-left font-medium px-4 py-2.5 cursor-pointer hover:text-[var(--text-primary)] select-none outline-none focus-visible:bg-[var(--bg-surface)] focus-visible:ring-inset focus-visible:ring-1 focus-visible:ring-[var(--text-muted)]"
+                              onClick={() => {
+                                if (baseSortCol === 'version')
+                                  setBaseSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+                                else {
+                                  setBaseSortCol('version');
+                                  setBaseSortDir('asc');
+                                }
+                              }}
+                            >
+                              Version{' '}
+                              {baseSortCol === 'version' && (baseSortDir === 'asc' ? '↑' : '↓')}
+                            </button>
+                          </th>
                           <th className="font-medium px-4 py-2.5 w-24 text-right">Source</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[var(--border)]">
                         {visibleBaseMods.map((mod, i) => {
                           const parsed = parseModJar(mod.name);
-                          const hue = hashHue(parsed.name);
+                          const isJarName = mod.name.endsWith('.jar') || mod.name.endsWith('.zip');
+                          const displayName = isJarName ? parsed.name : mod.name;
+                          const displayVersion =
+                            mod.version && mod.version !== 'latest' && mod.version !== 'local'
+                              ? mod.version
+                              : parsed.version || 'Unknown';
+                          const hue = hashHue(displayName);
+                          const initials = parsed.initials || displayName.slice(0, 2).toUpperCase();
+
                           return (
                             <tr
                               key={`base-${i}`}
                               className="group transition-colors"
                               style={{ ':hover': { background: 'var(--bg-muted)' } } as any}
-                              title={mod.name}
+                              title={mod.description || mod.name}
                             >
                               <td className="px-4 py-2.5 flex items-center gap-3">
-                                {/* Colour avatar or icon */}
+                                {/* Colour avatar or official icon */}
                                 <div
-                                  className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 text-[10px] font-bold select-none overflow-hidden"
+                                  className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 text-[10px] font-bold select-none overflow-hidden"
                                   style={
                                     mod.iconUrl
                                       ? { background: 'transparent' }
@@ -329,23 +451,39 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
                                       className="w-full h-full object-cover"
                                     />
                                   ) : (
-                                    parsed.initials
+                                    initials
                                   )}
                                 </div>
                                 <div className="min-w-0 flex-1">
-                                  <div
-                                    className="text-[12.5px] font-medium truncate"
-                                    style={{ color: 'var(--text-primary)' }}
-                                  >
-                                    {parsed.name}
+                                  <div className="flex items-center gap-2">
+                                    <div
+                                      className="text-[12.5px] font-medium truncate"
+                                      style={{ color: 'var(--text-primary)' }}
+                                    >
+                                      {displayName}
+                                    </div>
                                   </div>
+                                  {mod.description && (
+                                    <div
+                                      className="text-[11px] truncate"
+                                      style={{ color: 'var(--text-muted)', opacity: 0.75 }}
+                                    >
+                                      {mod.description}
+                                    </div>
+                                  )}
                                 </div>
                               </td>
                               <td
                                 className="px-4 py-2.5 text-[11px]"
                                 style={{ color: 'var(--text-muted)' }}
                               >
-                                {parsed.version ? `v${parsed.version}` : 'Unknown'}
+                                {mod.author || '-'}
+                              </td>
+                              <td
+                                className="px-4 py-2.5 text-[11px]"
+                                style={{ color: 'var(--text-muted)' }}
+                              >
+                                v{displayVersion}
                               </td>
                               <td className="px-4 py-2.5 text-right">
                                 <div
@@ -436,96 +574,118 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
             style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
           >
             {currentSourcePlugin?.searchMods ? (
-              <>
-                <div className="relative flex-1">
-                  <div
-                    className="absolute left-3 top-1/2 -translate-y-1/2"
-                    style={{ color: 'var(--text-muted)' }}
-                  >
-                    {isAddingMod ? (
-                      <span style={{ color: sc.accent, fontSize: 10 }}>…</span>
-                    ) : (
-                      <Icon name="search" size={13} />
-                    )}
-                  </div>
-                  <input
-                    className="form-input text-xs"
-                    style={{ paddingLeft: 32 }}
-                    placeholder={`Search ${currentSourcePlugin.name} mods...`}
-                    value={modQuery}
-                    disabled={isAddingMod}
-                    onChange={e => {
-                      setModQuery(e.target.value);
-                      setShowModResults(true);
-                    }}
-                    onFocus={() => setShowModResults(true)}
-                    onBlur={() => setShowModResults(false)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' && modQuery.trim()) {
-                        addCustomMod(modQuery.trim(), modQuery.trim());
-                      }
-                    }}
-                  />
-                  {showModResults && isSearchingMods && (
-                    <div className="search-results">
-                      <div
-                        className="px-3 py-2.5 text-[12px]"
-                        style={{ color: 'var(--text-muted)' }}
-                      >
-                        Searching...
-                      </div>
-                    </div>
+              <div className="relative flex-1">
+                <div
+                  className="absolute left-3 top-1/2 -translate-y-1/2"
+                  style={{ color: 'var(--text-muted)' }}
+                >
+                  {isAddingMod ? (
+                    <span style={{ color: sc.accent, fontSize: 10 }}>…</span>
+                  ) : (
+                    <Icon name="search" size={13} />
                   )}
-                  {showModResults && !isSearchingMods && modResults.length > 0 && (
-                    <div className="search-results">
-                      {modResults.map((r: SearchResult) => {
-                        const resultSc = SOURCE_COLORS[addModSource] || SOURCE_COLORS.local;
-                        return (
-                          <div
-                            key={r.id}
-                            className="search-result-item flex items-center justify-between"
-                            onMouseDown={e => {
-                              e.preventDefault();
-                              addCustomMod(r.id, r.name, r.iconUrl);
-                            }}
-                          >
-                            <div>
-                              <div className="font-medium" style={{ color: 'var(--text-primary)' }}>
+                </div>
+                <input
+                  className="form-input text-xs"
+                  style={{ paddingLeft: 32 }}
+                  placeholder={`Search ${currentSourcePlugin.name} mods...`}
+                  value={modQuery}
+                  disabled={isAddingMod}
+                  onChange={e => {
+                    setModQuery(e.target.value);
+                    setShowModResults(true);
+                  }}
+                  onFocus={() => setShowModResults(true)}
+                  onBlur={() => setShowModResults(false)}
+                  onKeyDown={e => {
+                    if (
+                      e.key === 'Enter' &&
+                      !isSearchingMods &&
+                      modQuery.length > 2 &&
+                      modResults.length > 0
+                    ) {
+                      const first = modResults[0];
+                      addCustomMod(
+                        first.id,
+                        first.name,
+                        first.iconUrl,
+                        first.author,
+                        first.description
+                      );
+                    }
+                  }}
+                />
+                {showModResults && isSearchingMods && (
+                  <div className="search-results">
+                    <div className="px-3 py-2.5 text-[12px]" style={{ color: 'var(--text-muted)' }}>
+                      Searching...
+                    </div>
+                  </div>
+                )}
+                {showModResults && !isSearchingMods && modResults.length > 0 && (
+                  <div className="search-results">
+                    {modResults.map((r: SearchResult) => {
+                      const resultSc = SOURCE_COLORS[addModSource] || SOURCE_COLORS.local;
+                      return (
+                        <button
+                          key={r.id}
+                          className="search-result-item flex items-center justify-between w-full text-left"
+                          onClick={() => {
+                            addCustomMod(r.id, r.name, r.iconUrl, r.author, r.description);
+                          }}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            {r.iconUrl ? (
+                              <img
+                                src={r.iconUrl}
+                                alt=""
+                                className="w-6 h-6 rounded object-cover shrink-0"
+                              />
+                            ) : (
+                              <div
+                                className="w-6 h-6 rounded flex items-center justify-center shrink-0 text-[10px] font-bold"
+                                style={{
+                                  background: 'var(--bg-muted)',
+                                  color: 'var(--text-muted)',
+                                }}
+                              >
+                                <Icon name="package" size={12} />
+                              </div>
+                            )}
+                            <div className="min-w-0">
+                              <div
+                                className="font-medium text-xs truncate"
+                                style={{ color: 'var(--text-primary)' }}
+                              >
                                 {r.name}
                               </div>
                               {r.author && (
-                                <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                                <div
+                                  className="text-[11px] truncate"
+                                  style={{ color: 'var(--text-muted)' }}
+                                >
                                   by {r.author}
                                 </div>
                               )}
                             </div>
-                            <button
-                              className="btn-accent text-[11px] px-2 py-0.5 rounded flex items-center gap-1 shrink-0"
-                              style={{ background: resultSc.accent }}
-                            >
-                              <Icon name="plus" size={11} />
-                              Add
-                            </button>
                           </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-                <button
-                  className="btn-accent text-xs px-3.5 py-1.5 font-medium shrink-0"
-                  style={{
-                    background: (SOURCE_COLORS[addModSource] || SOURCE_COLORS.local).accent,
-                  }}
-                  onClick={() => {
-                    if (modQuery.trim()) addCustomMod(modQuery.trim(), modQuery.trim());
-                  }}
-                  disabled={isAddingMod || !modQuery.trim()}
-                >
-                  <Icon name="plus" size={13} />
-                  <span>Add</span>
-                </button>
-              </>
+                          <div
+                            className="text-[11px] px-2.5 py-1 rounded-md flex items-center gap-1 shrink-0 font-medium transition-all"
+                            style={{
+                              background: resultSc.soft,
+                              color: resultSc.accent,
+                              border: `1px solid ${resultSc.border}`,
+                            }}
+                          >
+                            <Icon name="plus" size={11} />
+                            Add
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             ) : (
               <>
                 <input
@@ -537,9 +697,11 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
                   onKeyDown={e => e.key === 'Enter' && handleAddManual()}
                 />
                 <button
-                  className="btn-accent text-xs px-3.5 py-1.5 font-medium shrink-0"
+                  className="text-xs px-3.5 py-1.5 font-medium rounded-lg shrink-0 flex items-center gap-1.5 transition-all"
                   style={{
-                    background: (SOURCE_COLORS[addModSource] || SOURCE_COLORS.local).accent,
+                    background: (SOURCE_COLORS[addModSource] || SOURCE_COLORS.local).soft,
+                    color: (SOURCE_COLORS[addModSource] || SOURCE_COLORS.local).accent,
+                    border: `1px solid ${(SOURCE_COLORS[addModSource] || SOURCE_COLORS.local).border}`,
                   }}
                   onClick={handleAddManual}
                   disabled={isAddingMod || !manualModName.trim()}
@@ -562,10 +724,10 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
             </div>
           ) : (
             <div
-              className="rounded-xl overflow-x-auto border"
+              className="rounded-xl overflow-hidden border"
               style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}
             >
-              <table className="w-full text-left border-collapse">
+              <table className="w-full table-fixed text-left border-collapse">
                 <thead>
                   <tr
                     className="text-[11px] uppercase tracking-wider"
@@ -575,101 +737,191 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
                       borderBottom: '1px solid var(--border)',
                     }}
                   >
-                    <th className="font-medium px-4 py-2.5 w-12 text-center">Enable</th>
-                    <th className="font-medium px-4 py-2.5">Mod</th>
-                    <th className="font-medium px-4 py-2.5 w-32">Version</th>
-                    <th className="font-medium px-4 py-2.5 w-32 text-center">Source</th>
+                    <th
+                      className="font-medium px-4 py-2.5 w-12 text-center cursor-pointer hover:text-[var(--text-primary)] select-none"
+                      onClick={() => {
+                        if (customSortCol === 'enabled')
+                          setCustomSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+                        else {
+                          setCustomSortCol('enabled');
+                          setCustomSortDir('asc');
+                        }
+                      }}
+                    >
+                      Enable {customSortCol === 'enabled' && (customSortDir === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th
+                      className="font-medium px-4 py-2.5 cursor-pointer hover:text-[var(--text-primary)] select-none"
+                      onClick={() => {
+                        if (customSortCol === 'name')
+                          setCustomSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+                        else {
+                          setCustomSortCol('name');
+                          setCustomSortDir('asc');
+                        }
+                      }}
+                    >
+                      Mod {customSortCol === 'name' && (customSortDir === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th
+                      className="font-medium px-4 py-2.5 w-32 cursor-pointer hover:text-[var(--text-primary)] select-none"
+                      onClick={() => {
+                        if (customSortCol === 'author')
+                          setCustomSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+                        else {
+                          setCustomSortCol('author');
+                          setCustomSortDir('asc');
+                        }
+                      }}
+                    >
+                      Author {customSortCol === 'author' && (customSortDir === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th
+                      className="font-medium px-4 py-2.5 w-32 cursor-pointer hover:text-[var(--text-primary)] select-none"
+                      onClick={() => {
+                        if (customSortCol === 'version')
+                          setCustomSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+                        else {
+                          setCustomSortCol('version');
+                          setCustomSortDir('asc');
+                        }
+                      }}
+                    >
+                      Version {customSortCol === 'version' && (customSortDir === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th
+                      className="font-medium px-4 py-2.5 w-32 text-center cursor-pointer hover:text-[var(--text-primary)] select-none"
+                      onClick={() => {
+                        if (customSortCol === 'source')
+                          setCustomSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+                        else {
+                          setCustomSortCol('source');
+                          setCustomSortDir('asc');
+                        }
+                      }}
+                    >
+                      Source {customSortCol === 'source' && (customSortDir === 'asc' ? '↑' : '↓')}
+                    </th>
                     <th className="font-medium px-4 py-2.5 w-16 text-center">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[var(--border)]">
-                  {instance.customMods.map(mod => {
-                    const initials = mod.name.match(/[A-Z]/g)?.join('').slice(0, 2) || '';
-                    const modSc = SOURCE_COLORS[mod.source] || SOURCE_COLORS.local;
-                    const hue = hashHue(mod.name);
+                  {[...instance.customMods]
+                    .sort((a, b) => {
+                      let cmp = 0;
+                      if (customSortCol === 'name')
+                        cmp = (a.name || '').localeCompare(b.name || '');
+                      else if (customSortCol === 'author')
+                        cmp = (a.author || '').localeCompare(b.author || '');
+                      else if (customSortCol === 'version')
+                        cmp = (a.version || '').localeCompare(b.version || '');
+                      else if (customSortCol === 'source')
+                        cmp = (a.source || '').localeCompare(b.source || '');
+                      else if (customSortCol === 'enabled')
+                        cmp = (a.enabled ? 1 : 0) - (b.enabled ? 1 : 0);
+                      return customSortDir === 'asc' ? cmp : -cmp;
+                    })
+                    .map(mod => {
+                      const initials = mod.name.match(/[A-Z]/g)?.join('').slice(0, 2) || '';
+                      const modSc = SOURCE_COLORS[mod.source] || SOURCE_COLORS.local;
+                      const hue = hashHue(mod.name);
 
-                    return (
-                      <tr
-                        key={mod.id}
-                        className="group transition-colors"
-                        style={{ opacity: mod.enabled ? 1 : 0.55 }}
-                      >
-                        <td className="px-4 py-2.5 text-center">
-                          <button
-                            role="switch"
-                            aria-checked={mod.enabled}
-                            aria-label={`Toggle ${mod.name}`}
-                            className={`theme-toggle-track ${mod.enabled ? 'on' : ''}`}
-                            style={mod.enabled ? { background: modSc.accent } : {}}
-                            onClick={() => toggleCustomMod(mod.id, mod.enabled)}
-                          >
-                            <div className="theme-toggle-knob" />
-                          </button>
-                        </td>
-                        <td className="px-4 py-2.5">
-                          <div className="flex items-center gap-3">
-                            {/* Colour avatar or icon */}
-                            <div
-                              className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 text-[10px] font-bold select-none overflow-hidden"
-                              style={
-                                mod.iconUrl
-                                  ? { background: 'transparent' }
-                                  : {
-                                      background: `hsl(${hue} 55% 18%)`,
-                                      color: `hsl(${hue} 80% 72%)`,
-                                      border: `1px solid hsl(${hue} 55% 28%)`,
-                                    }
-                              }
+                      return (
+                        <tr
+                          key={mod.id}
+                          className="group transition-colors"
+                          style={{ opacity: mod.enabled ? 1 : 0.55 }}
+                        >
+                          <td className="px-4 py-2.5 text-center">
+                            <button
+                              role="switch"
+                              aria-checked={mod.enabled}
+                              aria-label={`Toggle ${mod.name}`}
+                              className={`theme-toggle-track ${mod.enabled ? 'on' : ''}`}
+                              style={mod.enabled ? { background: modSc.accent } : {}}
+                              onClick={() => toggleCustomMod(mod.id, mod.enabled)}
                             >
-                              {mod.iconUrl ? (
-                                <img
-                                  src={mod.iconUrl}
-                                  alt=""
-                                  className="w-full h-full object-cover"
-                                />
-                              ) : (
-                                initials || mod.name.slice(0, 2).toUpperCase()
-                              )}
-                            </div>
+                              <div className="theme-toggle-knob" />
+                            </button>
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <div className="flex items-center gap-3">
+                              {/* Colour avatar or icon */}
+                              <div
+                                className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 text-[10px] font-bold select-none overflow-hidden"
+                                style={
+                                  mod.iconUrl
+                                    ? { background: 'transparent' }
+                                    : {
+                                        background: `hsl(${hue} 55% 18%)`,
+                                        color: `hsl(${hue} 80% 72%)`,
+                                        border: `1px solid hsl(${hue} 55% 28%)`,
+                                      }
+                                }
+                              >
+                                {mod.iconUrl ? (
+                                  <img
+                                    src={mod.iconUrl}
+                                    alt=""
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : (
+                                  initials || mod.name.slice(0, 2).toUpperCase()
+                                )}
+                              </div>
 
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-2">
-                                <div
-                                  className="text-[13px] font-medium truncate"
-                                  style={{ color: 'var(--text-primary)' }}
-                                >
-                                  {mod.name}
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2">
+                                  <div
+                                    className="text-[13px] font-medium truncate"
+                                    style={{ color: 'var(--text-primary)' }}
+                                  >
+                                    {mod.name}
+                                  </div>
                                 </div>
+                                {mod.description && (
+                                  <div
+                                    className="text-[11px] truncate"
+                                    style={{ color: 'var(--text-muted)', opacity: 0.75 }}
+                                  >
+                                    {mod.description}
+                                  </div>
+                                )}
                               </div>
                             </div>
-                          </div>
-                        </td>
-                        <td
-                          className="px-4 py-2.5 text-[11px]"
-                          style={{ color: 'var(--text-muted)' }}
-                        >
-                          v{mod.version}
-                        </td>
-                        <td className="px-4 py-2.5 text-center">
-                          <span
-                            className="px-2 py-0.5 text-[10px] rounded font-medium inline-block"
-                            style={{ background: modSc.soft, color: modSc.accent }}
+                          </td>
+                          <td
+                            className="px-4 py-2.5 text-[11px]"
+                            style={{ color: 'var(--text-muted)' }}
                           >
-                            {modSc.label}
-                          </span>
-                        </td>
-                        <td className="px-4 py-2.5 text-center">
-                          <button
-                            className="btn-ghost p-1.5 rounded text-red-400 hover:text-red-300 hover:bg-red-500/10"
-                            onClick={() => removeCustomMod(mod.id)}
-                            title="Remove mod"
+                            {mod.author || '-'}
+                          </td>
+                          <td
+                            className="px-4 py-2.5 text-[11px]"
+                            style={{ color: 'var(--text-muted)' }}
                           >
-                            <Icon name="trash" size={13} />
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                            v{mod.version}
+                          </td>
+                          <td className="px-4 py-2.5 text-center">
+                            <span
+                              className="px-2 py-0.5 text-[10px] rounded font-medium inline-block"
+                              style={{ background: modSc.soft, color: modSc.accent }}
+                            >
+                              {modSc.label}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5 text-center">
+                            <button
+                              className="btn-ghost-danger p-1.5 rounded"
+                              onClick={() => removeCustomMod(mod.id)}
+                              title="Remove mod"
+                            >
+                              <Icon name="trash" size={13} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                 </tbody>
               </table>
             </div>

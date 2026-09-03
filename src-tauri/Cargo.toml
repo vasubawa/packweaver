@@ -30,6 +30,10 @@ tokio = { version = "1", features = ["full"] }
 zip = "8.6.0"
 futures = "0.3.31"
 tauri-plugin-dialog = "2.7.2"
+async-trait = "0.1.81"
+sha1 = "0.11.0"
+sha2 = "0.11.0"
+toml = "1.1.5"
 
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))'.dependencies]
 glib = "0.22.8"

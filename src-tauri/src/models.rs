@@ -6,17 +6,20 @@ pub struct InstanceMod {
     pub id: String,
     pub name: String,
     pub version: String,
+    pub file_name: Option<String>,
     pub source: String,
     pub is_base: bool,
     pub enabled: bool,
     pub icon_url: Option<String>,
+    pub author: Option<String>,
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerFile {
     pub name: String,
-    pub file_type: String, // 'type' in typescript
+    pub file_type: String,
     pub source: String,
     pub enabled: bool,
 }
@@ -26,8 +29,8 @@ pub struct ServerFile {
 pub struct Instance {
     pub id: String,
     pub name: String,
-    pub base_pack: String,         // mapped from base_pack_id
-    pub base_pack_version: String, // mapped from base_pack_version_id
+    pub base_pack: String,
+    pub base_pack_version: String,
     pub mc_version: String,
     pub loader: String,
     pub source: String,
@@ -38,7 +41,6 @@ pub struct Instance {
     pub icon_url: String,
     pub export_settings: serde_json::Value,
 
-    // UI needs customModCount and totalModCount
     pub custom_mod_count: u32,
     pub total_mod_count: u32,
 

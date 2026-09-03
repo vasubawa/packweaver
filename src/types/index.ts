@@ -9,6 +9,8 @@ export interface CustomModItem {
   source: ModSource;
   isBase: boolean;
   iconUrl?: string;
+  author?: string;
+  description?: string;
 }
 
 export interface ServerFileItem {

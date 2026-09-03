@@ -3,6 +3,7 @@ export interface SearchResult {
   name: string;
   author: string;
   iconUrl: string;
+  description?: string;
 }
 
 export interface PackVersionInfo {
@@ -52,6 +53,8 @@ export interface DependencyInfo {
   projectId: string | null;
   versionId: string | null;
   name?: string;
+  version?: string;
+  author?: string;
   iconUrl?: string | null;
   dependencyType: 'required' | 'optional' | 'incompatible' | 'embedded' | string;
 }
