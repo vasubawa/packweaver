@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { Instance } from '../../types';
 import { SOURCE_COLORS, formatBasePackName } from '../../constants';
 import { getActiveExporterPlugins } from '../../plugins';
@@ -9,10 +11,59 @@ interface OverviewTabProps {
   onUpdate: (updates: Partial<Instance>) => void;
 }
 
+type StageStatus = 'idle' | 'running' | 'done' | 'error';
+
+interface StageState {
+  status: StageStatus;
+  message: string;
+}
+
+const IDLE_STAGES: Record<string, StageState> = {
+  downloadMods: {
+    status: 'idle',
+    message: 'Download custom mods from Modrinth or copy local files',
+  },
+  assemble: { status: 'idle', message: 'Slot mods and server files into the workspace' },
+  package: { status: 'idle', message: 'Zip workspace into the selected output format' },
+};
+
 export function OverviewTab({ instance, onUpdate }: OverviewTabProps) {
   const [isEditingDesc, setIsEditingDesc] = useState(false);
   const [descInput, setDescInput] = useState(instance.description || '');
   const [prevInstanceId, setPrevInstanceId] = useState(instance.id);
+  const [stages, setStages] = useState<Record<string, StageState>>(IDLE_STAGES);
+  const [pipelineRunning, setPipelineRunning] = useState(false);
+  const unlistenRef = useRef<(() => void) | null>(null);
+
+  // Subscribe to export-progress events from the backend
+  useEffect(() => {
+    let cancelled = false;
+    listen<{ instance_id: string; status: string; progress: number; total: number }>(
+      'export-progress',
+      event => {
+        if (cancelled || event.payload.instance_id !== instance.id) return;
+        const { status, progress, total } = event.payload;
+        setStages(prev => ({
+          ...prev,
+          downloadMods: {
+            status:
+              total > 0 && progress < total
+                ? 'running'
+                : progress === total && total > 0
+                  ? 'done'
+                  : prev.downloadMods.status,
+            message: status,
+          },
+        }));
+      }
+    ).then(fn => {
+      unlistenRef.current = fn;
+    });
+    return () => {
+      cancelled = true;
+      unlistenRef.current?.();
+    };
+  }, [instance.id]);
 
   if (instance.id !== prevInstanceId) {
     setPrevInstanceId(instance.id);
@@ -27,6 +78,54 @@ export function OverviewTab({ instance, onUpdate }: OverviewTabProps) {
   const handleDescSave = () => {
     onUpdate({ description: descInput.trim() });
     setIsEditingDesc(false);
+  };
+
+  const setStage = (key: string, status: StageStatus, message: string) =>
+    setStages(prev => ({ ...prev, [key]: { status, message } }));
+
+  const runDownloadMods = async () => {
+    if (pipelineRunning) return;
+    setPipelineRunning(true);
+    setStage('downloadMods', 'running', 'Starting download…');
+    try {
+      const count = await invoke<number>('download_custom_mods', { instanceId: instance.id });
+      setStage(
+        'downloadMods',
+        'done',
+        count === 0
+          ? 'No custom mods to download'
+          : `${count} mod${count !== 1 ? 's' : ''} downloaded`
+      );
+    } catch (e) {
+      setStage('downloadMods', 'error', String(e));
+    } finally {
+      setPipelineRunning(false);
+    }
+  };
+
+  const runAssemble = async () => {
+    if (pipelineRunning) return;
+    setPipelineRunning(true);
+    setStage('assemble', 'running', 'Assembling workspace…');
+    // TODO: invoke('assemble_workspace', { instanceId: instance.id })
+    await new Promise(r => setTimeout(r, 800)); // stub delay
+    setStage('assemble', 'done', 'Workspace assembled (stub)');
+    setPipelineRunning(false);
+  };
+
+  const runPackage = async () => {
+    if (pipelineRunning) return;
+    setPipelineRunning(true);
+    setStage('package', 'running', 'Packaging…');
+    // TODO: invoke('export_instance', { instanceId: instance.id, format: instance.exportSettings.format })
+    await new Promise(r => setTimeout(r, 800)); // stub delay
+    setStage('package', 'done', 'Packaged (stub — save dialog coming)');
+    setPipelineRunning(false);
+  };
+
+  const resetPipeline = () => {
+    if (pipelineRunning) return;
+    setStages(IDLE_STAGES);
   };
 
   const statCards = [
@@ -208,7 +307,7 @@ export function OverviewTab({ instance, onUpdate }: OverviewTabProps) {
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-[13px] font-medium text-[var(--text-primary)]">
-                  Include server files & configs
+                  Include server files &amp; configs
                 </div>
                 <div className="text-[11.5px] text-[var(--text-muted)]">
                   Bundle server-side scripts, configs, and startup tools alongside mod files
@@ -233,6 +332,111 @@ export function OverviewTab({ instance, onUpdate }: OverviewTabProps) {
               </button>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Export Pipeline */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+            Export Pipeline
+          </h3>
+          <button
+            className="btn-ghost text-[11px] px-2 py-0.5"
+            onClick={resetPipeline}
+            disabled={pipelineRunning}
+          >
+            Reset
+          </button>
+        </div>
+        <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--border)' }}>
+          {(
+            [
+              {
+                key: 'downloadMods',
+                label: '① Download Custom Mods',
+                onRun: runDownloadMods,
+              },
+              {
+                key: 'assemble',
+                label: '② Assemble Workspace',
+                onRun: runAssemble,
+              },
+              {
+                key: 'package',
+                label: '③ Package & Export',
+                onRun: runPackage,
+              },
+            ] as const
+          ).map(({ key, label, onRun }, i, arr) => {
+            const stage = stages[key];
+            const isLast = i === arr.length - 1;
+            const iconName =
+              stage.status === 'running'
+                ? 'refresh'
+                : stage.status === 'done'
+                  ? 'check'
+                  : stage.status === 'error'
+                    ? 'x'
+                    : 'info';
+            const iconColor =
+              stage.status === 'running'
+                ? 'var(--color-accent)'
+                : stage.status === 'done'
+                  ? '#22c55e'
+                  : stage.status === 'error'
+                    ? '#ef4444'
+                    : 'var(--text-muted)';
+
+            return (
+              <div
+                key={key}
+                className="flex items-center justify-between gap-3 px-4 py-3"
+                style={{
+                  background: 'var(--bg-surface)',
+                  borderBottom: isLast ? 'none' : '1px solid var(--border)',
+                }}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <Icon
+                    name={iconName}
+                    size={15}
+                    style={{
+                      color: iconColor,
+                      flexShrink: 0,
+                      animation: stage.status === 'running' ? 'spin 1s linear infinite' : undefined,
+                    }}
+                  />
+                  <div className="min-w-0">
+                    <div className="text-[12.5px] font-medium text-[var(--text-primary)]">
+                      {label}
+                    </div>
+                    <div
+                      className="text-[11px] truncate"
+                      style={{
+                        color: stage.status === 'error' ? '#ef4444' : 'var(--text-muted)',
+                      }}
+                    >
+                      {stage.message}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  id={`pipeline-run-${key}`}
+                  className="btn-secondary text-[11px] px-3 py-1 shrink-0"
+                  disabled={pipelineRunning || stage.status === 'running'}
+                  onClick={onRun}
+                  style={stage.status === 'done' ? { opacity: 0.5 } : {}}
+                >
+                  {stage.status === 'running'
+                    ? 'Running…'
+                    : stage.status === 'done'
+                      ? 'Re-run'
+                      : 'Run'}
+                </button>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

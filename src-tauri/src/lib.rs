@@ -439,6 +439,155 @@ fn add_custom_mod(
 }
 
 #[tauri::command]
+async fn download_custom_mods(
+    instance_id: String,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<u32, String> {
+    // Collect enabled custom mods that need downloading
+    let mods_to_download: Vec<(String, String, String)> = {
+        let conn = state
+            .db
+            .lock()
+            .map_err(|_| "Database lock poisoned".to_string())?;
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT mod_id, source, file_name FROM instance_mods
+                 WHERE instance_id = ?1 AND is_base = 0 AND enabled = 1",
+            )
+            .map_err(|e| e.to_string())?;
+
+        let mut results = Vec::new();
+        let rows = stmt
+            .query_map([&instance_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                ))
+            })
+            .map_err(|e| e.to_string())?;
+
+        for item in rows.flatten() {
+            results.push(item);
+        }
+        results
+    };
+
+    let total = mods_to_download.len() as u32;
+    if total == 0 {
+        return Ok(0);
+    }
+
+    let instance_dir = crate::db::get_portable_data_dir()
+        .join("instances")
+        .join(&instance_id);
+    let mods_dir = instance_dir.join("workspace").join("mods");
+    std::fs::create_dir_all(&mods_dir).map_err(|e| e.to_string())?;
+
+    let client = reqwest::Client::builder()
+        .user_agent("packweaver/0.1.0 (packweaver-app)")
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let emit = |status: &str, done: u32| {
+        let _ = app.emit(
+            "export-progress",
+            downloader::ProgressEvent {
+                instance_id: instance_id.clone(),
+                status: status.to_string(),
+                progress: done,
+                total,
+            },
+        );
+    };
+
+    let mut completed: u32 = 0;
+
+    for (mod_id, source, file_name) in &mods_to_download {
+        // Determine destination filename
+        let dest_name = if !file_name.is_empty() {
+            file_name
+                .split('/')
+                .next_back()
+                .unwrap_or(file_name)
+                .to_string()
+        } else {
+            format!("{}.jar", mod_id)
+        };
+        let dest_path = mods_dir.join(&dest_name);
+
+        // Skip if already on disk
+        if dest_path.exists() {
+            completed += 1;
+            emit(
+                &format!("Downloading mods ({}/{})", completed, total),
+                completed,
+            );
+            continue;
+        }
+
+        match source.as_str() {
+            "modrinth" => {
+                // Resolve the latest version file URL from Modrinth
+                let url = format!("https://api.modrinth.com/v2/project/{}/version", mod_id);
+                let versions: Vec<serde_json::Value> = client
+                    .get(&url)
+                    .send()
+                    .await
+                    .map_err(|e| e.to_string())?
+                    .json()
+                    .await
+                    .map_err(|e| e.to_string())?;
+
+                let download_url = versions
+                    .first()
+                    .and_then(|v| v["files"].as_array())
+                    .and_then(|files| {
+                        // Prefer primary file, fall back to first
+                        files
+                            .iter()
+                            .find(|f| f["primary"].as_bool().unwrap_or(false))
+                            .or_else(|| files.first())
+                    })
+                    .and_then(|f| f["url"].as_str())
+                    .map(str::to_string)
+                    .ok_or_else(|| format!("No download URL found for mod: {}", mod_id))?;
+
+                // Stream to disk
+                let mut resp = client
+                    .get(&download_url)
+                    .send()
+                    .await
+                    .map_err(|e| e.to_string())?;
+
+                let mut out = std::fs::File::create(&dest_path).map_err(|e| e.to_string())?;
+                while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {
+                    std::io::Write::write_all(&mut out, &chunk).map_err(|e| e.to_string())?;
+                }
+            }
+            "local" => {
+                // Local mods are already on disk at their source path — nothing to download
+            }
+            other => {
+                eprintln!("Skipping mod {} with unsupported source: {}", mod_id, other);
+            }
+        }
+
+        completed += 1;
+        emit(
+            &format!("Downloading mods ({}/{})", completed, total),
+            completed,
+        );
+    }
+
+    emit("Custom mods ready", total);
+    Ok(completed)
+}
+
+#[tauri::command]
 fn remove_custom_mod(
     instance_id: String,
     mod_id: String,
@@ -513,6 +662,7 @@ pub fn run() {
             update_instance_details,
             add_custom_mod,
             remove_custom_mod,
+            download_custom_mods,
             get_app_info,
             open_data_dir
         ])
