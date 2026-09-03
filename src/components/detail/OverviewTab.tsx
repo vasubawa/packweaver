@@ -107,10 +107,14 @@ export function OverviewTab({ instance, onUpdate }: OverviewTabProps) {
     if (pipelineRunning) return;
     setPipelineRunning(true);
     setStage('assemble', 'running', 'Assembling workspace…');
-    // TODO: invoke('assemble_workspace', { instanceId: instance.id })
-    await new Promise(r => setTimeout(r, 800)); // stub delay
-    setStage('assemble', 'done', 'Workspace assembled (stub)');
-    setPipelineRunning(false);
+    try {
+      await invoke('assemble_workspace', { instanceId: instance.id });
+      setStage('assemble', 'done', 'Workspace assembled');
+    } catch (e) {
+      setStage('assemble', 'error', String(e));
+    } finally {
+      setPipelineRunning(false);
+    }
   };
 
   const runPackage = async () => {

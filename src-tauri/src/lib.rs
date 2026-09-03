@@ -642,6 +642,28 @@ fn open_data_dir() -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+async fn assemble_workspace(
+    instance_id: String,
+    app: tauri::AppHandle,
+    _state: tauri::State<'_, AppState>,
+) -> Result<u32, String> {
+    let _ = app.emit(
+        "export-progress",
+        downloader::ProgressEvent {
+            instance_id: instance_id.clone(),
+            status: "Workspace assembled".to_string(),
+            progress: 1,
+            total: 1,
+        },
+    );
+
+    // For now, base pack is extracted to `workspace/` on creation,
+    // and custom mods are downloaded straight to `workspace/mods/`.
+    // So the workspace is implicitly assembled. We can add server_files copying here later.
+    Ok(1)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -662,6 +684,7 @@ pub fn run() {
             update_instance_details,
             add_custom_mod,
             remove_custom_mod,
+            assemble_workspace,
             download_custom_mods,
             get_app_info,
             open_data_dir
