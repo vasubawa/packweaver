@@ -231,9 +231,8 @@ fn create_instance(
     app: tauri::AppHandle,
     state: tauri::State<AppState>,
 ) -> Result<(), String> {
-    let id = uuid::Uuid::new_v4().to_string();
-
     let mut unique_name = name.clone();
+    let final_id: String;
 
     // Insert dummy record to show in UI immediately
     {
@@ -258,9 +257,40 @@ fn create_instance(
             counter += 1;
         }
 
+        let sanitized = unique_name
+            .chars()
+            .map(|c| if c.is_alphanumeric() { c } else { '-' })
+            .collect::<String>();
+        let mut base_id = sanitized
+            .split('-')
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join("-");
+        if base_id.is_empty() {
+            base_id = "instance".to_string();
+        }
+
+        let mut candidate_id = base_id.clone();
+        let mut id_counter = 1;
+        loop {
+            if let Ok(mut stmt) = conn.prepare("SELECT COUNT(*) FROM instances WHERE id = ?1") {
+                let count: i64 = stmt
+                    .query_row([&candidate_id], |row| row.get(0))
+                    .unwrap_or(0);
+                if count == 0 {
+                    break;
+                }
+            } else {
+                break;
+            }
+            candidate_id = format!("{}-{}", base_id, id_counter);
+            id_counter += 1;
+        }
+        final_id = candidate_id;
+
         conn.execute(
             "INSERT INTO instances (id, name, base_pack_id, base_pack_version_id, mc_version, loader, source, status, description, banner_url, icon_url) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-            rusqlite::params![&id, &unique_name, &base_pack_id, &base_pack_version_id, &mc_version, &loader, &source, "Starting...", description.unwrap_or_default(), banner_url.unwrap_or_default(), icon_url.unwrap_or_default()],
+            rusqlite::params![&final_id, &unique_name, &base_pack_id, &base_pack_version_id, &mc_version, &loader, &source, "Starting...", description.unwrap_or_default(), banner_url.unwrap_or_default(), icon_url.unwrap_or_default()],
         ).map_err(|e| e.to_string())?;
 
         if let Some(mods) = base_pack_mods {
@@ -269,7 +299,7 @@ fn create_instance(
                     "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, author, source, is_base, enabled, icon_url)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, 1, ?7)",
                     rusqlite::params![
-                        &id,
+                        &final_id,
                         &mod_info.id,
                         &mod_info.name,
                         &mod_info.version.unwrap_or_else(|| "latest".to_string()),
@@ -283,7 +313,7 @@ fn create_instance(
     }
 
     // Since AppState contains a Mutex<Connection> that is not Clone, we can just use the app handle to get the state inside the task
-    let id_clone = id.clone();
+    let id_clone = final_id.clone();
     let bp_id_clone = base_pack_id.clone();
 
     tauri::async_runtime::spawn(async move {
