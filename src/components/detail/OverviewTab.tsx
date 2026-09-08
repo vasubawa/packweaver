@@ -121,10 +121,17 @@ export function OverviewTab({ instance, onUpdate }: OverviewTabProps) {
     if (pipelineRunning) return;
     setPipelineRunning(true);
     setStage('package', 'running', 'Packaging…');
-    // TODO: invoke('export_instance', { instanceId: instance.id, format: instance.exportSettings.format })
-    await new Promise(r => setTimeout(r, 800)); // stub delay
-    setStage('package', 'done', 'Packaged (stub — save dialog coming)');
-    setPipelineRunning(false);
+    try {
+      await invoke('export_instance', {
+        instanceId: instance.id,
+        format: instance.exportSettings.format || 'zip',
+      });
+      setStage('package', 'done', 'Packaged (stub — save dialog coming)');
+    } catch (e) {
+      setStage('package', 'error', String(e));
+    } finally {
+      setPipelineRunning(false);
+    }
   };
 
   const resetPipeline = () => {

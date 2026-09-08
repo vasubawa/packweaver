@@ -694,6 +694,42 @@ async fn assemble_workspace(
     Ok(1)
 }
 
+#[tauri::command]
+async fn export_instance(
+    instance_id: String,
+    format: String,
+    app: tauri::AppHandle,
+    _state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let _ = app.emit(
+        "export-progress",
+        downloader::ProgressEvent {
+            instance_id: instance_id.clone(),
+            status: format!("Packaging as {}...", format),
+            progress: 0,
+            total: 1,
+        },
+    );
+
+    // TODO: implement actual zipping logic here based on `format`
+    // (e.g. zip up the workspace/ directory)
+
+    // Simulate work for testing UI/UX
+    tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+
+    let _ = app.emit(
+        "export-progress",
+        downloader::ProgressEvent {
+            instance_id: instance_id.clone(),
+            status: "Packaged".to_string(),
+            progress: 1,
+            total: 1,
+        },
+    );
+
+    Ok(format!("Exported {} to {}", instance_id, format))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -716,6 +752,7 @@ pub fn run() {
             remove_custom_mod,
             assemble_workspace,
             download_custom_mods,
+            export_instance,
             get_app_info,
             open_data_dir
         ])

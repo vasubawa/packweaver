@@ -1,7 +1,7 @@
 export type ModSource = 'modrinth' | 'curseforge' | 'local';
 export type LoaderType = 'Fabric' | 'Forge' | 'NeoForge' | 'Quilt';
 
-export interface CustomModItem {
+export interface InstanceMod {
   id: string;
   name: string;
   version: string;
@@ -49,8 +49,8 @@ export interface Instance {
   bannerGradient?: string;
   bannerUrl?: string;
   iconUrl?: string;
-  basePackMods: CustomModItem[];
-  customMods: CustomModItem[];
+  basePackMods: InstanceMod[];
+  customMods: InstanceMod[];
   serverFiles: ServerFileItem[];
   exportSettings: ExportSettings;
 }

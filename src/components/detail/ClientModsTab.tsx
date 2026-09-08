@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Icon } from '../Icon';
 import { SOURCE_COLORS } from '../../constants';
-import { Instance, CustomModItem, ModSource } from '../../types';
+import { Instance, InstanceMod, ModSource } from '../../types';
 import { useToast } from '../../context/ToastContext';
 import { getActiveSourcePlugins, SourcePlugin, SearchResult } from '../../plugins';
 import { usePluginSearch } from '../../hooks/usePluginSearch';
@@ -155,7 +155,7 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
         const info = await currentSourcePlugin.getLatestVersion(modId);
         if (info) version = info.versionNumber;
       }
-      const newMod: CustomModItem = {
+      const newMod: InstanceMod = {
         id: modId,
         name,
         version,
