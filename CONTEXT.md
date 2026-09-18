@@ -20,4 +20,7 @@ Any mod that is part of an Instance. This is an umbrella term for two specific t
 
 ### Mod State (Enabled)
 A boolean state indicating whether an **Instance Mod** is currently active and should be included when the instance is exported/built.
-*(Note: The backend stores this as the `enabled` field. While `env_client` conversion applies to Modrinth import/export mapping, `enabled` is the canonical storage value and domain term.)*
+*(Note: The backend stores this as the `enabled` field. Custom mods can be toggled in the UI; base mods inherit enabled state from the base pack import. `enabled` is the canonical storage value and domain term.)*
+
+### Export (current)
+Client `.zip` of the assembled workspace is the supported export path on Windows. Other formats are out of scope until implemented.

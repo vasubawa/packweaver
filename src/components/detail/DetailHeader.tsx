@@ -176,9 +176,6 @@ export function DetailHeader({
           </div>
 
           <div className="flex items-center gap-2 shrink-0 flex-wrap">
-            {instance.hasUpdate && (
-              <span className="badge update-badge text-[11px]">Update Available</span>
-            )}
             <button
               className="btn-secondary text-xs px-3 py-2"
               disabled
@@ -191,14 +188,11 @@ export function DetailHeader({
             <button
               className="btn-accent text-xs px-3.5 py-2 font-medium"
               onClick={onExport}
-              disabled
-              title="Coming soon"
+              title="Jump to export pipeline on Overview"
               style={{
                 background: sc.accent,
                 borderColor: sc.accent,
                 boxShadow: `0 2px 10px ${sc.soft}`,
-                opacity: 0.5,
-                cursor: 'not-allowed',
               }}
             >
               <Icon name="package" size={14} />

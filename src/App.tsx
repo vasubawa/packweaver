@@ -98,12 +98,9 @@ function App() {
     setScreen('library');
   }, []);
 
-  const handleExport = useCallback(
-    (instance: Instance) => {
-      addToast(`Export is not yet available for "${instance.name}".`, 'info');
-    },
-    [addToast]
-  );
+  const handleExport = useCallback((_instance: Instance) => {
+    // Export runs from Overview pipeline; header button only focuses that tab.
+  }, []);
 
   const handleUpdateInstance = useCallback((updatedInstance: Instance) => {
     setInstances(prev => prev.map(i => (i.id === updatedInstance.id ? updatedInstance : i)));

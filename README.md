@@ -2,15 +2,19 @@
 
 > A desktop modpack builder for Minecraft — create, customize, and export modpacks from multiple sources.
 
-Packweaver is a [Tauri](https://tauri.app) app (Rust + React + TypeScript) that lets you build Minecraft modpacks by picking a base pack from Modrinth or a local file, layering in your own custom mods and server files, and exporting everything to a standard archive format.
+Packweaver is a [Tauri](https://tauri.app) app (Rust + React + TypeScript) that lets you build Minecraft modpacks by picking a base pack from Modrinth or a local file, layering in your own custom mods, and exporting a client `.zip`.
+
+**Platform:** Windows only (other OS targets are not supported or tested).
 
 ---
 
 ## What it does
 
 1. **Create an Instance** — pick a base modpack from Modrinth or a local `.mrpack`/`.zip` file.
-2. **Customize** — add your own mods (from Modrinth or local `.jar` files) and server files on top of the base pack. Toggle individual mods on/off without deleting them.
-3. **Export** — package the result as a `.zip` (default), `.mrpack` (Modrinth format, plugin), or server archive (plugin).
+2. **Customize** — add your own mods (from Modrinth) on top of the base pack. Toggle custom mods on/off without deleting them.
+3. **Export** — download custom mods, assemble the workspace, and package a client `.zip` (save dialog).
+
+`.mrpack` / server-pack exporters and the Server Files tab are not available yet.
 
 ---
 
@@ -22,15 +26,11 @@ flowchart LR
     B --> C[Extract\nWorkspace]
     C --> D{Customize}
     D -->|Add mod| D
-    D -->|Add server file| D
     D -->|Toggle enabled| D
     D --> E[Export]
     E --> F[Download\nCustom Mods]
     F --> G[Assemble\nWorkspace]
-    G --> H{Format?}
-    H -->|.zip default| I([Output .zip])
-    H -->|.mrpack plugin| J([Output .mrpack])
-    H -->|server plugin| K([Output server.zip])
+    G --> H([Output .zip])
 ```
 
 See [`CONTEXT.md`](./CONTEXT.md) for domain terminology (Instance, Base Pack, Custom Mod, etc.).

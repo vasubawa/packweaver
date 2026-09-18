@@ -54,10 +54,5 @@
       "prettier --write"
     ],
     "src/**/*.{css,json}": "prettier --write"
-  },
-  "pnpm": {
-    "overrides": {
-      "typescript": "~6.0.3"
-    }
   }
 }

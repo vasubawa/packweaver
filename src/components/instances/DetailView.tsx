@@ -4,7 +4,6 @@ import { Instance } from '../../types';
 import { DetailHeader } from '../detail/DetailHeader';
 import { OverviewTab } from '../detail/OverviewTab';
 import { ClientModsTab } from '../detail/ClientModsTab';
-import { ServerFilesTab } from '../detail/ServerFilesTab';
 import { getActiveSourcePlugins } from '../../plugins';
 
 import { SOURCE_COLORS } from '../../constants';
@@ -27,6 +26,17 @@ export function DetailView({
   const [activeTab, setActiveTab] = useState('overview');
   const sc = SOURCE_COLORS[instance.source] || SOURCE_COLORS.local;
 
+  const handleExportClick = useCallback(() => {
+    setActiveTab('overview');
+    // Defer so Overview mounts before scroll
+    requestAnimationFrame(() => {
+      document
+        .getElementById('export-pipeline')
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    onExport(instance);
+  }, [instance, onExport]);
+
   const handleUpdate = useCallback(
     async (updates: Partial<Instance>) => {
       const nextInstance = { ...instance, ...updates };
@@ -40,7 +50,8 @@ export function DetailView({
         'name' in updates ||
         'description' in updates ||
         'bannerUrl' in updates ||
-        'exportSettings' in updates
+        'exportSettings' in updates ||
+        'lastExported' in updates
       ) {
         try {
           await invoke('update_instance_details', {
@@ -51,6 +62,7 @@ export function DetailView({
             exportSettings: updates.exportSettings
               ? JSON.stringify(updates.exportSettings)
               : undefined,
+            lastExported: updates.lastExported,
           });
         } catch (e) {
           console.error('Failed to update instance details in DB', e);
@@ -95,7 +107,7 @@ export function DetailView({
       <DetailHeader
         instance={instance}
         onBack={onBack}
-        onExport={() => onExport(instance)}
+        onExport={handleExportClick}
         onUpdate={handleUpdate}
         onDelete={onDeleteInstance}
       />
@@ -107,7 +119,6 @@ export function DetailView({
         {[
           { key: 'overview', label: 'Overview' },
           { key: 'client', label: 'Client Mods' },
-          { key: 'server', label: 'Server Files' },
         ].map(tab => {
           const isActive = activeTab === tab.key;
           return (
@@ -130,7 +141,6 @@ export function DetailView({
         <div className="px-8 py-5 w-full">
           {activeTab === 'overview' && <OverviewTab instance={instance} onUpdate={handleUpdate} />}
           {activeTab === 'client' && <ClientModsTab instance={instance} onUpdate={handleUpdate} />}
-          {activeTab === 'server' && <ServerFilesTab instance={instance} onUpdate={handleUpdate} />}
         </div>
       </div>
     </div>

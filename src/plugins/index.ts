@@ -58,7 +58,9 @@ export function getActiveSourcePlugins(): SourcePlugin[] {
 }
 
 export function getActiveExporterPlugins(): ExporterPlugin[] {
-  return getAllPlugins().filter((p): p is ExporterPlugin => p.category === 'exporter' && p.enabled);
+  return getAllPlugins().filter(
+    (p): p is ExporterPlugin => p.category === 'exporter' && p.enabled && p.targetFormat === 'zip'
+  );
 }
 
 export const PLUGINS: Record<string, SourcePlugin> = {

@@ -2,8 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { Instance } from '../../types';
-import { SOURCE_COLORS, formatBasePackName } from '../../constants';
-import { getActiveExporterPlugins } from '../../plugins';
+import { formatBasePackName } from '../../constants';
 import { Icon } from '../Icon';
 
 interface OverviewTabProps {
@@ -23,8 +22,8 @@ const IDLE_STAGES: Record<string, StageState> = {
     status: 'idle',
     message: 'Download custom mods from Modrinth or copy local files',
   },
-  assemble: { status: 'idle', message: 'Slot mods and server files into the workspace' },
-  package: { status: 'idle', message: 'Zip workspace into the selected output format' },
+  assemble: { status: 'idle', message: 'Apply enabled/disabled mods into the workspace' },
+  package: { status: 'idle', message: 'Zip workspace into a client .zip archive' },
 };
 
 export function OverviewTab({ instance, onUpdate }: OverviewTabProps) {
@@ -69,9 +68,6 @@ export function OverviewTab({ instance, onUpdate }: OverviewTabProps) {
     setPrevInstanceId(instance.id);
     setDescInput(instance.description || '');
   }
-
-  const sc = SOURCE_COLORS[instance.source] || SOURCE_COLORS.local;
-  const exporterPlugins = getActiveExporterPlugins();
 
   const displayBasePack = formatBasePackName(instance.basePack);
 
@@ -122,13 +118,23 @@ export function OverviewTab({ instance, onUpdate }: OverviewTabProps) {
     setPipelineRunning(true);
     setStage('package', 'running', 'Packaging…');
     try {
-      await invoke('export_instance', {
+      const path = await invoke<string>('export_instance', {
         instanceId: instance.id,
-        format: instance.exportSettings.format || 'zip',
+        format: 'zip',
       });
-      setStage('package', 'done', 'Packaged (stub — save dialog coming)');
+      const exportedAt = new Date().toLocaleString();
+      onUpdate({
+        lastExported: exportedAt,
+        exportSettings: { ...instance.exportSettings, format: 'zip' },
+      });
+      setStage('package', 'done', `Saved ${path}`);
     } catch (e) {
-      setStage('package', 'error', String(e));
+      const msg = String(e);
+      if (msg.toLowerCase().includes('cancelled')) {
+        setStage('package', 'idle', 'Export cancelled');
+      } else {
+        setStage('package', 'error', msg);
+      }
     } finally {
       setPipelineRunning(false);
     }
@@ -290,64 +296,22 @@ export function OverviewTab({ instance, onUpdate }: OverviewTabProps) {
               </label>
               <select
                 className="form-select text-xs w-full"
-                value={instance.exportSettings.format || 'zip'}
-                onChange={e =>
-                  onUpdate({
-                    exportSettings: { ...instance.exportSettings, format: e.target.value as any },
-                  })
-                }
+                value="zip"
+                disabled
+                aria-label="Export format"
               >
-                {exporterPlugins.length > 0 ? (
-                  exporterPlugins.map(exporter => (
-                    <option key={exporter.id} value={exporter.targetFormat}>
-                      {exporter.name} ({exporter.fileExtension})
-                    </option>
-                  ))
-                ) : (
-                  <>
-                    <option value="zip">Universal ZIP (.zip)</option>
-                    <option value="mrpack">Modrinth (.mrpack)</option>
-                    <option value="server">Server Pack (.zip)</option>
-                  </>
-                )}
+                <option value="zip">Client ZIP (.zip)</option>
               </select>
-            </div>
-          </div>
-
-          <div className="pt-3" style={{ borderTop: '1px solid var(--border)' }}>
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-[13px] font-medium text-[var(--text-primary)]">
-                  Include server files &amp; configs
-                </div>
-                <div className="text-[11.5px] text-[var(--text-muted)]">
-                  Bundle server-side scripts, configs, and startup tools alongside mod files
-                </div>
-              </div>
-              <button
-                role="switch"
-                aria-checked={instance.exportSettings.includeServer}
-                aria-label="Include server files"
-                className={`theme-toggle-track ${instance.exportSettings.includeServer ? 'on' : ''}`}
-                style={instance.exportSettings.includeServer ? { background: sc.accent } : {}}
-                onClick={() =>
-                  onUpdate({
-                    exportSettings: {
-                      ...instance.exportSettings,
-                      includeServer: !instance.exportSettings.includeServer,
-                    },
-                  })
-                }
-              >
-                <div className="theme-toggle-knob" />
-              </button>
+              <p className="text-[11px] mt-1 text-[var(--text-muted)]">
+                .mrpack and server packs are not available yet.
+              </p>
             </div>
           </div>
         </div>
       </div>
 
       {/* Export Pipeline */}
-      <div>
+      <div id="export-pipeline">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
             Export Pipeline

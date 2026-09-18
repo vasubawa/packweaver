@@ -30,10 +30,6 @@ export function SettingsView() {
     }
   };
 
-  const handleClearCache = () => {
-    addToast('Cache clearing is not yet available', 'info');
-  };
-
   return (
     <div className="p-8 max-w-4xl animate-slide-in flex flex-col min-h-full">
       <h2
@@ -145,26 +141,6 @@ export function SettingsView() {
                 Open Folder
               </button>
             </div>
-          </div>
-
-          <div className="setting-row pt-4" style={{ borderTop: '1px solid var(--border)' }}>
-            <div>
-              <div className="text-[13px] font-medium" style={{ color: 'var(--text-primary)' }}>
-                Temporary Files
-              </div>
-              <div className="text-[11.5px]" style={{ color: 'var(--text-muted)' }}>
-                Clear downloaded temporary zip and archive cache
-              </div>
-            </div>
-            <button
-              className="btn-ghost text-[11px] px-3 py-1.5"
-              onClick={handleClearCache}
-              disabled
-              title="Coming soon"
-              style={{ opacity: 0.5, cursor: 'not-allowed' }}
-            >
-              Clear Cache
-            </button>
           </div>
         </div>
       </div>

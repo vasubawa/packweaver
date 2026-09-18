@@ -65,8 +65,8 @@ export function ConfirmDeleteModal({
             ?
           </p>
           <p className="text-[12px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-            This action will remove all custom mods, server files, and workspace configuration for
-            this instance. This cannot be undone.
+            This action will remove all custom mods and workspace files for this instance. This
+            cannot be undone.
           </p>
         </div>
 

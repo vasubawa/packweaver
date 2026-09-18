@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io;
 use std::path::Path;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 #[derive(Serialize, Clone)]
 pub struct ProgressEvent {
@@ -141,6 +141,18 @@ async fn fetch_modrinth_enrichment(
     map
 }
 
+fn with_db<F, T>(app: &AppHandle, f: F) -> Result<T, String>
+where
+    F: FnOnce(&rusqlite::Connection) -> Result<T, String>,
+{
+    let state = app.state::<AppState>();
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| "Database lock poisoned".to_string())?;
+    f(&conn)
+}
+
 pub async fn run_pipeline(
     app: AppHandle,
     _state: tauri::State<'_, AppState>,
@@ -168,6 +180,15 @@ pub async fn run_pipeline(
         );
     };
 
+    let base_pack_version_id = with_db(&app, |conn| {
+        conn.query_row(
+            "SELECT base_pack_version_id FROM instances WHERE id = ?1",
+            params![&instance_id],
+            |row| row.get::<_, String>(0),
+        )
+        .map_err(|e| e.to_string())
+    })?;
+
     // 2. Setup Directories
     let app_dir = crate::db::get_portable_data_dir();
     let instance_dir = app_dir.join("instances").join(&instance_id);
@@ -186,7 +207,13 @@ pub async fn run_pipeline(
     };
 
     fetcher
-        .fetch(&app, &instance_id, &base_pack_id, &mrpack_path)
+        .fetch(
+            &app,
+            &instance_id,
+            &base_pack_id,
+            &base_pack_version_id,
+            &mrpack_path,
+        )
         .await?;
 
     // 4. Extract .mrpack to workspace
@@ -263,7 +290,7 @@ pub async fn run_pipeline(
                     .unwrap_or_else(|| "required".to_string())
                     != "unsupported";
 
-                let instance_dir_clone = instance_dir.clone();
+                let workspace_dir_clone = workspace_dir.clone();
 
                 tasks.push(async move {
                     let path_comp = std::path::Path::new(&file_path);
@@ -274,7 +301,7 @@ pub async fn run_pipeline(
                     {
                         return Err(format!("Invalid file path: {}", file_path));
                     }
-                    let dest_path = instance_dir_clone.join(path_comp);
+                    let dest_path = workspace_dir_clone.join(path_comp);
 
                     if let Ok(parsed_url) = url::Url::parse(&dl_url) {
                         if parsed_url.host_str() != Some("cdn.modrinth.com") {
@@ -345,136 +372,147 @@ pub async fn run_pipeline(
 
             let results = join_all(tasks).await;
 
-            let conn = crate::db::init_db(&app).map_err(|e| e.to_string())?;
-            for res in results {
-                match res {
-                    Ok((mod_id, file_path, enabled, sha1, dest_path)) => {
-                        let (name, version, author, description, icon_url) =
-                            if let Some(enrichment) =
-                                sha1.as_ref().and_then(|s| enrichment_map.get(s))
-                            {
-                                (
-                                    enrichment.name.clone(),
-                                    enrichment.version.clone(),
-                                    enrichment.author.clone(),
-                                    enrichment.description.clone(),
-                                    enrichment.icon_url.clone(),
-                                )
-                            } else {
-                                let jar_meta = crate::jar_inspector::inspect_jar(&dest_path);
-                                let default_name =
-                                    mod_id.rsplit('/').next().unwrap_or(&mod_id).to_string();
-                                (
-                                    jar_meta.name.unwrap_or(default_name),
-                                    jar_meta.version.unwrap_or_else(|| "latest".to_string()),
-                                    jar_meta.author,
-                                    jar_meta.description,
-                                    None,
-                                )
-                            };
+            with_db(&app, |conn| {
+                for res in results {
+                    match res {
+                        Ok((mod_id, file_path, enabled, sha1, dest_path)) => {
+                            let (name, version, author, description, icon_url) =
+                                if let Some(enrichment) =
+                                    sha1.as_ref().and_then(|s| enrichment_map.get(s))
+                                {
+                                    (
+                                        enrichment.name.clone(),
+                                        enrichment.version.clone(),
+                                        enrichment.author.clone(),
+                                        enrichment.description.clone(),
+                                        enrichment.icon_url.clone(),
+                                    )
+                                } else {
+                                    let jar_meta = crate::jar_inspector::inspect_jar(&dest_path);
+                                    let default_name =
+                                        mod_id.rsplit('/').next().unwrap_or(&mod_id).to_string();
+                                    (
+                                        jar_meta.name.unwrap_or(default_name),
+                                        jar_meta.version.unwrap_or_else(|| "latest".to_string()),
+                                        jar_meta.author,
+                                        jar_meta.description,
+                                        None,
+                                    )
+                                };
 
-                        if let Err(e) = conn.execute(
-                            "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, file_name, source, is_base, enabled, icon_url, author, description)
-                             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
-                             ON CONFLICT(instance_id, mod_id) DO UPDATE SET
-                                name=COALESCE(NULLIF(excluded.name, ''), name),
-                                mod_version_id=COALESCE(NULLIF(excluded.mod_version_id, ''), mod_version_id),
-                                file_name=excluded.file_name,
-                                source=excluded.source,
-                                is_base=excluded.is_base,
-                                enabled=excluded.enabled,
-                                icon_url=COALESCE(NULLIF(excluded.icon_url, ''), icon_url),
-                                author=COALESCE(NULLIF(excluded.author, ''), author),
-                                description=COALESCE(NULLIF(excluded.description, ''), description)",
-                            params![
-                                &instance_id,
-                                &mod_id,
-                                &name,
-                                &version,
-                                &file_path,
-                                "modrinth",
-                                1,
-                                enabled,
-                                icon_url.unwrap_or_default(),
-                                author.unwrap_or_default(),
-                                description.unwrap_or_default(),
-                            ],
-                        ) {
-                            println!("SQL ERROR in downloader: {}", e);
+                            if let Err(e) = conn.execute(
+                                "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, file_name, source, is_base, enabled, icon_url, author, description)
+                                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                                 ON CONFLICT(instance_id, mod_id) DO UPDATE SET
+                                    name=COALESCE(NULLIF(excluded.name, ''), name),
+                                    mod_version_id=COALESCE(NULLIF(excluded.mod_version_id, ''), mod_version_id),
+                                    file_name=excluded.file_name,
+                                    source=excluded.source,
+                                    is_base=excluded.is_base,
+                                    enabled=excluded.enabled,
+                                    icon_url=COALESCE(NULLIF(excluded.icon_url, ''), icon_url),
+                                    author=COALESCE(NULLIF(excluded.author, ''), author),
+                                    description=COALESCE(NULLIF(excluded.description, ''), description)",
+                                params![
+                                    &instance_id,
+                                    &mod_id,
+                                    &name,
+                                    &version,
+                                    &file_path,
+                                    "modrinth",
+                                    1,
+                                    enabled,
+                                    icon_url.unwrap_or_default(),
+                                    author.unwrap_or_default(),
+                                    description.unwrap_or_default(),
+                                ],
+                            ) {
+                                eprintln!("SQL ERROR in downloader: {}", e);
+                                return Err(e.to_string());
+                            }
+                            completed += 1;
+                            emit_progress("Downloading Mods...", completed, total_files);
                         }
-                        completed += 1;
-                        emit_progress("Downloading Mods...", completed, total_files);
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to download mod: {}", e);
-                        return Err(e);
+                        Err(e) => {
+                            eprintln!("Failed to download mod: {}", e);
+                            return Err(e);
+                        }
                     }
                 }
-            }
+                Ok(())
+            })?;
         }
 
         // 7. Update final Instance state
-        let conn = crate::db::init_db(&app).map_err(|e| e.to_string())?;
-        let _ = conn.execute(
-            "UPDATE instances SET mc_version = ?1, loader = ?2, status = 'Ready' WHERE id = ?3",
-            params![&mc_version, &loader, &instance_id],
-        );
+        with_db(&app, |conn| {
+            conn.execute(
+                "UPDATE instances SET mc_version = ?1, loader = ?2, status = 'Ready' WHERE id = ?3",
+                params![&mc_version, &loader, &instance_id],
+            )
+            .map_err(|e| e.to_string())?;
+            Ok(())
+        })?;
 
         emit_progress("Ready", total_files, total_files);
     } else {
         // Generic local zip/pack extraction
         let mods_dir = workspace_dir.join("mods");
         let mut mod_count = 0;
-        let conn = crate::db::init_db(&app).map_err(|e| e.to_string())?;
 
-        if mods_dir.exists() && mods_dir.is_dir() {
-            if let Ok(entries) = fs::read_dir(&mods_dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.is_file() {
-                        if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
-                            let jar_meta = crate::jar_inspector::inspect_jar(&path);
-                            let name = jar_meta.name.unwrap_or_else(|| file_name.to_string());
-                            let version = jar_meta.version.unwrap_or_else(|| "local".to_string());
+        with_db(&app, |conn| {
+            if mods_dir.exists() && mods_dir.is_dir() {
+                if let Ok(entries) = fs::read_dir(&mods_dir) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if path.is_file() {
+                            if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
+                                let jar_meta = crate::jar_inspector::inspect_jar(&path);
+                                let name = jar_meta.name.unwrap_or_else(|| file_name.to_string());
+                                let version =
+                                    jar_meta.version.unwrap_or_else(|| "local".to_string());
 
-                            let _ = conn.execute(
-                                "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, file_name, source, is_base, enabled, icon_url, author, description)
-                                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
-                                 ON CONFLICT(instance_id, mod_id) DO UPDATE SET
-                                    name=excluded.name,
-                                    mod_version_id=excluded.mod_version_id,
-                                    file_name=excluded.file_name,
-                                    source=excluded.source,
-                                    is_base=excluded.is_base,
-                                    enabled=excluded.enabled,
-                                    icon_url=excluded.icon_url,
-                                    author=excluded.author,
-                                    description=excluded.description",
-                                params![
-                                    &instance_id,
-                                    file_name,
-                                    &name,
-                                    &version,
-                                    file_name,
-                                    "local",
-                                    1,
-                                    true,
-                                    "",
-                                    jar_meta.author.unwrap_or_default(),
-                                    jar_meta.description.unwrap_or_default(),
-                                ],
-                            );
-                            mod_count += 1;
+                                conn.execute(
+                                    "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, file_name, source, is_base, enabled, icon_url, author, description)
+                                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                                     ON CONFLICT(instance_id, mod_id) DO UPDATE SET
+                                        name=excluded.name,
+                                        mod_version_id=excluded.mod_version_id,
+                                        file_name=excluded.file_name,
+                                        source=excluded.source,
+                                        is_base=excluded.is_base,
+                                        enabled=excluded.enabled,
+                                        icon_url=excluded.icon_url,
+                                        author=excluded.author,
+                                        description=excluded.description",
+                                    params![
+                                        &instance_id,
+                                        file_name,
+                                        &name,
+                                        &version,
+                                        file_name,
+                                        "local",
+                                        1,
+                                        true,
+                                        "",
+                                        jar_meta.author.unwrap_or_default(),
+                                        jar_meta.description.unwrap_or_default(),
+                                    ],
+                                )
+                                .map_err(|e| e.to_string())?;
+                                mod_count += 1;
+                            }
                         }
                     }
                 }
             }
-        }
 
-        let _ = conn.execute(
-            "UPDATE instances SET status = 'Ready' WHERE id = ?1",
-            params![&instance_id],
-        );
+            conn.execute(
+                "UPDATE instances SET status = 'Ready' WHERE id = ?1",
+                params![&instance_id],
+            )
+            .map_err(|e| e.to_string())?;
+            Ok(())
+        })?;
 
         emit_progress("Ready", mod_count, mod_count);
     }
@@ -506,6 +544,184 @@ fn extract_zip(archive_path: &Path, extract_to: &Path) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Sync workspace jars with enabled flags, then count remaining mod files.
+pub fn assemble_workspace(app: &AppHandle, instance_id: &str) -> Result<u32, String> {
+    let workspace_dir = crate::db::get_portable_data_dir()
+        .join("instances")
+        .join(instance_id)
+        .join("workspace");
+    let mods_dir = workspace_dir.join("mods");
+    fs::create_dir_all(&mods_dir).map_err(|e| e.to_string())?;
+
+    let mod_rows: Vec<(String, bool, Option<String>)> = with_db(app, |conn| {
+        let mut stmt = conn
+            .prepare("SELECT mod_id, enabled, file_name FROM instance_mods WHERE instance_id = ?1")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([instance_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, bool>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?;
+        let mut out = Vec::new();
+        for row in rows.flatten() {
+            out.push(row);
+        }
+        Ok(out)
+    })?;
+
+    for (mod_id, enabled, file_name) in &mod_rows {
+        let candidates = mod_jar_candidates(&mods_dir, mod_id, file_name.as_deref());
+        if !enabled {
+            for path in candidates {
+                if path.exists() {
+                    let _ = fs::remove_file(&path);
+                }
+            }
+        }
+    }
+
+    let mut count = 0u32;
+    if mods_dir.exists() {
+        if let Ok(entries) = fs::read_dir(&mods_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    count += 1;
+                }
+            }
+        }
+    }
+    Ok(count)
+}
+
+fn mod_jar_candidates(
+    mods_dir: &Path,
+    mod_id: &str,
+    file_name: Option<&str>,
+) -> Vec<std::path::PathBuf> {
+    let mut paths = Vec::new();
+    if let Some(name) = file_name.filter(|s| !s.is_empty()) {
+        let leaf = name.split('/').next_back().unwrap_or(name);
+        paths.push(mods_dir.join(leaf));
+        // Relative paths stored as mods/foo.jar
+        if name.contains('/') || name.contains('\\') {
+            let workspace = mods_dir.parent().unwrap_or(mods_dir);
+            paths.push(workspace.join(name.replace('/', std::path::MAIN_SEPARATOR_STR)));
+        }
+    }
+    paths.push(mods_dir.join(format!("{}.jar", mod_id)));
+    let id_leaf = mod_id.split('/').next_back().unwrap_or(mod_id);
+    if id_leaf != mod_id {
+        paths.push(mods_dir.join(id_leaf));
+        if !id_leaf.ends_with(".jar") {
+            paths.push(mods_dir.join(format!("{}.jar", id_leaf)));
+        }
+    }
+    paths
+}
+
+pub fn zip_workspace(
+    workspace_dir: &Path,
+    dest_zip: &Path,
+    skip_names: &[String],
+) -> Result<(), String> {
+    if !workspace_dir.exists() {
+        return Err("Workspace not found — create or assemble the instance first".to_string());
+    }
+
+    if let Some(parent) = dest_zip.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+
+    let file = fs::File::create(dest_zip).map_err(|e| e.to_string())?;
+    let mut zip_writer = zip::ZipWriter::new(file);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+
+    fn add_dir(
+        zip_writer: &mut zip::ZipWriter<fs::File>,
+        options: zip::write::SimpleFileOptions,
+        base: &Path,
+        current: &Path,
+        skip_names: &[String],
+    ) -> Result<(), String> {
+        let entries = fs::read_dir(current).map_err(|e| e.to_string())?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+
+            if path.is_dir() {
+                add_dir(zip_writer, options, base, &path, skip_names)?;
+                continue;
+            }
+
+            // Skip disabled mod jars by leaf name
+            if skip_names.iter().any(|s| s == name_str.as_ref()) {
+                continue;
+            }
+            // Don't ship Modrinth index inside a plain client zip
+            if name_str == "modrinth.index.json" {
+                continue;
+            }
+
+            let rel = path
+                .strip_prefix(base)
+                .map_err(|e| e.to_string())?
+                .to_string_lossy()
+                .replace('\\', "/");
+
+            zip_writer
+                .start_file(rel, options)
+                .map_err(|e| e.to_string())?;
+            let mut f = fs::File::open(&path).map_err(|e| e.to_string())?;
+            io::copy(&mut f, zip_writer).map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
+    add_dir(
+        &mut zip_writer,
+        options,
+        workspace_dir,
+        workspace_dir,
+        skip_names,
+    )?;
+    zip_writer.finish().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub fn disabled_mod_leaf_names(app: &AppHandle, instance_id: &str) -> Result<Vec<String>, String> {
+    with_db(app, |conn| {
+        let mut stmt = conn
+            .prepare(
+                "SELECT mod_id, file_name FROM instance_mods
+                 WHERE instance_id = ?1 AND enabled = 0",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([instance_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+            })
+            .map_err(|e| e.to_string())?;
+        let mut names = Vec::new();
+        for row in rows.flatten() {
+            let (mod_id, file_name) = row;
+            if let Some(name) = file_name.filter(|s| !s.is_empty()) {
+                names.push(name.split('/').next_back().unwrap_or(&name).to_string());
+            }
+            names.push(format!("{}.jar", mod_id));
+            let leaf = mod_id.split('/').next_back().unwrap_or(&mod_id);
+            names.push(leaf.to_string());
+        }
+        Ok(names)
+    })
 }
 
 #[cfg(test)]

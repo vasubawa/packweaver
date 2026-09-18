@@ -151,9 +151,15 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
     setIsAddingMod(true);
     try {
       let version = 'latest';
+      let versionId = 'latest';
+      let fileName: string | undefined;
       if (currentSourcePlugin?.getLatestVersion) {
         const info = await currentSourcePlugin.getLatestVersion(modId);
-        if (info) version = info.versionNumber;
+        if (info) {
+          version = info.versionNumber;
+          versionId = info.versionId || info.versionNumber;
+          fileName = info.primaryFilename;
+        }
       }
       const newMod: InstanceMod = {
         id: modId,
@@ -171,11 +177,12 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
         instanceId: instance.id,
         modId: newMod.id,
         name: newMod.name,
-        version: newMod.version,
+        version: versionId,
         source: newMod.source,
         iconUrl: newMod.iconUrl || undefined,
         author: newMod.author || undefined,
         description: newMod.description || undefined,
+        fileName: fileName || undefined,
       });
 
       onUpdate({ customMods: [...instance.customMods, newMod] });

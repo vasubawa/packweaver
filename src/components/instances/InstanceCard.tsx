@@ -11,7 +11,7 @@ export function InstanceCard({ instance, onClick }: InstanceCardProps) {
 
   return (
     <div
-      className="instance-card flex flex-col group relative overflow-hidden transition-all duration-200"
+      className="instance-card flex flex-col group relative overflow-hidden transition-all duration-200 w-full h-full"
       onClick={() => onClick(instance)}
       role="button"
       tabIndex={0}
@@ -66,9 +66,21 @@ export function InstanceCard({ instance, onClick }: InstanceCardProps) {
             </h3>
             <span
               className="text-[11px] font-medium shrink-0"
-              style={{ color: 'var(--text-muted)' }}
+              style={{
+                color: instance.status.startsWith('Error')
+                  ? '#ef4444'
+                  : instance.status !== 'Ready' && instance.status !== 'syncing'
+                    ? sc.accent
+                    : 'var(--text-muted)',
+              }}
             >
-              {instance.status === 'syncing' ? 'Syncing...' : 'Ready'}
+              {instance.status === 'syncing'
+                ? 'Syncing...'
+                : instance.status.startsWith('Error')
+                  ? 'Error'
+                  : instance.status === 'Ready'
+                    ? 'Ready'
+                    : instance.status || 'Starting…'}
             </span>
           </div>
 
@@ -86,7 +98,8 @@ export function InstanceCard({ instance, onClick }: InstanceCardProps) {
           )}
         </div>
 
-        {instance.status === 'syncing' &&
+        {((instance.status !== 'Ready' && !instance.status.startsWith('Error')) ||
+          instance.status === 'syncing') &&
           instance.progress !== undefined &&
           (() => {
             const pct = instance.total

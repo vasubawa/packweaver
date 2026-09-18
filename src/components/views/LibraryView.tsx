@@ -66,28 +66,22 @@ export function LibraryView({
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-4 gap-4">
-          {filteredInstances.map((instance, idx, arr) => {
-            const rowIndex = Math.floor(idx / 4);
-            const itemsInRow = Math.min(4, arr.length - rowIndex * 4);
-            const positionInRow = idx % 4;
-
-            let spanClass = 'col-span-1';
-            if (itemsInRow === 1) spanClass = 'col-span-2';
-            else if (itemsInRow === 2) spanClass = 'col-span-2';
-            else if (itemsInRow === 3)
-              spanClass = positionInRow === 2 ? 'col-span-2' : 'col-span-1';
-
-            return (
-              <div key={instance.id} className={spanClass}>
-                <InstanceCard
-                  instance={instance}
-                  onClick={onSelectInstance}
-                  onDelete={onDeleteInstance}
-                />
-              </div>
-            );
-          })}
+        <div className="flex flex-col gap-4">
+          {Array.from({ length: Math.ceil(filteredInstances.length / 4) }, (_, row) =>
+            filteredInstances.slice(row * 4, row * 4 + 4)
+          ).map((rowInstances, rowIdx) => (
+            <div key={rowIdx} className="flex gap-4">
+              {rowInstances.map(instance => (
+                <div key={instance.id} className="min-w-0 flex-1">
+                  <InstanceCard
+                    instance={instance}
+                    onClick={onSelectInstance}
+                    onDelete={onDeleteInstance}
+                  />
+                </div>
+              ))}
+            </div>
+          ))}
         </div>
       )}
     </div>

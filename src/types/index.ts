@@ -24,7 +24,7 @@ export interface ServerFileItem {
 export interface ExportSettings {
   includeServer: boolean;
   version: string;
-  format?: 'zip' | 'mrpack' | 'curseforge';
+  format?: 'zip';
   targetDistribution?: string;
   exportPath?: string;
 }

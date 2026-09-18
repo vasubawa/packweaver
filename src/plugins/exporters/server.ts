@@ -3,12 +3,11 @@ import { ExporterPlugin } from '../types';
 export const ServerPackExporterPlugin: ExporterPlugin = {
   id: 'server_pack_exporter',
   name: 'Server Pack Packager',
-  description:
-    'Assemble server-side mods, scripts, configs, and startup scripts into a server archive.',
+  description: 'Coming soon — server pack export is not available yet.',
   version: '1.0.0',
   author: 'Packweaver Core',
   category: 'exporter',
-  enabled: true,
+  enabled: false,
   builtIn: true,
   fallbackEmoji: '🖥️',
   targetFormat: 'server',

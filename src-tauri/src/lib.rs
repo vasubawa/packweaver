@@ -394,6 +394,7 @@ fn update_instance_details(
     description: Option<String>,
     banner_url: Option<String>,
     export_settings: Option<String>,
+    last_exported: Option<String>,
     state: tauri::State<AppState>,
 ) -> Result<(), String> {
     let conn = state
@@ -429,6 +430,13 @@ fn update_instance_details(
         )
         .map_err(|e| e.to_string())?;
     }
+    if let Some(le) = last_exported {
+        conn.execute(
+            "UPDATE instances SET last_exported = ?1 WHERE id = ?2",
+            rusqlite::params![le, id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
 
     Ok(())
 }
@@ -444,6 +452,7 @@ fn add_custom_mod(
     icon_url: Option<String>,
     author: Option<String>,
     description: Option<String>,
+    file_name: Option<String>,
     state: tauri::State<AppState>,
 ) -> Result<(), String> {
     let conn = state
@@ -451,8 +460,8 @@ fn add_custom_mod(
         .lock()
         .map_err(|_| "Database lock poisoned".to_string())?;
     conn.execute(
-        "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, source, is_base, enabled, icon_url, author, description)
-         VALUES (?1, ?2, ?3, ?4, ?5, 0, 1, ?6, ?7, ?8)",
+        "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, source, is_base, enabled, icon_url, author, description, file_name)
+         VALUES (?1, ?2, ?3, ?4, ?5, 0, 1, ?6, ?7, ?8, ?9)",
         rusqlite::params![
             instance_id,
             mod_id,
@@ -461,7 +470,8 @@ fn add_custom_mod(
             source,
             icon_url.unwrap_or_default(),
             author.unwrap_or_default(),
-            description.unwrap_or_default()
+            description.unwrap_or_default(),
+            file_name.unwrap_or_default()
         ],
     )
     .map_err(|e| e.to_string())?;
@@ -475,7 +485,7 @@ async fn download_custom_mods(
     state: tauri::State<'_, AppState>,
 ) -> Result<u32, String> {
     // Collect enabled custom mods that need downloading
-    let mods_to_download: Vec<(String, String, String)> = {
+    let mods_to_download: Vec<(String, String, String, String)> = {
         let conn = state
             .db
             .lock()
@@ -483,7 +493,7 @@ async fn download_custom_mods(
 
         let mut stmt = conn
             .prepare(
-                "SELECT mod_id, source, file_name FROM instance_mods
+                "SELECT mod_id, source, file_name, mod_version_id FROM instance_mods
                  WHERE instance_id = ?1 AND is_base = 0 AND enabled = 1",
             )
             .map_err(|e| e.to_string())?;
@@ -495,6 +505,7 @@ async fn download_custom_mods(
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
                     row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                    row.get::<_, String>(3)?,
                 ))
             })
             .map_err(|e| e.to_string())?;
@@ -536,9 +547,11 @@ async fn download_custom_mods(
 
     let mut completed: u32 = 0;
 
-    for (mod_id, source, file_name) in &mods_to_download {
-        // Determine destination filename
-        let dest_name = if !file_name.is_empty() {
+    for (mod_id, source, file_name, mod_version_id) in &mods_to_download {
+        let dest_name = if !file_name.is_empty()
+            && !std::path::Path::new(file_name).is_absolute()
+            && !file_name.contains(':')
+        {
             file_name
                 .split('/')
                 .next_back()
@@ -561,36 +574,77 @@ async fn download_custom_mods(
 
         match source.as_str() {
             "modrinth" => {
-                // Resolve the latest version file URL from Modrinth
-                let url = format!("https://api.modrinth.com/v2/project/{}/version", mod_id);
-                let versions: Vec<serde_json::Value> = client
-                    .get(&url)
-                    .send()
-                    .await
-                    .map_err(|e| e.to_string())?
-                    .json()
-                    .await
-                    .map_err(|e| e.to_string())?;
+                let version_json: serde_json::Value = if !mod_version_id.is_empty()
+                    && mod_version_id != "latest"
+                    && !mod_version_id.contains('.')
+                {
+                    // Modrinth version GUIDs are opaque ids without dots; version numbers use dots.
+                    let url = format!("https://api.modrinth.com/v2/version/{}", mod_version_id);
+                    client
+                        .get(&url)
+                        .send()
+                        .await
+                        .map_err(|e| e.to_string())?
+                        .error_for_status()
+                        .map_err(|e| e.to_string())?
+                        .json()
+                        .await
+                        .map_err(|e| e.to_string())?
+                } else {
+                    let url = format!("https://api.modrinth.com/v2/project/{}/version", mod_id);
+                    let versions: Vec<serde_json::Value> = client
+                        .get(&url)
+                        .send()
+                        .await
+                        .map_err(|e| e.to_string())?
+                        .error_for_status()
+                        .map_err(|e| e.to_string())?
+                        .json()
+                        .await
+                        .map_err(|e| e.to_string())?;
+                    versions
+                        .into_iter()
+                        .next()
+                        .ok_or_else(|| format!("No versions found for mod: {}", mod_id))?
+                };
 
-                let download_url = versions
-                    .first()
-                    .and_then(|v| v["files"].as_array())
-                    .and_then(|files| {
-                        // Prefer primary file, fall back to first
-                        files
-                            .iter()
-                            .find(|f| f["primary"].as_bool().unwrap_or(false))
-                            .or_else(|| files.first())
-                    })
+                let files = version_json["files"]
+                    .as_array()
+                    .ok_or_else(|| format!("No files for mod: {}", mod_id))?;
+                let download_url = files
+                    .iter()
+                    .find(|f| f["primary"].as_bool().unwrap_or(false))
+                    .or_else(|| files.first())
                     .and_then(|f| f["url"].as_str())
                     .map(str::to_string)
                     .ok_or_else(|| format!("No download URL found for mod: {}", mod_id))?;
 
-                // Stream to disk
+                let resolved_name = files
+                    .iter()
+                    .find(|f| f["primary"].as_bool().unwrap_or(false))
+                    .or_else(|| files.first())
+                    .and_then(|f| f["filename"].as_str())
+                    .map(str::to_string);
+                let dest_path = if let Some(name) = resolved_name {
+                    let p = mods_dir.join(&name);
+                    // Persist filename for future assemble/export
+                    if let Ok(conn) = state.db.lock() {
+                        let _ = conn.execute(
+                            "UPDATE instance_mods SET file_name = ?1 WHERE instance_id = ?2 AND mod_id = ?3",
+                            rusqlite::params![&name, &instance_id, &mod_id],
+                        );
+                    }
+                    p
+                } else {
+                    dest_path.clone()
+                };
+
                 let mut resp = client
                     .get(&download_url)
                     .send()
                     .await
+                    .map_err(|e| e.to_string())?
+                    .error_for_status()
                     .map_err(|e| e.to_string())?;
 
                 let mut out = std::fs::File::create(&dest_path).map_err(|e| e.to_string())?;
@@ -599,7 +653,32 @@ async fn download_custom_mods(
                 }
             }
             "local" => {
-                // Local mods are already on disk at their source path — nothing to download
+                let source_path = if !file_name.is_empty() {
+                    std::path::PathBuf::from(file_name)
+                } else {
+                    return Err(format!(
+                        "Local mod {} has no source file path recorded",
+                        mod_id
+                    ));
+                };
+                let canonical = source_path
+                    .canonicalize()
+                    .map_err(|e| format!("Invalid local mod path for {}: {}", mod_id, e))?;
+                if !canonical.is_file() {
+                    return Err(format!("Local mod path is not a file: {}", mod_id));
+                }
+                let leaf = canonical
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .ok_or_else(|| format!("Invalid local mod filename: {}", mod_id))?;
+                let dest = mods_dir.join(leaf);
+                std::fs::copy(&canonical, &dest).map_err(|e| e.to_string())?;
+                if let Ok(conn) = state.db.lock() {
+                    let _ = conn.execute(
+                        "UPDATE instance_mods SET file_name = ?1 WHERE instance_id = ?2 AND mod_id = ?3",
+                        rusqlite::params![leaf, &instance_id, &mod_id],
+                    );
+                }
             }
             other => {
                 eprintln!("Skipping mod {} with unsupported source: {}", mod_id, other);
@@ -682,16 +761,25 @@ async fn assemble_workspace(
         "export-progress",
         downloader::ProgressEvent {
             instance_id: instance_id.clone(),
-            status: "Workspace assembled".to_string(),
+            status: "Assembling workspace…".to_string(),
+            progress: 0,
+            total: 1,
+        },
+    );
+
+    let count = downloader::assemble_workspace(&app, &instance_id)?;
+
+    let _ = app.emit(
+        "export-progress",
+        downloader::ProgressEvent {
+            instance_id: instance_id.clone(),
+            status: format!("Workspace assembled ({} mods)", count),
             progress: 1,
             total: 1,
         },
     );
 
-    // For now, base pack is extracted to `workspace/` on creation,
-    // and custom mods are downloaded straight to `workspace/mods/`.
-    // So the workspace is implicitly assembled. We can add server_files copying here later.
-    Ok(1)
+    Ok(count)
 }
 
 #[tauri::command]
@@ -699,35 +787,145 @@ async fn export_instance(
     instance_id: String,
     format: String,
     app: tauri::AppHandle,
-    _state: tauri::State<'_, AppState>,
+    state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
+    let format = format.to_lowercase();
+    if format != "zip" {
+        return Err(format!(
+            "Export format '{}' is not available yet. Use zip.",
+            format
+        ));
+    }
+
+    let (instance_name, export_version) = {
+        let conn = state
+            .db
+            .lock()
+            .map_err(|_| "Database lock poisoned".to_string())?;
+        let name: String = conn
+            .query_row(
+                "SELECT name FROM instances WHERE id = ?1",
+                [&instance_id],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        let settings_raw: String = conn
+            .query_row(
+                "SELECT COALESCE(export_settings, '{}') FROM instances WHERE id = ?1",
+                [&instance_id],
+                |row| row.get(0),
+            )
+            .unwrap_or_else(|_| "{}".to_string());
+        let version = serde_json::from_str::<serde_json::Value>(&settings_raw)
+            .ok()
+            .and_then(|v| {
+                v.get("version")
+                    .and_then(|x| x.as_str())
+                    .map(|s| s.to_string())
+            })
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "1.0.0".to_string());
+        (name, version)
+    };
+
     let _ = app.emit(
         "export-progress",
         downloader::ProgressEvent {
             instance_id: instance_id.clone(),
-            status: format!("Packaging as {}...", format),
+            status: "Packaging as zip...".to_string(),
             progress: 0,
-            total: 1,
+            total: 2,
         },
     );
 
-    // TODO: implement actual zipping logic here based on `format`
-    // (e.g. zip up the workspace/ directory)
+    // Ensure workspace matches enabled flags before zipping
+    downloader::assemble_workspace(&app, &instance_id)?;
 
-    // Simulate work for testing UI/UX
-    tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+    let workspace_dir = db::get_portable_data_dir()
+        .join("instances")
+        .join(&instance_id)
+        .join("workspace");
+
+    let skip = downloader::disabled_mod_leaf_names(&app, &instance_id)?;
+
+    let safe_name: String = instance_name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let default_name = format!("{}-{}.zip", safe_name, export_version);
+
+    use tauri_plugin_dialog::DialogExt;
+    let chosen = app
+        .dialog()
+        .file()
+        .set_file_name(&default_name)
+        .add_filter("ZIP Archive", &["zip"])
+        .blocking_save_file();
+
+    let dest = match chosen {
+        Some(path) => path
+            .into_path()
+            .map_err(|e| format!("Invalid save path: {}", e))?,
+        None => return Err("Export cancelled".to_string()),
+    };
+
+    let dest = if dest.extension().and_then(|e| e.to_str()) != Some("zip") {
+        dest.with_extension("zip")
+    } else {
+        dest
+    };
 
     let _ = app.emit(
         "export-progress",
         downloader::ProgressEvent {
             instance_id: instance_id.clone(),
-            status: "Packaged".to_string(),
+            status: "Writing zip…".to_string(),
             progress: 1,
-            total: 1,
+            total: 2,
         },
     );
 
-    Ok(format!("Exported {} to {}", instance_id, format))
+    downloader::zip_workspace(&workspace_dir, &dest, &skip)?;
+
+    let exported_at = {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let secs = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        // Sortable UTC-ish stamp; Overview displays as-is until a richer clock is added.
+        format!("{}", secs)
+    };
+    {
+        let conn = state
+            .db
+            .lock()
+            .map_err(|_| "Database lock poisoned".to_string())?;
+        conn.execute(
+            "UPDATE instances SET last_exported = ?1 WHERE id = ?2",
+            rusqlite::params![&exported_at, &instance_id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    let dest_str = dest.to_string_lossy().to_string();
+    let _ = app.emit(
+        "export-progress",
+        downloader::ProgressEvent {
+            instance_id: instance_id.clone(),
+            status: format!("Saved {}", dest_str),
+            progress: 2,
+            total: 2,
+        },
+    );
+
+    Ok(dest_str)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
