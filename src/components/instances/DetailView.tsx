@@ -6,7 +6,8 @@ import { OverviewTab } from '../detail/OverviewTab';
 import { ClientModsTab } from '../detail/ClientModsTab';
 import { ServerModsTab } from '../detail/ServerModsTab';
 import { CustomModsTab } from '../detail/CustomModsTab';
-import { getActiveSourcePlugins, isServerExporterEnabled } from '../../plugins';
+import { isServerExporterEnabled, getActiveSourcePlugins } from '../../plugins';
+import { useToast } from '../../context/ToastContext';
 
 import { SOURCE_COLORS } from '../../constants';
 
@@ -21,12 +22,14 @@ interface DetailViewProps {
 export function DetailView({
   instance,
   onBack,
-  onExport,
+  onExport: _onExport,
   onUpdateInstance,
   onDeleteInstance,
 }: DetailViewProps) {
   const [activeTab, setActiveTab] = useState('overview');
   const [serverPluginOn, setServerPluginOn] = useState(() => isServerExporterEnabled());
+  const [exporting, setExporting] = useState<'client' | 'server' | null>(null);
+  const { addToast } = useToast();
   const sc = SOURCE_COLORS[instance.source] || SOURCE_COLORS.local;
 
   useEffect(() => {
@@ -38,24 +41,44 @@ export function DetailView({
 
   const visibleTab = !serverPluginOn && activeTab === 'server' ? 'overview' : activeTab;
 
-  const focusPipeline = useCallback(
-    (anchorId: string) => {
-      setActiveTab('overview');
-      requestAnimationFrame(() => {
-        document.getElementById(anchorId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      });
-      onExport(instance);
+  const runExport = useCallback(
+    async (format: 'zip' | 'server') => {
+      if (exporting) return;
+      const side = format === 'server' ? 'server' : 'client';
+      setExporting(side);
+      try {
+        const path = await invoke<string>('export_instance', {
+          instanceId: instance.id,
+          format,
+        });
+        const exportedAt = new Date().toLocaleString();
+        onUpdateInstance({ ...instance, lastExported: exportedAt });
+        try {
+          await invoke('update_instance_details', {
+            id: instance.id,
+            lastExported: exportedAt,
+          });
+        } catch {
+          /* best-effort persist */
+        }
+        addToast(`Saved ${path}`, 'success');
+      } catch (e) {
+        const msg = String(e);
+        if (!msg.toLowerCase().includes('cancelled')) addToast(msg, 'error');
+      } finally {
+        setExporting(null);
+      }
     },
-    [instance, onExport]
+    [addToast, exporting, instance, onUpdateInstance]
   );
 
   const handleExportClient = useCallback(() => {
-    focusPipeline('pipeline-client');
-  }, [focusPipeline]);
+    void runExport('zip');
+  }, [runExport]);
 
   const handleExportServer = useCallback(() => {
-    focusPipeline('pipeline-server');
-  }, [focusPipeline]);
+    void runExport('server');
+  }, [runExport]);
 
   const handleUpdate = useCallback(
     async (updates: Partial<Instance>) => {
@@ -130,6 +153,7 @@ export function DetailView({
         onExportClient={handleExportClient}
         onExportServer={serverPluginOn ? handleExportServer : undefined}
         serverExporterEnabled={serverPluginOn}
+        exporting={exporting}
         onUpdate={handleUpdate}
         onDelete={onDeleteInstance}
       />

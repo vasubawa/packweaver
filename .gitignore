@@ -25,7 +25,8 @@ dist-ssr
 *.sw?
 
 skills-lock.json
-.AGENTS
-.CONTEXT
+.agents
+AGENTS.md
 docs/agents/
 packweaver-data/
+CONTEXT.md
