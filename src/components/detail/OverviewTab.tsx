@@ -51,7 +51,24 @@ export function OverviewTab({
   const [descInput, setDescInput] = useState(instance.description || '');
   const [prevInstanceId, setPrevInstanceId] = useState(instance.id);
   const [stages, setStages] = useState<Record<string, StageState>>(IDLE_STAGES);
-  const [pipelineRunning, setPipelineRunning] = useState(false);
+  const [runningKeys, setRunningKeys] = useState<Set<string>>(() => new Set());
+
+  const startRun = (key: string) =>
+    setRunningKeys(prev => {
+      if (prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
+  const endRun = (key: string) =>
+    setRunningKeys(prev => {
+      if (!prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
+  const isBusy = (key: string) => runningKeys.has(key);
+  const anyBusy = runningKeys.size > 0;
   const unlistenRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
@@ -127,8 +144,8 @@ export function OverviewTab({
     setStages(prev => ({ ...prev, [key]: { status, message } }));
 
   const runRebuild = async () => {
-    if (pipelineRunning) return;
-    setPipelineRunning(true);
+    if (isBusy('rebuild')) return;
+    startRun('rebuild');
     setStage('rebuild', 'running', 'Rebuilding workspace…');
     onUpdate({ status: 'Installing...' });
     try {
@@ -139,13 +156,13 @@ export function OverviewTab({
       setStage('rebuild', 'error', String(e));
       onUpdate({ status: `Error: ${e}` });
     } finally {
-      setPipelineRunning(false);
+      endRun('rebuild');
     }
   };
 
   const runLayer = async () => {
-    if (pipelineRunning) return;
-    setPipelineRunning(true);
+    if (isBusy('layer')) return;
+    startRun('layer');
     setStage('layer', 'running', 'Layering custom mods…');
     try {
       const count = await invoke<number>('layer_custom_mods', { instanceId: instance.id });
@@ -159,13 +176,13 @@ export function OverviewTab({
     } catch (e) {
       setStage('layer', 'error', String(e));
     } finally {
-      setPipelineRunning(false);
+      endRun('layer');
     }
   };
 
   const runPackage = async () => {
-    if (pipelineRunning) return;
-    setPipelineRunning(true);
+    if (isBusy('package')) return;
+    startRun('package');
     setStage('package', 'running', 'Packaging…');
     try {
       const path = await invoke<string>('export_instance', {
@@ -185,13 +202,13 @@ export function OverviewTab({
         setStage('package', 'error', msg);
       }
     } finally {
-      setPipelineRunning(false);
+      endRun('package');
     }
   };
 
   const runServerRebuild = async () => {
-    if (pipelineRunning) return;
-    setPipelineRunning(true);
+    if (isBusy('serverRebuild')) return;
+    startRun('serverRebuild');
     setStage('serverRebuild', 'running', 'Rebuilding server workspace…');
     try {
       await invoke('rebuild_server_workspace', { instanceId: instance.id });
@@ -199,13 +216,13 @@ export function OverviewTab({
     } catch (e) {
       setStage('serverRebuild', 'error', String(e));
     } finally {
-      setPipelineRunning(false);
+      endRun('serverRebuild');
     }
   };
 
   const runServerPackage = async () => {
-    if (pipelineRunning) return;
-    setPipelineRunning(true);
+    if (isBusy('serverPackage')) return;
+    startRun('serverPackage');
     setStage('serverPackage', 'running', 'Packaging server…');
     try {
       const path = await invoke<string>('export_instance', {
@@ -224,12 +241,12 @@ export function OverviewTab({
         setStage('serverPackage', 'error', msg);
       }
     } finally {
-      setPipelineRunning(false);
+      endRun('serverPackage');
     }
   };
 
   const resetPipeline = () => {
-    if (pipelineRunning) return;
+    if (anyBusy) return;
     setStages(IDLE_STAGES);
   };
 
@@ -388,7 +405,7 @@ export function OverviewTab({
             <button
               className="btn-ghost text-[11px] px-2 py-0.5"
               onClick={resetPipeline}
-              disabled={pipelineRunning}
+              disabled={anyBusy}
             >
               Reset
             </button>
@@ -422,7 +439,7 @@ export function OverviewTab({
                   label={label}
                   stage={stage}
                   isLast={isLast}
-                  pipelineRunning={pipelineRunning}
+                  busy={isBusy(key)}
                   onRun={onRun}
                 />
               );
@@ -467,7 +484,7 @@ export function OverviewTab({
                     label={label}
                     stage={stage}
                     isLast={isLast}
-                    pipelineRunning={pipelineRunning}
+                    busy={isBusy(key)}
                     onRun={onRun}
                   />
                 );
@@ -485,14 +502,14 @@ function PipelineRow({
   label,
   stage,
   isLast,
-  pipelineRunning,
+  busy,
   onRun,
 }: {
   stageKey: string;
   label: string;
   stage: StageState;
   isLast: boolean;
-  pipelineRunning: boolean;
+  busy: boolean;
   onRun: () => void;
 }) {
   const iconName =
@@ -545,7 +562,7 @@ function PipelineRow({
       <button
         id={`pipeline-run-${stageKey}`}
         className="btn-secondary text-[11px] px-3 py-1 shrink-0"
-        disabled={pipelineRunning || stage.status === 'running'}
+        disabled={busy || stage.status === 'running'}
         onClick={onRun}
         style={stage.status === 'done' ? { opacity: 0.5 } : {}}
       >

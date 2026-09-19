@@ -778,7 +778,7 @@ async fn export_instance(
                 "Packaging as zip...".to_string()
             },
             progress: 0,
-            total: 2,
+            total: 3,
         },
     );
 
@@ -796,6 +796,44 @@ async fn export_instance(
         });
     }
 
+    // Build the zip first; only ask where to save once packaging is done.
+    let temp_dir = std::env::temp_dir().join("packweaver-exports");
+    std::fs::create_dir_all(&temp_dir).map_err(|e| e.to_string())?;
+    let temp_zip = temp_dir.join(format!(
+        "{}-{}-{}.zip",
+        if is_server { "server" } else { "client" },
+        &instance_id,
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    ));
+
+    let _ = app.emit(
+        "export-progress",
+        downloader::ProgressEvent {
+            instance_id: instance_id.clone(),
+            status: "Writing zip...".to_string(),
+            progress: 1,
+            total: 3,
+        },
+    );
+
+    if let Err(e) = downloader::zip_workspace(&workspace_dir, &temp_zip) {
+        let _ = std::fs::remove_file(&temp_zip);
+        return Err(e);
+    }
+
+    let _ = app.emit(
+        "export-progress",
+        downloader::ProgressEvent {
+            instance_id: instance_id.clone(),
+            status: "Choose where to save…".to_string(),
+            progress: 2,
+            total: 3,
+        },
+    );
+
     use tauri_plugin_dialog::DialogExt;
     let chosen = app
         .dialog()
@@ -805,10 +843,14 @@ async fn export_instance(
         .blocking_save_file();
 
     let dest = match chosen {
-        Some(path) => path
-            .into_path()
-            .map_err(|e| format!("Invalid save path: {}", e))?,
-        None => return Err("Export cancelled".to_string()),
+        Some(path) => path.into_path().map_err(|e| {
+            let _ = std::fs::remove_file(&temp_zip);
+            format!("Invalid save path: {}", e)
+        })?,
+        None => {
+            let _ = std::fs::remove_file(&temp_zip);
+            return Err("Export cancelled".to_string());
+        }
     };
 
     let dest = if dest.extension().and_then(|e| e.to_str()) != Some("zip") {
@@ -817,17 +859,17 @@ async fn export_instance(
         dest
     };
 
-    let _ = app.emit(
-        "export-progress",
-        downloader::ProgressEvent {
-            instance_id: instance_id.clone(),
-            status: "Writing zip...".to_string(),
-            progress: 1,
-            total: 2,
-        },
-    );
-
-    downloader::zip_workspace(&workspace_dir, &dest)?;
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| {
+            let _ = std::fs::remove_file(&temp_zip);
+            e.to_string()
+        })?;
+    }
+    std::fs::copy(&temp_zip, &dest).map_err(|e| {
+        let _ = std::fs::remove_file(&temp_zip);
+        e.to_string()
+    })?;
+    let _ = std::fs::remove_file(&temp_zip);
 
     let exported_at = {
         use std::time::{SystemTime, UNIX_EPOCH};
@@ -855,8 +897,8 @@ async fn export_instance(
         downloader::ProgressEvent {
             instance_id: instance_id.clone(),
             status: format!("Saved {}", dest_str),
-            progress: 2,
-            total: 2,
+            progress: 3,
+            total: 3,
         },
     );
 

@@ -28,7 +28,8 @@ export function DetailView({
 }: DetailViewProps) {
   const [activeTab, setActiveTab] = useState('overview');
   const [serverPluginOn, setServerPluginOn] = useState(() => isServerExporterEnabled());
-  const [exporting, setExporting] = useState<'client' | 'server' | null>(null);
+  const [exportingClient, setExportingClient] = useState(false);
+  const [exportingServer, setExportingServer] = useState(false);
   const { addToast } = useToast();
   const sc = SOURCE_COLORS[instance.source] || SOURCE_COLORS.local;
 
@@ -43,9 +44,10 @@ export function DetailView({
 
   const runExport = useCallback(
     async (format: 'zip' | 'server') => {
-      if (exporting) return;
-      const side = format === 'server' ? 'server' : 'client';
-      setExporting(side);
+      const isServer = format === 'server';
+      if (isServer ? exportingServer : exportingClient) return;
+      if (isServer) setExportingServer(true);
+      else setExportingClient(true);
       try {
         const path = await invoke<string>('export_instance', {
           instanceId: instance.id,
@@ -66,10 +68,11 @@ export function DetailView({
         const msg = String(e);
         if (!msg.toLowerCase().includes('cancelled')) addToast(msg, 'error');
       } finally {
-        setExporting(null);
+        if (isServer) setExportingServer(false);
+        else setExportingClient(false);
       }
     },
-    [addToast, exporting, instance, onUpdateInstance]
+    [addToast, exportingClient, exportingServer, instance, onUpdateInstance]
   );
 
   const handleExportClient = useCallback(() => {
@@ -153,7 +156,8 @@ export function DetailView({
         onExportClient={handleExportClient}
         onExportServer={serverPluginOn ? handleExportServer : undefined}
         serverExporterEnabled={serverPluginOn}
-        exporting={exporting}
+        exportingClient={exportingClient}
+        exportingServer={exportingServer}
         onUpdate={handleUpdate}
         onDelete={onDeleteInstance}
       />

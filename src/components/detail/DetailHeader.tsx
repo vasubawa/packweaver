@@ -11,7 +11,8 @@ interface DetailHeaderProps {
   onExportClient: () => void;
   onExportServer?: () => void;
   serverExporterEnabled?: boolean;
-  exporting?: 'client' | 'server' | null;
+  exportingClient?: boolean;
+  exportingServer?: boolean;
   onUpdate: (updates: Partial<Instance>) => void;
   onDelete: (id: string) => void;
 }
@@ -22,7 +23,8 @@ export function DetailHeader({
   onExportClient,
   onExportServer,
   serverExporterEnabled = false,
-  exporting = null,
+  exportingClient = false,
+  exportingServer = false,
   onUpdate,
   onDelete,
 }: DetailHeaderProps) {
@@ -185,8 +187,8 @@ export function DetailHeader({
             <button
               className="export-outline-btn text-xs px-3.5 py-2 font-medium rounded-md border bg-transparent transition-colors disabled:opacity-50 disabled:pointer-events-none"
               onClick={onExportClient}
-              disabled={!!exporting}
-              title="Export client workspace as ZIP"
+              disabled={exportingClient}
+              title="Package client workspace, then choose where to save"
               style={
                 {
                   '--export-accent': sc.accent,
@@ -197,15 +199,15 @@ export function DetailHeader({
             >
               <span className="inline-flex items-center gap-1.5">
                 <Icon name="package" size={14} />
-                {exporting === 'client' ? 'Exporting…' : 'Export client'}
+                {exportingClient ? 'Exporting…' : 'Export client'}
               </span>
             </button>
             {serverExporterEnabled && onExportServer && (
               <button
                 className="export-outline-btn text-xs px-3.5 py-2 font-medium rounded-md border bg-transparent transition-colors disabled:opacity-50 disabled:pointer-events-none"
                 onClick={onExportServer}
-                disabled={!!exporting}
-                title="Export server workspace as ZIP"
+                disabled={exportingServer}
+                title="Package server workspace, then choose where to save"
                 style={
                   {
                     '--export-accent': sc.accent,
@@ -216,7 +218,7 @@ export function DetailHeader({
               >
                 <span className="inline-flex items-center gap-1.5">
                   <Icon name="package" size={14} />
-                  {exporting === 'server' ? 'Exporting…' : 'Export server'}
+                  {exportingServer ? 'Exporting…' : 'Export server'}
                 </span>
               </button>
             )}
