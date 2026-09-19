@@ -24,9 +24,8 @@ dist-ssr
 *.sln
 *.sw?
 
-# Local / generated (not CONTEXT.md / AGENTS.md — those stay tracked)
 skills-lock.json
-.agents/
-.context/
+.AGENTS
+.CONTEXT
 docs/agents/
 packweaver-data/
