@@ -1,0 +1,317 @@
+import { useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { Instance } from '../../types';
+import { Icon } from '../Icon';
+import { useToast } from '../../context/ToastContext';
+import { isServerExporterEnabled } from '../../plugins';
+import { checkPackUpdates, CustomUpdateInfo, UpdateCheckResult } from '../../lib/packUpdates';
+
+interface UpdatesCardProps {
+  instance: Instance;
+  onUpdate: (updates: Partial<Instance>) => void;
+  onBaseUpdated?: () => void;
+  /** When true (Server Pack Packager on), also rebuild/layer the server workspace. */
+  serverExporterEnabled?: boolean;
+}
+
+async function layerClient(instanceId: string): Promise<number> {
+  return invoke<number>('layer_custom_mods', { instanceId, forServer: false });
+}
+
+async function layerServerIfPresent(instanceId: string, serverOn: boolean): Promise<number> {
+  if (!serverOn) return 0;
+  try {
+    return await invoke<number>('layer_custom_mods', { instanceId, forServer: true });
+  } catch (e) {
+    const msg = String(e).toLowerCase();
+    // No server tree yet — skip quietly; user can Rebuild server later.
+    if (msg.includes('not found') || msg.includes('rebuild server')) return 0;
+    throw e;
+  }
+}
+
+export function UpdatesCard({
+  instance,
+  onUpdate,
+  onBaseUpdated,
+  serverExporterEnabled,
+}: UpdatesCardProps) {
+  const { addToast } = useToast();
+  const serverOn = serverExporterEnabled ?? isServerExporterEnabled();
+  const [checking, setChecking] = useState(false);
+  const [applyingBase, setApplyingBase] = useState(false);
+  const [applyingCustoms, setApplyingCustoms] = useState(false);
+  const [result, setResult] = useState<UpdateCheckResult | null>(null);
+  const [selected, setSelected] = useState<Record<string, boolean>>({});
+
+  const runCheck = async () => {
+    setChecking(true);
+    try {
+      const next = await checkPackUpdates(instance);
+      setResult(next);
+      const sel: Record<string, boolean> = {};
+      for (const c of next.customs) sel[c.mod.id] = true;
+      setSelected(sel);
+      if (!next.base.available && next.customs.length === 0) {
+        addToast('Everything looks up to date', 'success');
+      }
+    } catch (e) {
+      addToast(`Update check failed: ${e}`, 'error');
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const applyBase = async () => {
+    if (!result?.base.latest || applyingBase) return;
+    setApplyingBase(true);
+    onUpdate({ status: 'Installing...' });
+    try {
+      await invoke('set_base_pack_version', {
+        instanceId: instance.id,
+        versionId: result.base.latest.versionId,
+      });
+      onUpdate({
+        basePackVersion: result.base.latest.versionId,
+        status: 'Installing...',
+      });
+      await invoke('rebuild_workspace', { instanceId: instance.id });
+      if (serverOn) {
+        try {
+          await invoke('rebuild_server_workspace', { instanceId: instance.id });
+        } catch (e) {
+          // Server rebuild is best-effort when plugin is on.
+          addToast(`Client updated; server rebuild skipped: ${e}`, 'info');
+        }
+      }
+      onUpdate({ status: 'Ready' });
+      setResult(prev =>
+        prev
+          ? {
+              ...prev,
+              base: {
+                available: false,
+                currentLabel: result.base.latest!.versionNumber,
+                latest: result.base.latest,
+              },
+            }
+          : prev
+      );
+      addToast(
+        serverOn
+          ? `Base pack updated to ${result.base.latest.versionNumber} (client + server)`
+          : `Base pack updated to ${result.base.latest.versionNumber}`,
+        'success'
+      );
+      onBaseUpdated?.();
+    } catch (e) {
+      onUpdate({ status: `Error: ${e}` });
+      addToast(`Base update failed: ${e}`, 'error');
+    } finally {
+      setApplyingBase(false);
+    }
+  };
+
+  const selectedCustoms = (): CustomUpdateInfo[] =>
+    (result?.customs || []).filter(c => selected[c.mod.id]);
+
+  const applyCustoms = async () => {
+    const picks = selectedCustoms();
+    if (picks.length === 0 || applyingCustoms) return;
+    setApplyingCustoms(true);
+    try {
+      await invoke('update_custom_mod_versions', {
+        instanceId: instance.id,
+        updates: picks.map(c => ({
+          modId: c.mod.id,
+          version: c.latest.versionId,
+          fileName: c.latest.primaryFilename || undefined,
+        })),
+      });
+      const nextMods = instance.customMods.map(m => {
+        const hit = picks.find(p => p.mod.id === m.id);
+        if (!hit) return m;
+        return {
+          ...m,
+          version: hit.latest.versionNumber,
+          fileName: hit.latest.primaryFilename || m.fileName,
+        };
+      });
+      onUpdate({ customMods: nextMods });
+      const clientCount = await layerClient(instance.id);
+      const serverCount = await layerServerIfPresent(instance.id, serverOn);
+      setResult(prev =>
+        prev ? { ...prev, customs: prev.customs.filter(c => !selected[c.mod.id]) } : prev
+      );
+      const layered = clientCount + serverCount;
+      addToast(
+        serverOn && serverCount > 0
+          ? `Updated ${picks.length} custom mod${picks.length === 1 ? '' : 's'} (client ${clientCount}, server ${serverCount})`
+          : `Updated ${picks.length} custom mod${picks.length === 1 ? '' : 's'} (${layered} layered)`,
+        'success'
+      );
+    } catch (e) {
+      addToast(`Custom update failed: ${e}`, 'error');
+    } finally {
+      setApplyingCustoms(false);
+    }
+  };
+
+  const toggleAll = (on: boolean) => {
+    if (!result) return;
+    const sel: Record<string, boolean> = {};
+    for (const c of result.customs) sel[c.mod.id] = on;
+    setSelected(sel);
+  };
+
+  const hasAny = !!result && (result.base.available || result.customs.length > 0);
+
+  return (
+    <div id="updates-card">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+          Updates
+        </h3>
+        <button
+          className="btn-secondary text-[11px] px-3 py-1"
+          onClick={runCheck}
+          disabled={checking || applyingBase || applyingCustoms}
+          title="Looks for a newer base pack and newer custom mods. Doesn't download anything."
+        >
+          <Icon name="refresh" size={12} />
+          {checking ? 'Checking…' : 'Check for updates'}
+        </button>
+      </div>
+
+      <div
+        className="rounded-xl p-4 flex flex-col gap-4"
+        style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+      >
+        {!result && (
+          <p className="text-[12px] text-[var(--text-muted)]">
+            Scan Modrinth for a newer base pack or custom mods. Checking never downloads — you
+            choose what to apply.
+            {serverOn &&
+              ' With Server Pack Packager on, applying updates also refreshes the server workspace when it exists.'}
+          </p>
+        )}
+
+        {result && !hasAny && (
+          <p className="text-[12px]" style={{ color: 'var(--text-primary)' }}>
+            Up to date
+            {result.skippedNonModrinth > 0 && (
+              <span className="text-[var(--text-muted)]">
+                {' '}
+                · {result.skippedNonModrinth} non-Modrinth custom
+                {result.skippedNonModrinth === 1 ? '' : 's'} skipped
+              </span>
+            )}
+          </p>
+        )}
+
+        {result?.base && instance.source === 'modrinth' && (
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div className="min-w-0">
+              <div className="text-[12px] font-medium text-[var(--text-primary)]">Base pack</div>
+              <div className="text-[11px] text-[var(--text-muted)]">
+                {result.base.available && result.base.latest
+                  ? `${result.base.currentLabel} → ${result.base.latest.versionNumber}`
+                  : `Current ${result.base.currentLabel}`}
+              </div>
+            </div>
+            {result.base.available && (
+              <button
+                className="btn-secondary text-[11px] px-3 py-1 shrink-0"
+                onClick={applyBase}
+                disabled={applyingBase || checking}
+                title={
+                  serverOn
+                    ? 'Downloads the new pack, rebuilds client and server workspaces, then re-layers enabled customs on both.'
+                    : 'Downloads the new pack, rebuilds the client workspace, then puts your enabled custom mods back.'
+                }
+              >
+                {applyingBase ? 'Updating…' : 'Update base pack'}
+              </button>
+            )}
+          </div>
+        )}
+
+        {result && result.customs.length > 0 && (
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div>
+                <div className="text-[12px] font-medium text-[var(--text-primary)]">
+                  Custom mods · {result.customs.length} update
+                  {result.customs.length === 1 ? '' : 's'}
+                </div>
+                <div className="text-[11px] text-[var(--text-muted)]">
+                  Doesn’t change the base pack
+                  {serverOn ? ' · layers client + server when present' : ''}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  className="btn-ghost text-[11px] px-2 py-0.5"
+                  onClick={() => toggleAll(true)}
+                  type="button"
+                >
+                  Select all
+                </button>
+                <button
+                  className="btn-ghost text-[11px] px-2 py-0.5"
+                  onClick={() => toggleAll(false)}
+                  type="button"
+                >
+                  Clear
+                </button>
+                <button
+                  className="btn-secondary text-[11px] px-3 py-1"
+                  onClick={applyCustoms}
+                  disabled={applyingCustoms || selectedCustoms().length === 0}
+                  title={
+                    serverOn
+                      ? 'Downloads newer selected customs into client and server workspaces (server only if rebuilt).'
+                      : "Downloads newer versions of selected customs only. Doesn't change the base pack."
+                  }
+                >
+                  {applyingCustoms ? 'Updating…' : `Update selected (${selectedCustoms().length})`}
+                </button>
+              </div>
+            </div>
+            <ul className="flex flex-col gap-1.5 max-h-48 overflow-y-auto">
+              {result.customs.map(c => (
+                <li
+                  key={c.mod.id}
+                  className="flex items-center gap-2 text-[12px] px-2 py-1.5 rounded-md"
+                  style={{ background: 'var(--bg-muted)' }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={!!selected[c.mod.id]}
+                    onChange={e => setSelected(prev => ({ ...prev, [c.mod.id]: e.target.checked }))}
+                    aria-label={`Update ${c.mod.name}`}
+                  />
+                  <span
+                    className="truncate flex-1 font-medium"
+                    style={{ color: 'var(--text-primary)' }}
+                  >
+                    {c.mod.name}
+                  </span>
+                  <span className="text-[11px] text-[var(--text-muted)] shrink-0">
+                    {c.currentLabel} → {c.latest.versionNumber}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {result?.base.available && result.customs.length > 0 && (
+          <p className="text-[11px] text-[var(--text-muted)]">
+            Tip: update the base pack first if you want both — rebuild re-layers customs afterward.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}

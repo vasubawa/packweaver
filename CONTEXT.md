@@ -31,6 +31,7 @@ Client: `enabled_client` (Client Mods toggles). Server: `enabled_server` (Server
 - **Toggle on / add custom** → DB only. Jars land on disk when you run **Rebuild**, **Layer custom mods**, or **Rebuild server**.
 - **Create instance** → installs client base pack only. Server tree and customs wait for their buttons.
 - **Custom Delete** → DB row + jar gone from client/server trees.
+- **Updates** → Overview **Check for updates** scans Modrinth (no download). **Update base pack** → set version + Rebuild client (+ Rebuild server when Server Pack Packager is on). **Update customs** → bump selected versions + Layer client (+ server if that tree exists). Custom Mods tab can update one mod the same way.
 
 ### Workspace
 
@@ -61,5 +62,5 @@ Steal launcher _hygiene_ where it helps authoring (pinning, preserve customs on 
 
 1. **Phase 1** — ✅ client workspace / `-MODIFIED.zip`
 2. **Phase 2** — ✅ `workspace/server/{stem}` / Server Mods UI / `-MODIFIED-server.zip` (plugin-gated)
-3. **After Phase 2** — Modrinth API polish: instance-matched version filters, required-deps prompt, update detection → rebuild/layer, strict hash verify on downloads
+3. **After Phase 2** — Modrinth API polish: instance-matched version filters, required-deps prompt, ✅ update detection → rebuild/layer, strict hash verify on downloads
 4. **Later** — CurseForge source (+ manual acquire), schema migrations hardening, app updater, install-into-launcher exporters

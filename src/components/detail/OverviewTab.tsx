@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event';
 import { Instance } from '../../types';
 import { formatBasePackName } from '../../constants';
 import { Icon } from '../Icon';
+import { UpdatesCard } from './UpdatesCard';
 
 interface OverviewTabProps {
   instance: Instance;
@@ -17,6 +18,18 @@ interface StageState {
   status: StageStatus;
   message: string;
 }
+
+const PIPELINE_TITLES: Record<string, string> = {
+  rebuild:
+    'Wipes and reinstalls the base pack, then re-applies enabled customs. Use to repair or after a base pack change.',
+  layer:
+    'Downloads enabled custom mods into the workspace. Use after adding or turning mods back on.',
+  package: 'Zips the current client workspace. Run Rebuild/Layer first if Disk looks empty.',
+  serverRebuild:
+    'Wipes and reinstalls the server workspace from the base pack, then re-layers server-enabled customs.',
+  serverPackage:
+    'Zips the current server workspace. Rebuild server first if it does not exist yet.',
+};
 
 const IDLE_STAGES: Record<string, StageState> = {
   rebuild: {
@@ -364,6 +377,12 @@ export function OverviewTab({
         </div>
       </div>
 
+      <UpdatesCard
+        instance={instance}
+        onUpdate={onUpdate}
+        serverExporterEnabled={serverExporterEnabled}
+      />
+
       <div>
         <h3 className="text-xs font-semibold uppercase tracking-wider mb-3 text-[var(--text-muted)]">
           Export Configuration
@@ -440,6 +459,7 @@ export function OverviewTab({
                   stage={stage}
                   isLast={isLast}
                   busy={isBusy(key)}
+                  title={PIPELINE_TITLES[key]}
                   onRun={onRun}
                 />
               );
@@ -485,6 +505,7 @@ export function OverviewTab({
                     stage={stage}
                     isLast={isLast}
                     busy={isBusy(key)}
+                    title={PIPELINE_TITLES[key]}
                     onRun={onRun}
                   />
                 );
@@ -503,6 +524,7 @@ function PipelineRow({
   stage,
   isLast,
   busy,
+  title,
   onRun,
 }: {
   stageKey: string;
@@ -510,6 +532,7 @@ function PipelineRow({
   stage: StageState;
   isLast: boolean;
   busy: boolean;
+  title?: string;
   onRun: () => void;
 }) {
   const iconName =
@@ -536,6 +559,7 @@ function PipelineRow({
         background: 'var(--bg-surface)',
         borderBottom: isLast ? 'none' : '1px solid var(--border)',
       }}
+      title={title}
     >
       <div className="flex items-center gap-3 min-w-0">
         <Icon
@@ -564,6 +588,7 @@ function PipelineRow({
         className="btn-secondary text-[11px] px-3 py-1 shrink-0"
         disabled={busy || stage.status === 'running'}
         onClick={onRun}
+        title={title}
         style={stage.status === 'done' ? { opacity: 0.5 } : {}}
       >
         {stage.status === 'running' ? 'Running…' : stage.status === 'done' ? 'Re-run' : 'Run'}

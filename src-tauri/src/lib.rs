@@ -504,6 +504,75 @@ fn update_instance_details(
 }
 
 #[tauri::command]
+fn set_base_pack_version(
+    instance_id: String,
+    version_id: String,
+    state: tauri::State<AppState>,
+) -> Result<(), String> {
+    if version_id.trim().is_empty() {
+        return Err("version_id is required".to_string());
+    }
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| "Database lock poisoned".to_string())?;
+    let n = conn
+        .execute(
+            "UPDATE instances SET base_pack_version_id = ?1 WHERE id = ?2",
+            rusqlite::params![version_id.trim(), instance_id],
+        )
+        .map_err(|e| e.to_string())?;
+    if n == 0 {
+        return Err("Instance not found".to_string());
+    }
+    Ok(())
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CustomModVersionUpdate {
+    mod_id: String,
+    version: String,
+    file_name: Option<String>,
+}
+
+#[tauri::command]
+fn update_custom_mod_versions(
+    instance_id: String,
+    updates: Vec<CustomModVersionUpdate>,
+    state: tauri::State<AppState>,
+) -> Result<u32, String> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| "Database lock poisoned".to_string())?;
+    let mut count = 0u32;
+    for u in updates {
+        if u.mod_id.is_empty() || u.version.trim().is_empty() {
+            continue;
+        }
+        let n = if let Some(ref fname) = u.file_name {
+            conn.execute(
+                "UPDATE instance_mods SET mod_version_id = ?1, file_name = ?2
+                 WHERE instance_id = ?3 AND mod_id = ?4 AND is_base = 0",
+                rusqlite::params![u.version.trim(), fname, instance_id, u.mod_id],
+            )
+        } else {
+            conn.execute(
+                "UPDATE instance_mods SET mod_version_id = ?1
+                 WHERE instance_id = ?2 AND mod_id = ?3 AND is_base = 0",
+                rusqlite::params![u.version.trim(), instance_id, u.mod_id],
+            )
+        }
+        .map_err(|e| e.to_string())?;
+        if n > 0 {
+            count += 1;
+        }
+    }
+    Ok(count)
+}
+
+#[tauri::command]
 #[allow(clippy::too_many_arguments)]
 fn add_custom_mod(
     instance_id: String,
@@ -696,12 +765,22 @@ async fn rebuild_workspace(
 #[tauri::command]
 async fn layer_custom_mods(
     instance_id: String,
+    for_server: Option<bool>,
     app: tauri::AppHandle,
     _state: tauri::State<'_, AppState>,
 ) -> Result<u32, String> {
-    let workspace_dir = downloader::client_workspace_dir(&app, &instance_id)?;
+    let for_server = for_server.unwrap_or(false);
+    let workspace_dir = if for_server {
+        downloader::server_workspace_dir(&app, &instance_id)?
+    } else {
+        downloader::client_workspace_dir(&app, &instance_id)?
+    };
     if !workspace_dir.exists() {
-        return Err("Workspace not found — rebuild the pack first".to_string());
+        return Err(if for_server {
+            "Server workspace not found — rebuild server first".to_string()
+        } else {
+            "Workspace not found — rebuild the pack first".to_string()
+        });
     }
 
     let client = reqwest::Client::builder()
@@ -714,14 +793,19 @@ async fn layer_custom_mods(
         "export-progress",
         downloader::ProgressEvent {
             instance_id: instance_id.clone(),
-            status: "Layering custom mods…".to_string(),
+            status: if for_server {
+                "Layering server custom mods…".to_string()
+            } else {
+                "Layering custom mods…".to_string()
+            },
             progress: 0,
             total: 1,
         },
     );
 
     let count =
-        downloader::layer_custom_mods(&app, &client, &instance_id, &workspace_dir, false).await?;
+        downloader::layer_custom_mods(&app, &client, &instance_id, &workspace_dir, for_server)
+            .await?;
 
     let _ = app.emit(
         "export-progress",
@@ -923,6 +1007,8 @@ pub fn run() {
             delete_instance,
             toggle_mod_state,
             update_instance_details,
+            set_base_pack_version,
+            update_custom_mod_versions,
             add_custom_mod,
             remove_custom_mod,
             rebuild_workspace,
