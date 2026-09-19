@@ -200,6 +200,14 @@
   .btn-accent:hover {
     background: var(--accent-hover);
   }
+  .export-outline-btn {
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .export-outline-btn:hover {
+    background: var(--export-accent) !important;
+    color: #fff !important;
+  }
   .btn-secondary {
     background: var(--bg-muted);
     color: var(--text-primary);

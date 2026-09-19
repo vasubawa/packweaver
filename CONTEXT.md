@@ -25,15 +25,29 @@ Any mod that is part of an Instance. This is an umbrella term for two specific t
 
 ### Mod State (Enabled)
 
-Whether an **Instance Mod** is active for the client workspace (`enabled_client`; Phase 1 UI uses this). Disabled mods are **removed from `workspace/`** (not left as `.disabled`). Re-enable restores the jar. Custom Delete removes DB row + workspace jar. `enabled_server` exists for Phase 2.
+Client: `enabled_client` (Client Mods toggles). Server: `enabled_server` (Server Mods tab; requires Server Pack Packager plugin).
+
+- **Toggle off** → DB flag + jar removed from that side’s tree (instant, no download).
+- **Toggle on / add custom** → DB only. Jars land on disk when you run **Rebuild**, **Layer custom mods**, or **Rebuild server**.
+- **Create instance** → installs client base pack only. Server tree and customs wait for their buttons.
+- **Custom Delete** → DB row + jar gone from client/server trees.
 
 ### Workspace
 
-Disposable Minecraft-instance tree under `instances/{id}/workspace/`. Source of truth is `original/` + DB. **Rebuild** = wipe → install base → re-layer enabled customs.
+```text
+instances/{id}/
+  original/{realFilename}
+  workspace/
+    client/{stem}/    # disposable Minecraft tree (export root)
+    server/{stem}/    # disposable; Server Pack Packager plugin
+```
+
+Source of truth: `original/` + DB. Rebuild = wipe that side’s root → install into `{stem}/` → re-layer enabled customs. No persistent customs cache.
 
 ### Export (current)
 
-Client `.zip` of the current `workspace/` as `{originalStem}-MODIFIED.zip` on Windows. Server export is Phase 2.
+- Client `{stem}-MODIFIED.zip`
+- Server `{stem}-MODIFIED-server.zip` when **Server Pack Packager** plugin is on
 
 ## Product scope
 
@@ -45,7 +59,7 @@ Steal launcher _hygiene_ where it helps authoring (pinning, preserve customs on 
 
 ### Roadmap order (locked)
 
-1. **Phase 1** — client workspace install / rebuild / layer / `-MODIFIED.zip`
-2. **Phase 2** — server workspace + Server UI + `-MODIFIED-server.zip`
+1. **Phase 1** — ✅ client workspace / `-MODIFIED.zip`
+2. **Phase 2** — ✅ `workspace/server/{stem}` / Server Mods UI / `-MODIFIED-server.zip` (plugin-gated)
 3. **After Phase 2** — Modrinth API polish: instance-matched version filters, required-deps prompt, update detection → rebuild/layer, strict hash verify on downloads
 4. **Later** — CurseForge source (+ manual acquire), schema migrations hardening, app updater, install-into-launcher exporters

@@ -1,4 +1,4 @@
-//! Install a base pack into a Minecraft-instance-shaped workspace/.
+//! Install a base pack into a Minecraft-instance-shaped workspace tree.
 
 use reqwest::Client;
 use serde::Deserialize;
@@ -302,6 +302,175 @@ pub async fn install_mrpack_client(
     let (mc, loader) = parse_loader_mc(&index);
     let installed = download_index_files_client(client, &index, workspace).await?;
     merge_client_overrides(archive_path, workspace)?;
+    Ok((installed, mc, loader))
+}
+
+/// Download server-capable index files into workspace. Skips env.server == unsupported.
+pub async fn download_index_files_server(
+    client: &Client,
+    index: &ModrinthIndex,
+    workspace: &Path,
+) -> Result<Vec<InstalledFile>, String> {
+    let mut installed = Vec::new();
+
+    for file in &index.files {
+        let client_env = file
+            .env
+            .as_ref()
+            .map(|e| e.client.as_str())
+            .unwrap_or("required");
+        let server_env = file
+            .env
+            .as_ref()
+            .map(|e| e.server.as_str())
+            .unwrap_or("required");
+
+        if !env_supported(server_env) {
+            continue; // client-only — skip server workspace
+        }
+
+        let enabled_client = env_supported(client_env);
+        let enabled_server = true; // optional included by default on server
+        let side = match (enabled_client, true) {
+            (true, true) => "both",
+            (false, true) => "server",
+            (true, false) => "client",
+            _ => "server",
+        };
+
+        let dl_url = file
+            .downloads
+            .first()
+            .cloned()
+            .ok_or_else(|| format!("No download URL for {}", file.path))?;
+
+        let parsed = url::Url::parse(&dl_url).map_err(|e| e.to_string())?;
+        let host = parsed.host_str().unwrap_or("");
+        if !is_allowed_download_host(host) {
+            return Err(format!("Invalid download host: {}", dl_url));
+        }
+
+        let mut mod_id = file.path.clone();
+        if host == "cdn.modrinth.com" {
+            let segments: Vec<&str> = parsed
+                .path_segments()
+                .map(|s| s.collect())
+                .unwrap_or_default();
+            if segments.len() >= 2 && segments[0] == "data" {
+                mod_id = segments[1].to_string();
+            }
+        }
+
+        let dest_path = safe_join(workspace, &file.path)?;
+        if let Some(parent) = dest_path.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+
+        let mut resp = client
+            .get(&dl_url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?
+            .error_for_status()
+            .map_err(|e| e.to_string())?;
+
+        use sha1::{Digest, Sha1};
+        use sha2::Sha512;
+        let mut hasher1 = Sha1::new();
+        let mut hasher512 = Sha512::new();
+        let mut out = fs::File::create(&dest_path).map_err(|e| e.to_string())?;
+        while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {
+            io::Write::write_all(&mut out, &chunk).map_err(|e| e.to_string())?;
+            hasher1.update(&chunk);
+            hasher512.update(&chunk);
+        }
+
+        if let Some(hashes) = &file.hashes {
+            if let Some(expected) = hashes.get("sha1") {
+                let got: String = hasher1
+                    .finalize()
+                    .iter()
+                    .map(|b| format!("{:02x}", b))
+                    .collect();
+                if &got != expected {
+                    let _ = fs::remove_file(&dest_path);
+                    return Err(format!("SHA-1 mismatch for {}", file.path));
+                }
+            }
+            if let Some(expected) = hashes.get("sha512") {
+                let got: String = hasher512
+                    .finalize()
+                    .iter()
+                    .map(|b| format!("{:02x}", b))
+                    .collect();
+                if &got != expected {
+                    let _ = fs::remove_file(&dest_path);
+                    return Err(format!("SHA-512 mismatch for {}", file.path));
+                }
+            }
+        }
+
+        let sha1 = file.hashes.as_ref().and_then(|h| h.get("sha1").cloned());
+
+        installed.push(InstalledFile {
+            mod_id,
+            file_path: file.path.clone(),
+            enabled_client,
+            enabled_server,
+            side: side.to_string(),
+            sha1,
+            dest_path,
+        });
+    }
+
+    Ok(installed)
+}
+
+/// Merge server-overrides/ from the archive into workspace root.
+pub fn merge_server_overrides(archive_path: &Path, workspace: &Path) -> Result<(), String> {
+    let file = fs::File::open(archive_path).map_err(|e| e.to_string())?;
+    let mut archive = ZipArchive::new(file).map_err(|e| e.to_string())?;
+
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i).map_err(|e| e.to_string())?;
+        let name = entry.name().replace('\\', "/");
+        if name.ends_with('/') {
+            continue;
+        }
+
+        let Some(stripped) = name.strip_prefix("server-overrides/") else {
+            continue;
+        };
+        if stripped.is_empty() {
+            continue;
+        }
+
+        let dest = safe_join(workspace, stripped)?;
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        let mut out = fs::File::create(&dest).map_err(|e| e.to_string())?;
+        io::copy(&mut entry, &mut out).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Full server install from an mrpack sitting in original/.
+pub async fn install_mrpack_server(
+    client: &Client,
+    archive_path: &Path,
+    workspace: &Path,
+) -> Result<(Vec<InstalledFile>, String, String), String> {
+    wipe_dir(workspace)?;
+
+    let Some((_raw, index)) = read_index_from_archive(archive_path)? else {
+        extract_instance_zip(archive_path, workspace)?;
+        return Ok((Vec::new(), "1.20.1".to_string(), "fabric".to_string()));
+    };
+
+    let (mc, loader) = parse_loader_mc(&index);
+    let installed = download_index_files_server(client, &index, workspace).await?;
+    merge_server_overrides(archive_path, workspace)?;
     Ok((installed, mc, loader))
 }
 

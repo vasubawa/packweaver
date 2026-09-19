@@ -6,11 +6,17 @@ export interface InstanceMod {
   name: string;
   version: string;
   enabled: boolean;
+  enabledServer?: boolean;
+  side?: string;
   source: ModSource;
   isBase: boolean;
   iconUrl?: string;
   author?: string;
   description?: string;
+  fileName?: string;
+  onDiskClient?: boolean;
+  onDiskServer?: boolean;
+  fileSize?: number | null;
 }
 
 export interface ServerFileItem {
@@ -24,7 +30,7 @@ export interface ServerFileItem {
 export interface ExportSettings {
   includeServer: boolean;
   version: string;
-  format?: 'zip';
+  format?: 'zip' | 'server';
   targetDistribution?: string;
   exportPath?: string;
 }

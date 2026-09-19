@@ -87,13 +87,24 @@ fn get_instances(state: tauri::State<AppState>) -> Result<Vec<Instance>, String>
         let export_settings =
             serde_json::from_str(&export_settings_str).unwrap_or(serde_json::json!({}));
 
+        let instance_dir = db::get_portable_data_dir().join("instances").join(&id);
+        let pack_label: String = conn
+            .query_row(
+                "SELECT COALESCE(NULLIF(original_filename, ''), name) FROM instances WHERE id = ?1",
+                [&id],
+                |row| row.get(0),
+            )
+            .unwrap_or_else(|_| name.clone());
+        let stem = downloader::stem_from_filename(&pack_label);
+        let client_ws = downloader::client_workspace_root(&id).join(&stem);
+        let server_ws = downloader::server_workspace_root(&id).join(&stem);
+
         let mut custom_mods = Vec::new();
         let mut base_pack_mods = Vec::new();
         let mut total_mod_count = 0;
         let mut custom_mod_count = 0;
 
-        if let Ok(mut m_stmt) = conn.prepare("SELECT mod_id, name, mod_version_id, source, is_base, enabled_client, icon_url, author, description, file_name FROM instance_mods WHERE instance_id = ?") {
-            let instance_dir = db::get_portable_data_dir().join("instances").join(&id);
+        if let Ok(mut m_stmt) = conn.prepare("SELECT mod_id, name, mod_version_id, source, is_base, enabled_client, enabled_server, COALESCE(side, 'both'), icon_url, author, description, file_name FROM instance_mods WHERE instance_id = ?") {
             if let Ok(m_iter) = m_stmt.query_map([&id], |mr| {
                 let mod_id: String = mr.get(0)?;
                 let name: String = mr.get(1)?;
@@ -104,33 +115,64 @@ fn get_instances(state: tauri::State<AppState>) -> Result<Vec<Instance>, String>
                     source: mr.get(3)?,
                     is_base: mr.get(4)?,
                     enabled: mr.get(5)?,
-                    icon_url: mr.get(6).unwrap_or(None),
-                    author: mr.get(7).unwrap_or(None),
-                    description: mr.get(8).unwrap_or(None),
-                    file_name: mr.get(9).unwrap_or(None),
+                    enabled_server: mr.get(6)?,
+                    side: mr.get(7)?,
+                    icon_url: mr.get(8).unwrap_or(None),
+                    author: mr.get(9).unwrap_or(None),
+                    description: mr.get(10).unwrap_or(None),
+                    file_name: mr.get(11).unwrap_or(None),
+                    on_disk_client: false,
+                    on_disk_server: false,
+                    file_size: None,
                 };
+
+                let clean_id = m.id.replace('\\', "/");
+                let file_name_str = m.file_name.as_deref().unwrap_or(&clean_id);
+                let filename = file_name_str.split('/').next_back().unwrap_or(file_name_str);
+                let normalized_rel = clean_id.replace('/', std::path::MAIN_SEPARATOR_STR);
+
+                let client_candidates = [
+                    client_ws.join(&normalized_rel),
+                    client_ws.join("mods").join(filename),
+                    // Legacy flat layout
+                    instance_dir.join("workspace").join(&normalized_rel),
+                    instance_dir.join("workspace").join("mods").join(filename),
+                ];
+                let server_candidates = [
+                    server_ws.join(&normalized_rel),
+                    server_ws.join("mods").join(filename),
+                    instance_dir.join("server-workspace").join(&normalized_rel),
+                    instance_dir.join("server-workspace").join("mods").join(filename),
+                ];
+                if let Some(p) = client_candidates.iter().find(|p| p.exists() && p.is_file()) {
+                    m.on_disk_client = true;
+                    if let Ok(meta) = std::fs::metadata(p) {
+                        m.file_size = Some(meta.len());
+                    }
+                }
+                if let Some(p) = server_candidates.iter().find(|p| p.exists() && p.is_file()) {
+                    m.on_disk_server = true;
+                    if m.file_size.is_none() {
+                        if let Ok(meta) = std::fs::metadata(p) {
+                            m.file_size = Some(meta.len());
+                        }
+                    }
+                }
 
                 // If author or name are not yet enriched, inspect local jar on disk
                 let is_author_empty = m.author.as_deref().unwrap_or("").trim().is_empty();
                 let is_version_unknown = m.version.trim().is_empty() || m.version == "latest" || m.version == "local";
                 if is_author_empty || is_version_unknown || m.name.ends_with(".jar") || m.name.ends_with(".zip") {
-                    let clean_id = m.id.replace('\\', "/");
-                    let file_name_str = m.file_name.as_deref().unwrap_or(&clean_id);
-                    let filename = file_name_str.split('/').next_back().unwrap_or(file_name_str);
-                    let normalized_rel = clean_id.replace('/', std::path::MAIN_SEPARATOR_STR);
                     let mut possible_paths = vec![
-                        instance_dir.join(&normalized_rel),
-                        instance_dir.join("mods").join(filename),
-                        instance_dir.join("workspace").join(&normalized_rel),
+                        client_ws.join(&normalized_rel),
+                        client_ws.join("mods").join(filename),
+                        server_ws.join("mods").join(filename),
                         instance_dir.join("workspace").join("mods").join(filename),
-                        instance_dir.join(filename),
+                        instance_dir.join("server-workspace").join("mods").join(filename),
                     ];
-
-                    // If clean_id isn't the file name, also check it against mods/
                     let id_filename = clean_id.split('/').next_back().unwrap_or(&clean_id);
                     if id_filename != filename {
-                         possible_paths.push(instance_dir.join("mods").join(id_filename));
-                         possible_paths.push(instance_dir.join("workspace").join("mods").join(id_filename));
+                         possible_paths.push(client_ws.join("mods").join(id_filename));
                     }
                     if let Some(jar_path) = possible_paths.iter().find(|p| p.exists() && p.is_file()) {
                         let meta = jar_inspector::inspect_jar(jar_path);
@@ -374,21 +416,36 @@ async fn toggle_mod_state(
     instance_id: String,
     mod_id: String,
     enabled: bool,
+    side: Option<String>,
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
+    let side = side.unwrap_or_else(|| "client".to_string());
+    let side = if side == "server" { "server" } else { "client" };
     {
         let conn = state
             .db
             .lock()
             .map_err(|_| "Database lock poisoned".to_string())?;
-        conn.execute(
-            "UPDATE instance_mods SET enabled = ?1, enabled_client = ?1 WHERE instance_id = ?2 AND mod_id = ?3",
-            rusqlite::params![enabled, instance_id, mod_id],
-        )
-        .map_err(|e| e.to_string())?;
+        if side == "server" {
+            conn.execute(
+                "UPDATE instance_mods SET enabled_server = ?1 WHERE instance_id = ?2 AND mod_id = ?3",
+                rusqlite::params![enabled, instance_id, mod_id],
+            )
+            .map_err(|e| e.to_string())?;
+        } else {
+            conn.execute(
+                "UPDATE instance_mods SET enabled = ?1, enabled_client = ?1 WHERE instance_id = ?2 AND mod_id = ?3",
+                rusqlite::params![enabled, instance_id, mod_id],
+            )
+            .map_err(|e| e.to_string())?;
+        }
     }
-    downloader::apply_mod_enabled(&app, &instance_id, &mod_id, enabled).await?;
+    // Enable is DB-only — jars are restored on Rebuild / Layer / server rebuild.
+    // Disable removes the jar from that side's tree immediately (no download).
+    if !enabled {
+        downloader::apply_mod_enabled(&app, &instance_id, &mod_id, false, side).await?;
+    }
     Ok(())
 }
 
@@ -458,48 +515,72 @@ fn add_custom_mod(
     author: Option<String>,
     description: Option<String>,
     file_name: Option<String>,
+    side: Option<String>,
     state: tauri::State<AppState>,
 ) -> Result<(), String> {
     let conn = state
         .db
         .lock()
         .map_err(|_| "Database lock poisoned".to_string())?;
+
+    let exists: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM instance_mods WHERE instance_id = ?1 AND mod_id = ?2",
+            rusqlite::params![&instance_id, &mod_id],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    if exists > 0 {
+        return Err(format!(
+            "Mod '{}' is already in this pack (base or custom)",
+            name
+        ));
+    }
+
+    let side = match side.as_deref().unwrap_or("both") {
+        "client" => "client",
+        "server" => "server",
+        _ => "both",
+    };
+    let (enabled_client, enabled_server) = match side {
+        "client" => (true, false),
+        "server" => (false, true),
+        _ => (true, true),
+    };
+
+    let fn_ref = file_name.as_deref().unwrap_or("");
+    let (source_path, stored_file_name) = if source == "local"
+        && (std::path::Path::new(fn_ref).is_absolute() || fn_ref.contains(':'))
+    {
+        (
+            fn_ref.to_string(),
+            std::path::Path::new(fn_ref)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(fn_ref)
+                .to_string(),
+        )
+    } else {
+        (String::new(), fn_ref.to_string())
+    };
+
     conn.execute(
-        "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, source, is_base, enabled, enabled_client, enabled_server, icon_url, author, description, source_path, file_name)
-         VALUES (?1, ?2, ?3, ?4, ?5, 0, 1, 1, 1, ?6, ?7, ?8, ?9, ?10)",
+        "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, source, is_base, enabled, enabled_client, enabled_server, side, icon_url, author, description, source_path, file_name)
+         VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         rusqlite::params![
             instance_id,
             mod_id,
             name,
             version.unwrap_or_else(|| "latest".to_string()),
             source,
+            enabled_client,
+            enabled_server,
+            side,
             icon_url.unwrap_or_default(),
             author.unwrap_or_default(),
             description.unwrap_or_default(),
-            {
-                let fn_ref = file_name.as_deref().unwrap_or("");
-                if source == "local"
-                    && (std::path::Path::new(fn_ref).is_absolute() || fn_ref.contains(':'))
-                {
-                    fn_ref.to_string()
-                } else {
-                    String::new()
-                }
-            },
-            {
-                let fn_ref = file_name.as_deref().unwrap_or("");
-                if source == "local"
-                    && (std::path::Path::new(fn_ref).is_absolute() || fn_ref.contains(':'))
-                {
-                    std::path::Path::new(fn_ref)
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or(fn_ref)
-                        .to_string()
-                } else {
-                    fn_ref.to_string()
-                }
-            }
+            source_path,
+            stored_file_name,
         ],
     )
     .map_err(|e| e.to_string())?;
@@ -512,7 +593,7 @@ fn remove_custom_mod(
     mod_id: String,
     state: tauri::State<AppState>,
 ) -> Result<(), String> {
-    let (file_name,): (String,) = {
+    let (file_name, stem): (String, String) = {
         let conn = state
             .db
             .lock()
@@ -524,19 +605,25 @@ fn remove_custom_mod(
                 |row| row.get(0),
             )
             .unwrap_or_default();
+        let pack_name: String = conn
+            .query_row(
+                "SELECT COALESCE(NULLIF(original_filename, ''), name) FROM instances WHERE id = ?1",
+                rusqlite::params![&instance_id],
+                |row| row.get(0),
+            )
+            .unwrap_or_default();
         conn.execute(
             "DELETE FROM instance_mods WHERE instance_id = ?1 AND mod_id = ?2 AND is_base = 0",
             rusqlite::params![&instance_id, &mod_id],
         )
         .map_err(|e| e.to_string())?;
-        (file_name,)
+        (file_name, downloader::stem_from_filename(&pack_name))
     };
 
-    let workspace = db::get_portable_data_dir()
-        .join("instances")
-        .join(&instance_id)
-        .join("workspace");
-    installer::remove_mod_file_from_workspace(&workspace, Some(&file_name), &mod_id);
+    let client_ws = downloader::client_workspace_root(&instance_id).join(&stem);
+    installer::remove_mod_file_from_workspace(&client_ws, Some(&file_name), &mod_id);
+    let server_ws = downloader::server_workspace_root(&instance_id).join(&stem);
+    installer::remove_mod_file_from_workspace(&server_ws, Some(&file_name), &mod_id);
     Ok(())
 }
 
@@ -612,12 +699,9 @@ async fn layer_custom_mods(
     app: tauri::AppHandle,
     _state: tauri::State<'_, AppState>,
 ) -> Result<u32, String> {
-    let workspace_dir = db::get_portable_data_dir()
-        .join("instances")
-        .join(&instance_id)
-        .join("workspace");
+    let workspace_dir = downloader::client_workspace_dir(&app, &instance_id)?;
     if !workspace_dir.exists() {
-        return Err("Workspace not found â€” rebuild the pack first".to_string());
+        return Err("Workspace not found — rebuild the pack first".to_string());
     }
 
     let client = reqwest::Client::builder()
@@ -630,13 +714,14 @@ async fn layer_custom_mods(
         "export-progress",
         downloader::ProgressEvent {
             instance_id: instance_id.clone(),
-            status: "Layering custom modsâ€¦".to_string(),
+            status: "Layering custom mods…".to_string(),
             progress: 0,
             total: 1,
         },
     );
 
-    let count = downloader::layer_custom_mods(&app, &client, &instance_id, &workspace_dir).await?;
+    let count =
+        downloader::layer_custom_mods(&app, &client, &instance_id, &workspace_dir, false).await?;
 
     let _ = app.emit(
         "export-progress",
@@ -652,6 +737,15 @@ async fn layer_custom_mods(
 }
 
 #[tauri::command]
+async fn rebuild_server_workspace(
+    instance_id: String,
+    app: tauri::AppHandle,
+    _state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    downloader::run_server_pipeline(app, instance_id).await
+}
+
+#[tauri::command]
 async fn export_instance(
     instance_id: String,
     format: String,
@@ -659,33 +753,47 @@ async fn export_instance(
     state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
     let format = format.to_lowercase();
-    if format != "zip" {
+    let is_server = format == "server";
+    if format != "zip" && !is_server {
         return Err(format!(
-            "Export format '{}' is not available yet. Use zip.",
+            "Export format '{}' is not available yet. Use zip or server.",
             format
         ));
     }
 
     let stem = downloader::original_stem(&app, &instance_id)?;
-    let default_name = format!("{}-MODIFIED.zip", stem);
+    let default_name = if is_server {
+        format!("{}-MODIFIED-server.zip", stem)
+    } else {
+        format!("{}-MODIFIED.zip", stem)
+    };
 
     let _ = app.emit(
         "export-progress",
         downloader::ProgressEvent {
             instance_id: instance_id.clone(),
-            status: "Packaging as zip...".to_string(),
+            status: if is_server {
+                "Packaging server zip...".to_string()
+            } else {
+                "Packaging as zip...".to_string()
+            },
             progress: 0,
             total: 2,
         },
     );
 
-    let workspace_dir = db::get_portable_data_dir()
-        .join("instances")
-        .join(&instance_id)
-        .join("workspace");
+    let workspace_dir = if is_server {
+        downloader::server_workspace_dir(&app, &instance_id)?
+    } else {
+        downloader::client_workspace_dir(&app, &instance_id)?
+    };
 
     if !workspace_dir.exists() {
-        return Err("Workspace not found â€” rebuild the pack first".to_string());
+        return Err(if is_server {
+            "Server workspace not found - rebuild server first".to_string()
+        } else {
+            "Workspace not found - rebuild the pack first".to_string()
+        });
     }
 
     use tauri_plugin_dialog::DialogExt;
@@ -713,7 +821,7 @@ async fn export_instance(
         "export-progress",
         downloader::ProgressEvent {
             instance_id: instance_id.clone(),
-            status: "Writing zipâ€¦".to_string(),
+            status: "Writing zip...".to_string(),
             progress: 1,
             total: 2,
         },
@@ -776,6 +884,7 @@ pub fn run() {
             add_custom_mod,
             remove_custom_mod,
             rebuild_workspace,
+            rebuild_server_workspace,
             layer_custom_mods,
             export_instance,
             get_app_info,

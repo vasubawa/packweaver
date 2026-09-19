@@ -10,12 +10,12 @@ Packweaver is a [Tauri](https://tauri.app) app (Rust + React + TypeScript) that 
 
 ## What it does
 
-1. **Create an Instance** — pick a base modpack from Modrinth or a local `.mrpack`/`.zip`. Packweaver **installs** it into a Minecraft-shaped `workspace/` (not a raw archive dump).
-2. **Customize** — add custom mods; toggle base or custom mods on/off (off = jar removed from workspace).
-3. **Rebuild** — wipe `workspace/`, reinstall the base pack, re-layer enabled customs (repairs messy instances).
-4. **Export** — zip the clean workspace as `{originalStem}-MODIFIED.zip`.
+1. **Create an Instance** — pick a base modpack from Modrinth or a local `.mrpack`/`.zip`. Packweaver **installs** it into `workspace/client/{stem}/` (Minecraft-shaped, not a raw archive dump).
+2. **Customize** — add custom mods; toggle base or custom mods on/off (off = jar removed from that side’s tree).
+3. **Rebuild** — wipe `workspace/client/`, reinstall the base pack under `{stem}/`, re-layer enabled customs (repairs messy instances).
+4. **Export** — zip `workspace/client/{stem}/` as `{stem}-MODIFIED.zip`. With **Server Pack Packager** enabled: rebuild `workspace/server/{stem}/` and export `-MODIFIED-server.zip`.
 
-`.mrpack` / server-pack exporters and the Server Files tab are not available yet (Phase 2).
+`.mrpack` exporter is not available yet.
 
 ---
 
@@ -24,7 +24,7 @@ Packweaver is a [Tauri](https://tauri.app) app (Rust + React + TypeScript) that 
 ```mermaid
 flowchart LR
     A([Pick Source\nModrinth · Local]) --> B[Fetch to original/]
-    B --> C[Install into workspace/]
+    B --> C[Install into workspace/client/stem]
     C --> D{Customize}
     D -->|Toggle / add| D
     D --> E[Rebuild or Layer]
@@ -36,10 +36,14 @@ Per-instance layout:
 ```text
 instances/{id}/
   original/{realFilename}.mrpack
-  workspace/          # enabled content only
-    mods/
-    config/
-    ...
+  workspace/
+    client/{stem}/        # client — enabled content only
+      mods/
+      config/
+      ...
+    server/{stem}/        # server — when Server Pack Packager plugin is on
+      mods/
+      ...
 ```
 
 See [`CONTEXT.md`](./CONTEXT.md) for domain terminology.

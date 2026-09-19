@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { Icon } from '../Icon';
 import { Instance } from '../../types';
 import { SOURCE_COLORS, formatBasePackName } from '../../constants';
@@ -8,9 +8,9 @@ import { useDeleteInstance } from '../../hooks/useDeleteInstance';
 interface DetailHeaderProps {
   instance: Instance;
   onBack: () => void;
-  onExport: () => void;
-  onRebuild: () => void;
-  rebuildRunning?: boolean;
+  onExportClient: () => void;
+  onExportServer?: () => void;
+  serverExporterEnabled?: boolean;
   onUpdate: (updates: Partial<Instance>) => void;
   onDelete: (id: string) => void;
 }
@@ -18,9 +18,9 @@ interface DetailHeaderProps {
 export function DetailHeader({
   instance,
   onBack,
-  onExport,
-  onRebuild,
-  rebuildRunning = false,
+  onExportClient,
+  onExportServer,
+  serverExporterEnabled = false,
   onUpdate,
   onDelete,
 }: DetailHeaderProps) {
@@ -181,27 +181,41 @@ export function DetailHeader({
 
           <div className="flex items-center gap-2 shrink-0 flex-wrap">
             <button
-              className="btn-secondary text-xs px-3 py-2"
-              onClick={onRebuild}
-              disabled={rebuildRunning || instance.status !== 'Ready'}
-              title="Reinstall base pack into workspace and re-layer enabled custom mods"
+              className="export-outline-btn text-xs px-3.5 py-2 font-medium rounded-md border bg-transparent transition-colors"
+              onClick={onExportClient}
+              title="Jump to client export on Overview"
+              style={
+                {
+                  '--export-accent': sc.accent,
+                  color: 'var(--export-accent)',
+                  borderColor: 'var(--export-accent)',
+                } as CSSProperties
+              }
             >
-              <Icon name="refresh" size={14} />
-              <span>{rebuildRunning ? 'Rebuilding…' : 'Update base & rebuild'}</span>
+              <span className="inline-flex items-center gap-1.5">
+                <Icon name="package" size={14} />
+                Export client
+              </span>
             </button>
-            <button
-              className="btn-accent text-xs px-3.5 py-2 font-medium"
-              onClick={onExport}
-              title="Jump to export pipeline on Overview"
-              style={{
-                background: sc.accent,
-                borderColor: sc.accent,
-                boxShadow: `0 2px 10px ${sc.soft}`,
-              }}
-            >
-              <Icon name="package" size={14} />
-              <span>Export Pack</span>
-            </button>
+            {serverExporterEnabled && onExportServer && (
+              <button
+                className="export-outline-btn text-xs px-3.5 py-2 font-medium rounded-md border bg-transparent transition-colors"
+                onClick={onExportServer}
+                title="Jump to server export on Overview (optional per pack)"
+                style={
+                  {
+                    '--export-accent': sc.accent,
+                    color: 'var(--export-accent)',
+                    borderColor: 'var(--export-accent)',
+                  } as CSSProperties
+                }
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <Icon name="package" size={14} />
+                  Export server
+                </span>
+              </button>
+            )}
             <button
               className="btn-danger text-xs px-3.5 py-2 font-medium rounded-md"
               onClick={requestDelete}

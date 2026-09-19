@@ -10,9 +10,17 @@ pub struct InstanceMod {
     pub source: String,
     pub is_base: bool,
     pub enabled: bool,
+    pub enabled_server: bool,
+    pub side: String,
     pub icon_url: Option<String>,
     pub author: Option<String>,
     pub description: Option<String>,
+    /// Jar present under workspace/client/{stem}/mods (or relative path).
+    pub on_disk_client: bool,
+    /// Jar present under workspace/server/{stem}/mods (or relative path).
+    pub on_disk_server: bool,
+    /// Size in bytes of the first jar found (client preferred).
+    pub file_size: Option<u64>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

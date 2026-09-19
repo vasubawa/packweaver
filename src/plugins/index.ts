@@ -63,6 +63,12 @@ export function getActiveExporterPlugins(): ExporterPlugin[] {
   );
 }
 
+export function isServerExporterEnabled(): boolean {
+  return getAllPlugins().some(
+    p => p.category === 'exporter' && p.id === 'server_pack_exporter' && p.enabled
+  );
+}
+
 export const PLUGINS: Record<string, SourcePlugin> = {
   modrinth: ModrinthPlugin,
   curseforge: CurseForgePlugin,

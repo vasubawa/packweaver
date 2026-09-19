@@ -4,7 +4,9 @@ import { Instance } from '../../types';
 import { DetailHeader } from '../detail/DetailHeader';
 import { OverviewTab } from '../detail/OverviewTab';
 import { ClientModsTab } from '../detail/ClientModsTab';
-import { getActiveSourcePlugins } from '../../plugins';
+import { ServerModsTab } from '../detail/ServerModsTab';
+import { CustomModsTab } from '../detail/CustomModsTab';
+import { getActiveSourcePlugins, isServerExporterEnabled } from '../../plugins';
 
 import { SOURCE_COLORS } from '../../constants';
 
@@ -24,33 +26,36 @@ export function DetailView({
   onDeleteInstance,
 }: DetailViewProps) {
   const [activeTab, setActiveTab] = useState('overview');
+  const [serverPluginOn, setServerPluginOn] = useState(() => isServerExporterEnabled());
   const sc = SOURCE_COLORS[instance.source] || SOURCE_COLORS.local;
 
-  const handleExportClick = useCallback(() => {
-    setActiveTab('overview');
-    requestAnimationFrame(() => {
-      document
-        .getElementById('export-pipeline')
-        ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
-    onExport(instance);
-  }, [instance, onExport]);
+  useEffect(() => {
+    const sync = () => setServerPluginOn(isServerExporterEnabled());
+    sync();
+    window.addEventListener('packweaver_plugins_changed', sync);
+    return () => window.removeEventListener('packweaver_plugins_changed', sync);
+  }, []);
 
-  const [rebuildRunning, setRebuildRunning] = useState(false);
+  const visibleTab = !serverPluginOn && activeTab === 'server' ? 'overview' : activeTab;
 
-  const handleRebuild = useCallback(async () => {
-    if (rebuildRunning) return;
-    setRebuildRunning(true);
-    onUpdateInstance({ ...instance, status: 'Installing...' });
-    try {
-      await invoke('rebuild_workspace', { instanceId: instance.id });
-      onUpdateInstance({ ...instance, status: 'Ready' });
-    } catch (e) {
-      onUpdateInstance({ ...instance, status: `Error: ${e}` });
-    } finally {
-      setRebuildRunning(false);
-    }
-  }, [instance, onUpdateInstance, rebuildRunning]);
+  const focusPipeline = useCallback(
+    (anchorId: string) => {
+      setActiveTab('overview');
+      requestAnimationFrame(() => {
+        document.getElementById(anchorId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+      onExport(instance);
+    },
+    [instance, onExport]
+  );
+
+  const handleExportClient = useCallback(() => {
+    focusPipeline('pipeline-client');
+  }, [focusPipeline]);
+
+  const handleExportServer = useCallback(() => {
+    focusPipeline('pipeline-server');
+  }, [focusPipeline]);
 
   const handleUpdate = useCallback(
     async (updates: Partial<Instance>) => {
@@ -122,9 +127,9 @@ export function DetailView({
       <DetailHeader
         instance={instance}
         onBack={onBack}
-        onExport={handleExportClick}
-        onRebuild={handleRebuild}
-        rebuildRunning={rebuildRunning}
+        onExportClient={handleExportClient}
+        onExportServer={serverPluginOn ? handleExportServer : undefined}
+        serverExporterEnabled={serverPluginOn}
         onUpdate={handleUpdate}
         onDelete={onDeleteInstance}
       />
@@ -136,8 +141,10 @@ export function DetailView({
         {[
           { key: 'overview', label: 'Overview' },
           { key: 'client', label: 'Client Mods' },
+          { key: 'custom', label: 'Custom Mods' },
+          ...(serverPluginOn ? [{ key: 'server', label: 'Server Mods' }] : []),
         ].map(tab => {
-          const isActive = activeTab === tab.key;
+          const isActive = visibleTab === tab.key;
           return (
             <button
               key={tab.key}
@@ -156,8 +163,18 @@ export function DetailView({
 
       <div className="flex-1 overflow-y-auto">
         <div className="px-8 py-5 w-full">
-          {activeTab === 'overview' && <OverviewTab instance={instance} onUpdate={handleUpdate} />}
-          {activeTab === 'client' && <ClientModsTab instance={instance} onUpdate={handleUpdate} />}
+          {visibleTab === 'overview' && (
+            <OverviewTab
+              instance={instance}
+              onUpdate={handleUpdate}
+              serverExporterEnabled={serverPluginOn}
+            />
+          )}
+          {visibleTab === 'client' && <ClientModsTab instance={instance} onUpdate={handleUpdate} />}
+          {visibleTab === 'custom' && <CustomModsTab instance={instance} onUpdate={handleUpdate} />}
+          {visibleTab === 'server' && serverPluginOn && (
+            <ServerModsTab instance={instance} onUpdate={handleUpdate} />
+          )}
         </div>
       </div>
     </div>

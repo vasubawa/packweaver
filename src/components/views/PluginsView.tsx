@@ -1,6 +1,12 @@
 import { useState, useEffect } from 'react';
 import { Icon } from '../Icon';
-import { getAllPlugins, savePluginSetting, AnyPlugin, PluginCategory } from '../../plugins';
+import {
+  getAllPlugins,
+  savePluginSetting,
+  AnyPlugin,
+  ExporterPlugin,
+  PluginCategory,
+} from '../../plugins';
 import { useToast } from '../../context/ToastContext';
 import { PluginCard } from './PluginCard';
 
@@ -41,8 +47,18 @@ export function PluginsView() {
     p => selectedCategory === 'all' || p.category === selectedCategory
   );
 
-  const sources = filtered.filter(p => p.category === 'source');
-  const exporters = filtered.filter(p => p.category === 'exporter');
+  /** Core first, then A–Z by name. Enabled and disabled both stay visible. */
+  const sortPlugins = <T extends AnyPlugin>(list: T[]): T[] =>
+    [...list].sort((a, b) => {
+      const coreDiff = Number(!!b.isCore) - Number(!!a.isCore);
+      if (coreDiff !== 0) return coreDiff;
+      return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+    });
+
+  const sources = sortPlugins(filtered.filter(p => p.category === 'source'));
+  const exporters = sortPlugins(
+    filtered.filter((p): p is ExporterPlugin => p.category === 'exporter')
+  );
 
   return (
     <div className="p-8 max-w-[var(--content-max)] animate-slide-in">
