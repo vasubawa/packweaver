@@ -454,6 +454,7 @@ pub async fn run_pipeline(
 }
 
 /// Download/copy one custom mod into `workspace_dir/mods`.
+#[allow(clippy::too_many_arguments)]
 async fn place_custom_mod(
     app: &AppHandle,
     client: &Client,
