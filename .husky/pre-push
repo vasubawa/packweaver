@@ -1,0 +1,4 @@
+# Heavier gate before push — same checks as CI (runs once).
+# Prefer npm run so Git Bash finds the script without requiring `pnpm` on PATH.
+npm run check
+cargo check --manifest-path src-tauri/Cargo.toml

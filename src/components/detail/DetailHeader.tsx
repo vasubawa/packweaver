@@ -9,6 +9,8 @@ interface DetailHeaderProps {
   instance: Instance;
   onBack: () => void;
   onExport: () => void;
+  onRebuild: () => void;
+  rebuildRunning?: boolean;
   onUpdate: (updates: Partial<Instance>) => void;
   onDelete: (id: string) => void;
 }
@@ -17,6 +19,8 @@ export function DetailHeader({
   instance,
   onBack,
   onExport,
+  onRebuild,
+  rebuildRunning = false,
   onUpdate,
   onDelete,
 }: DetailHeaderProps) {
@@ -178,12 +182,12 @@ export function DetailHeader({
           <div className="flex items-center gap-2 shrink-0 flex-wrap">
             <button
               className="btn-secondary text-xs px-3 py-2"
-              disabled
-              title="Coming soon"
-              style={{ opacity: 0.5, cursor: 'not-allowed' }}
+              onClick={onRebuild}
+              disabled={rebuildRunning || instance.status !== 'Ready'}
+              title="Reinstall base pack into workspace and re-layer enabled custom mods"
             >
               <Icon name="refresh" size={14} />
-              <span>Check Updates</span>
+              <span>{rebuildRunning ? 'Rebuilding…' : 'Update base & rebuild'}</span>
             </button>
             <button
               className="btn-accent text-xs px-3.5 py-2 font-medium"

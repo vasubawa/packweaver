@@ -28,7 +28,6 @@ export function DetailView({
 
   const handleExportClick = useCallback(() => {
     setActiveTab('overview');
-    // Defer so Overview mounts before scroll
     requestAnimationFrame(() => {
       document
         .getElementById('export-pipeline')
@@ -36,6 +35,22 @@ export function DetailView({
     });
     onExport(instance);
   }, [instance, onExport]);
+
+  const [rebuildRunning, setRebuildRunning] = useState(false);
+
+  const handleRebuild = useCallback(async () => {
+    if (rebuildRunning) return;
+    setRebuildRunning(true);
+    onUpdateInstance({ ...instance, status: 'Installing...' });
+    try {
+      await invoke('rebuild_workspace', { instanceId: instance.id });
+      onUpdateInstance({ ...instance, status: 'Ready' });
+    } catch (e) {
+      onUpdateInstance({ ...instance, status: `Error: ${e}` });
+    } finally {
+      setRebuildRunning(false);
+    }
+  }, [instance, onUpdateInstance, rebuildRunning]);
 
   const handleUpdate = useCallback(
     async (updates: Partial<Instance>) => {
@@ -108,6 +123,8 @@ export function DetailView({
         instance={instance}
         onBack={onBack}
         onExport={handleExportClick}
+        onRebuild={handleRebuild}
+        rebuildRunning={rebuildRunning}
         onUpdate={handleUpdate}
         onDelete={onDeleteInstance}
       />

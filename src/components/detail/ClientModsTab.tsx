@@ -83,7 +83,9 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
   const [baseFilter, setBaseFilter] = useState('');
   const [baseShowCount, setBaseShowCount] = useState(BASE_MODS_PAGE_SIZE);
 
-  const [baseSortCol, setBaseSortCol] = useState<'name' | 'author' | 'version' | 'source'>('name');
+  const [baseSortCol, setBaseSortCol] = useState<
+    'name' | 'author' | 'version' | 'source' | 'enabled'
+  >('name');
   const [baseSortDir, setBaseSortDir] = useState<'asc' | 'desc'>('asc');
 
   const [customSortCol, setCustomSortCol] = useState<
@@ -112,6 +114,9 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
       } else if (baseSortCol === 'source') {
         aVal = 'base';
         bVal = 'base';
+      } else if (baseSortCol === 'enabled') {
+        aVal = a.enabled ? '1' : '0';
+        bVal = b.enabled ? '1' : '0';
       }
       const cmp = aVal.localeCompare(bVal, undefined, { sensitivity: 'base' });
       return baseSortDir === 'asc' ? cmp : -cmp;
@@ -219,6 +224,25 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
     } catch (e) {
       console.error('Failed to toggle mod:', e);
       addToast('Failed to toggle mod', 'error');
+    }
+  };
+
+  const toggleBaseMod = async (id: string, currentEnabled: boolean) => {
+    try {
+      const nextEnabled = !currentEnabled;
+      await invoke('toggle_mod_state', {
+        instanceId: instance.id,
+        modId: id,
+        enabled: nextEnabled,
+      });
+      onUpdate({
+        basePackMods: instance.basePackMods.map(m =>
+          m.id === id ? { ...m, enabled: nextEnabled } : m
+        ),
+      });
+    } catch (e) {
+      console.error('Failed to toggle base mod:', e);
+      addToast('Failed to toggle base mod', 'error');
     }
   };
 
@@ -338,6 +362,22 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
                             borderBottom: '1px solid var(--border)',
                           }}
                         >
+                          <th className="font-medium px-4 py-2.5 w-12 text-center">
+                            <button
+                              type="button"
+                              className="font-medium cursor-pointer hover:text-[var(--text-primary)] select-none"
+                              onClick={() => {
+                                if (baseSortCol === 'enabled')
+                                  setBaseSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+                                else {
+                                  setBaseSortCol('enabled');
+                                  setBaseSortDir('asc');
+                                }
+                              }}
+                            >
+                              On {baseSortCol === 'enabled' && (baseSortDir === 'asc' ? '↑' : '↓')}
+                            </button>
+                          </th>
                           <th
                             className="font-medium p-0"
                             aria-sort={
@@ -434,9 +474,26 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
                             <tr
                               key={`base-${i}`}
                               className="group transition-colors"
-                              style={{ ':hover': { background: 'var(--bg-muted)' } } as any}
+                              style={
+                                {
+                                  opacity: mod.enabled ? 1 : 0.55,
+                                  ':hover': { background: 'var(--bg-muted)' },
+                                } as any
+                              }
                               title={mod.description || mod.name}
                             >
+                              <td className="px-4 py-2.5 text-center">
+                                <button
+                                  role="switch"
+                                  aria-checked={mod.enabled}
+                                  aria-label={`Toggle ${displayName}`}
+                                  className={`theme-toggle-track ${mod.enabled ? 'on' : ''}`}
+                                  style={mod.enabled ? { background: sc.accent } : {}}
+                                  onClick={() => toggleBaseMod(mod.id, mod.enabled)}
+                                >
+                                  <div className="theme-toggle-knob" />
+                                </button>
+                              </td>
                               <td className="px-4 py-2.5 flex items-center gap-3">
                                 {/* Colour avatar or official icon */}
                                 <div

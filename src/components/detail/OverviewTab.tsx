@@ -18,12 +18,18 @@ interface StageState {
 }
 
 const IDLE_STAGES: Record<string, StageState> = {
-  downloadMods: {
+  rebuild: {
     status: 'idle',
-    message: 'Download custom mods from Modrinth or copy local files',
+    message: 'Wipe workspace, install base pack, re-layer enabled custom mods',
   },
-  assemble: { status: 'idle', message: 'Apply enabled/disabled mods into the workspace' },
-  package: { status: 'idle', message: 'Zip workspace into a client .zip archive' },
+  layer: {
+    status: 'idle',
+    message: 'Copy/download enabled custom mods into workspace/mods',
+  },
+  package: {
+    status: 'idle',
+    message: 'Zip clean workspace as {original}-MODIFIED.zip',
+  },
 };
 
 export function OverviewTab({ instance, onUpdate }: OverviewTabProps) {
@@ -34,9 +40,10 @@ export function OverviewTab({ instance, onUpdate }: OverviewTabProps) {
   const [pipelineRunning, setPipelineRunning] = useState(false);
   const unlistenRef = useRef<(() => void) | null>(null);
 
-  // Subscribe to export-progress events from the backend
   useEffect(() => {
     let cancelled = false;
+    const unlisteners: (() => void)[] = [];
+
     listen<{ instance_id: string; status: string; progress: number; total: number }>(
       'export-progress',
       event => {
@@ -44,25 +51,51 @@ export function OverviewTab({ instance, onUpdate }: OverviewTabProps) {
         const { status, progress, total } = event.payload;
         setStages(prev => ({
           ...prev,
-          downloadMods: {
+          layer: {
             status:
               total > 0 && progress < total
                 ? 'running'
                 : progress === total && total > 0
                   ? 'done'
-                  : prev.downloadMods.status,
+                  : prev.layer.status,
             message: status,
           },
         }));
       }
     ).then(fn => {
-      unlistenRef.current = fn;
+      unlisteners.push(fn);
+      unlistenRef.current = () => unlisteners.forEach(u => u());
     });
+
+    listen<{ instance_id: string; status: string; progress: number; total: number }>(
+      'instance-progress',
+      event => {
+        if (cancelled || event.payload.instance_id !== instance.id) return;
+        const { status, progress, total } = event.payload;
+        const isError = status.toLowerCase().startsWith('error');
+        setStages(prev => ({
+          ...prev,
+          rebuild: {
+            status: isError ? 'error' : total > 0 && progress >= total ? 'done' : 'running',
+            message: status,
+          },
+        }));
+        if (status === 'Ready' || (total > 0 && progress >= total && !isError)) {
+          onUpdate({ status: 'Ready' });
+        } else if (isError) {
+          onUpdate({ status });
+        }
+      }
+    ).then(fn => {
+      unlisteners.push(fn);
+      unlistenRef.current = () => unlisteners.forEach(u => u());
+    });
+
     return () => {
       cancelled = true;
       unlistenRef.current?.();
     };
-  }, [instance.id]);
+  }, [instance.id, onUpdate]);
 
   if (instance.id !== prevInstanceId) {
     setPrevInstanceId(instance.id);
@@ -79,35 +112,38 @@ export function OverviewTab({ instance, onUpdate }: OverviewTabProps) {
   const setStage = (key: string, status: StageStatus, message: string) =>
     setStages(prev => ({ ...prev, [key]: { status, message } }));
 
-  const runDownloadMods = async () => {
+  const runRebuild = async () => {
     if (pipelineRunning) return;
     setPipelineRunning(true);
-    setStage('downloadMods', 'running', 'Starting download…');
+    setStage('rebuild', 'running', 'Rebuilding workspace…');
+    onUpdate({ status: 'Installing...' });
     try {
-      const count = await invoke<number>('download_custom_mods', { instanceId: instance.id });
-      setStage(
-        'downloadMods',
-        'done',
-        count === 0
-          ? 'No custom mods to download'
-          : `${count} mod${count !== 1 ? 's' : ''} downloaded`
-      );
+      await invoke('rebuild_workspace', { instanceId: instance.id });
+      setStage('rebuild', 'done', 'Workspace rebuilt');
+      onUpdate({ status: 'Ready' });
     } catch (e) {
-      setStage('downloadMods', 'error', String(e));
+      setStage('rebuild', 'error', String(e));
+      onUpdate({ status: `Error: ${e}` });
     } finally {
       setPipelineRunning(false);
     }
   };
 
-  const runAssemble = async () => {
+  const runLayer = async () => {
     if (pipelineRunning) return;
     setPipelineRunning(true);
-    setStage('assemble', 'running', 'Assembling workspace…');
+    setStage('layer', 'running', 'Layering custom mods…');
     try {
-      await invoke('assemble_workspace', { instanceId: instance.id });
-      setStage('assemble', 'done', 'Workspace assembled');
+      const count = await invoke<number>('layer_custom_mods', { instanceId: instance.id });
+      setStage(
+        'layer',
+        'done',
+        count === 0
+          ? 'No enabled custom mods to layer'
+          : `${count} custom mod${count !== 1 ? 's' : ''} layered`
+      );
     } catch (e) {
-      setStage('assemble', 'error', String(e));
+      setStage('layer', 'error', String(e));
     } finally {
       setPipelineRunning(false);
     }
@@ -174,7 +210,6 @@ export function OverviewTab({ instance, onUpdate }: OverviewTabProps) {
 
   return (
     <div className="animate-slide-in flex flex-col gap-6">
-      {/* Description Card */}
       <div
         className="p-4 rounded-xl relative group transition-colors"
         style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
@@ -230,7 +265,6 @@ export function OverviewTab({ instance, onUpdate }: OverviewTabProps) {
         )}
       </div>
 
-      {/* Grid of Spec Cards */}
       <div>
         <h3 className="text-xs font-semibold uppercase tracking-wider mb-3 text-[var(--text-muted)]">
           Pack Specifications
@@ -261,7 +295,6 @@ export function OverviewTab({ instance, onUpdate }: OverviewTabProps) {
         </div>
       </div>
 
-      {/* Export Configuration */}
       <div>
         <h3 className="text-xs font-semibold uppercase tracking-wider mb-3 text-[var(--text-muted)]">
           Export Configuration
@@ -286,7 +319,7 @@ export function OverviewTab({ instance, onUpdate }: OverviewTabProps) {
                 }
               />
               <p className="text-[11px] mt-1 text-[var(--text-muted)]">
-                Included in export manifest and zip naming.
+                Stored with the instance; zip name uses the original pack stem + -MODIFIED.
               </p>
             </div>
 
@@ -310,11 +343,10 @@ export function OverviewTab({ instance, onUpdate }: OverviewTabProps) {
         </div>
       </div>
 
-      {/* Export Pipeline */}
       <div id="export-pipeline">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
-            Export Pipeline
+            Workspace Pipeline
           </h3>
           <button
             className="btn-ghost text-[11px] px-2 py-0.5"
@@ -328,18 +360,18 @@ export function OverviewTab({ instance, onUpdate }: OverviewTabProps) {
           {(
             [
               {
-                key: 'downloadMods',
-                label: '① Download Custom Mods',
-                onRun: runDownloadMods,
+                key: 'rebuild',
+                label: '① Rebuild Workspace',
+                onRun: runRebuild,
               },
               {
-                key: 'assemble',
-                label: '② Assemble Workspace',
-                onRun: runAssemble,
+                key: 'layer',
+                label: '② Layer Custom Mods',
+                onRun: runLayer,
               },
               {
                 key: 'package',
-                label: '③ Package & Export',
+                label: '③ Export ZIP',
                 onRun: runPackage,
               },
             ] as const

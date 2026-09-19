@@ -3,30 +3,33 @@ use std::path::PathBuf;
 
 pub fn get_portable_data_dir() -> PathBuf {
     let mut path = std::env::current_exe().expect("Failed to get current executable path");
-    path.pop(); // Remove executable name
+    path.pop();
 
-    // If on macOS and inside an .app bundle, go up to the directory containing the .app
     if cfg!(target_os = "macos") && path.to_string_lossy().contains(".app/Contents/MacOS") {
-        path.pop(); // MacOS
-        path.pop(); // Contents
-        path.pop(); // .app
+        path.pop();
+        path.pop();
+        path.pop();
     }
 
     path.join("packweaver-data")
 }
 
+fn has_column(conn: &Connection, table: &str, column: &str) -> bool {
+    conn.prepare(&format!(
+        "SELECT name FROM pragma_table_info('{}') WHERE name = '{}'",
+        table, column
+    ))
+    .and_then(|mut stmt| stmt.exists([]))
+    .unwrap_or(false)
+}
+
 pub fn init_db(_app_handle: &tauri::AppHandle) -> Result<Connection> {
     let app_dir = get_portable_data_dir();
-
-    // Ensure the directory exists
     std::fs::create_dir_all(&app_dir)
         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
 
     let db_path = app_dir.join("packweaver.db");
-
     let conn = Connection::open(db_path)?;
-
-    // Enable foreign keys
     conn.execute("PRAGMA foreign_keys = ON;", [])?;
 
     conn.execute(
@@ -44,6 +47,7 @@ pub fn init_db(_app_handle: &tauri::AppHandle) -> Result<Connection> {
             banner_url TEXT DEFAULT '',
             icon_url TEXT DEFAULT '',
             export_settings TEXT DEFAULT '{}',
+            original_filename TEXT DEFAULT '',
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )",
         [],
@@ -57,81 +61,53 @@ pub fn init_db(_app_handle: &tauri::AppHandle) -> Result<Connection> {
             name TEXT NOT NULL DEFAULT '',
             mod_version_id TEXT NOT NULL,
             file_name TEXT,
+            source_path TEXT DEFAULT '',
             source TEXT NOT NULL,
             icon_url TEXT DEFAULT '',
             author TEXT DEFAULT '',
             description TEXT DEFAULT '',
+            side TEXT NOT NULL DEFAULT 'both',
             is_base BOOLEAN NOT NULL DEFAULT 0,
             enabled BOOLEAN NOT NULL DEFAULT 1,
+            enabled_client BOOLEAN NOT NULL DEFAULT 1,
+            enabled_server BOOLEAN NOT NULL DEFAULT 1,
             FOREIGN KEY(instance_id) REFERENCES instances(id) ON DELETE CASCADE,
             UNIQUE(instance_id, mod_id)
         )",
         [],
     )?;
 
-    // Migrate older databases created before the `name` column existed
-    let has_name_column = conn
-        .prepare("SELECT name FROM pragma_table_info('instance_mods') WHERE name = 'name'")
-        .and_then(|mut stmt| stmt.exists([]))
-        .unwrap_or(true);
-    if !has_name_column {
-        conn.execute(
-            "ALTER TABLE instance_mods ADD COLUMN name TEXT NOT NULL DEFAULT ''",
-            [],
-        )?;
+    let alters: &[(&str, &str, &str)] = &[
+        ("instance_mods", "name", "TEXT NOT NULL DEFAULT ''"),
+        ("instance_mods", "file_name", "TEXT"),
+        ("instance_mods", "source_path", "TEXT DEFAULT ''"),
+        ("instance_mods", "side", "TEXT NOT NULL DEFAULT 'both'"),
+        ("instance_mods", "icon_url", "TEXT DEFAULT ''"),
+        ("instance_mods", "author", "TEXT DEFAULT ''"),
+        ("instance_mods", "description", "TEXT DEFAULT ''"),
+        (
+            "instance_mods",
+            "enabled_client",
+            "BOOLEAN NOT NULL DEFAULT 1",
+        ),
+        (
+            "instance_mods",
+            "enabled_server",
+            "BOOLEAN NOT NULL DEFAULT 1",
+        ),
+        ("instances", "icon_url", "TEXT DEFAULT ''"),
+        ("instances", "original_filename", "TEXT DEFAULT ''"),
+    ];
+    for (table, col, decl) in alters {
+        if !has_column(&conn, table, col) {
+            conn.execute(
+                &format!("ALTER TABLE {} ADD COLUMN {} {}", table, col, decl),
+                [],
+            )?;
+        }
     }
 
-    let has_file_name_column = conn
-        .prepare("SELECT name FROM pragma_table_info('instance_mods') WHERE name = 'file_name'")
-        .and_then(|mut stmt| stmt.exists([]))
-        .unwrap_or(true);
-    if !has_file_name_column {
-        conn.execute("ALTER TABLE instance_mods ADD COLUMN file_name TEXT", [])?;
-    }
-
-    let has_instance_icon = conn
-        .prepare("SELECT name FROM pragma_table_info('instances') WHERE name = 'icon_url'")
-        .and_then(|mut stmt| stmt.exists([]))
-        .unwrap_or(true);
-    if !has_instance_icon {
-        conn.execute(
-            "ALTER TABLE instances ADD COLUMN icon_url TEXT DEFAULT ''",
-            [],
-        )?;
-    }
-
-    let has_mod_icon = conn
-        .prepare("SELECT name FROM pragma_table_info('instance_mods') WHERE name = 'icon_url'")
-        .and_then(|mut stmt| stmt.exists([]))
-        .unwrap_or(true);
-    if !has_mod_icon {
-        conn.execute(
-            "ALTER TABLE instance_mods ADD COLUMN icon_url TEXT DEFAULT ''",
-            [],
-        )?;
-    }
-
-    let has_mod_author = conn
-        .prepare("SELECT name FROM pragma_table_info('instance_mods') WHERE name = 'author'")
-        .and_then(|mut stmt| stmt.exists([]))
-        .unwrap_or(true);
-    if !has_mod_author {
-        conn.execute(
-            "ALTER TABLE instance_mods ADD COLUMN author TEXT DEFAULT ''",
-            [],
-        )?;
-    }
-
-    let has_mod_description = conn
-        .prepare("SELECT name FROM pragma_table_info('instance_mods') WHERE name = 'description'")
-        .and_then(|mut stmt| stmt.exists([]))
-        .unwrap_or(true);
-    if !has_mod_description {
-        conn.execute(
-            "ALTER TABLE instance_mods ADD COLUMN description TEXT DEFAULT ''",
-            [],
-        )?;
-    }
+    let _ = conn.execute("UPDATE instance_mods SET enabled_client = enabled", []);
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS server_files (
@@ -146,7 +122,6 @@ pub fn init_db(_app_handle: &tauri::AppHandle) -> Result<Connection> {
         [],
     )?;
 
-    // Ensure unique constraint for upserts
     conn.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_instance_mods_unique ON instance_mods(instance_id, mod_id)",
         [],
@@ -161,73 +136,53 @@ mod tests {
 
     #[test]
     fn test_db_schema_initialization() {
-        let conn = Connection::open_in_memory().expect("Failed to open in-memory db");
-
+        let conn = Connection::open_in_memory().unwrap();
         conn.execute("PRAGMA foreign_keys = ON;", []).unwrap();
-
-        // Instances table
         conn.execute(
-            "CREATE TABLE instances (
+            "CREATE TABLE IF NOT EXISTS instances (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 base_pack_id TEXT NOT NULL,
                 base_pack_version_id TEXT NOT NULL,
                 mc_version TEXT NOT NULL,
                 loader TEXT NOT NULL,
-                source TEXT NOT NULL,
-                status TEXT DEFAULT 'Ready',
-                description TEXT DEFAULT '',
-                last_exported TEXT DEFAULT 'Never',
-                banner_url TEXT DEFAULT '',
-                icon_url TEXT DEFAULT '',
-                export_settings TEXT DEFAULT '{}',
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                source TEXT NOT NULL
             )",
             [],
         )
-        .expect("Failed to create instances table");
-
-        // Instance Mods table
+        .unwrap();
         conn.execute(
-            "CREATE TABLE instance_mods (
+            "CREATE TABLE IF NOT EXISTS instance_mods (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 instance_id TEXT NOT NULL,
                 mod_id TEXT NOT NULL,
                 name TEXT NOT NULL DEFAULT '',
                 mod_version_id TEXT NOT NULL,
                 source TEXT NOT NULL,
-                icon_url TEXT DEFAULT '',
-                author TEXT DEFAULT '',
-                description TEXT DEFAULT '',
                 is_base BOOLEAN NOT NULL DEFAULT 0,
                 enabled BOOLEAN NOT NULL DEFAULT 1,
+                enabled_client BOOLEAN NOT NULL DEFAULT 1,
+                enabled_server BOOLEAN NOT NULL DEFAULT 1,
                 FOREIGN KEY(instance_id) REFERENCES instances(id) ON DELETE CASCADE,
                 UNIQUE(instance_id, mod_id)
             )",
             [],
         )
-        .expect("Failed to create instance_mods table");
-
-        let mut stmt1 = conn
-            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='instances'")
-            .unwrap();
-        assert!(stmt1.exists([]).unwrap(), "instances table should exist");
-
-        let mut stmt2 = conn
-            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='instance_mods'")
-            .unwrap();
-        assert!(
-            stmt2.exists([]).unwrap(),
-            "instance_mods table should exist"
+        .unwrap();
+        conn.execute(
+            "INSERT INTO instances (id, name, base_pack_id, base_pack_version_id, mc_version, loader, source) VALUES ('1', 'test', 'test', 'test', 'test', 'test', 'test')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, source) VALUES ('1', 'm1', 'mod', '1.0', 'local')",
+            [],
+        )
+        .unwrap();
+        let res = conn.execute(
+            "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, source) VALUES ('1', 'm1', 'mod2', '1.1', 'local')",
+            [],
         );
-
-        // Verify unique constraint
-        conn.execute("INSERT INTO instances (id, name, base_pack_id, base_pack_version_id, mc_version, loader, source) VALUES ('1', 'test', 'test', 'test', 'test', 'test', 'test')", []).unwrap();
-        conn.execute("INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, source) VALUES ('1', 'm1', 'mod', '1.0', 'local')", []).unwrap();
-        let res = conn.execute("INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, source) VALUES ('1', 'm1', 'mod2', '1.1', 'local')", []);
-        assert!(
-            res.is_err(),
-            "Should enforce unique constraint on instance_id and mod_id"
-        );
+        assert!(res.is_err());
     }
 }
