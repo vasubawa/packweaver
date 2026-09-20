@@ -1,6 +1,7 @@
 import { Instance } from '../../types';
-import { SOURCE_COLORS } from '../../constants';
+import { SOURCE_COLORS, formatBasePackName } from '../../constants';
 import { mediaUrl } from '../../lib/mediaUrl';
+
 interface InstanceCardProps {
   instance: Instance;
   onClick: (instance: Instance) => void;
@@ -9,24 +10,39 @@ interface InstanceCardProps {
 export function InstanceCard({ instance, onClick }: InstanceCardProps) {
   const sc = SOURCE_COLORS[instance.source] || SOURCE_COLORS.local;
   const cover = mediaUrl(instance.bannerUrl || instance.iconUrl);
+  const baseLabel = formatBasePackName(instance.basePack);
+  const isInstalling =
+    ((instance.status !== 'Ready' && !instance.status.startsWith('Error')) ||
+      instance.status === 'syncing') &&
+    instance.progress !== undefined;
+  const pct = isInstalling
+    ? instance.total
+      ? Math.min(100, Math.round((instance.progress! / instance.total) * 100))
+      : 0
+    : 0;
+  const statusLabel = instance.status.startsWith('Error')
+    ? 'Error'
+    : instance.status === 'syncing'
+      ? 'Syncing...'
+      : instance.status === 'Ready'
+        ? 'Ready'
+        : instance.status || 'Starting…';
 
   return (
     <div
-      className="instance-card flex flex-col group relative overflow-hidden transition-all duration-200 w-full h-full"
+      className="instance-card flex flex-col group relative overflow-hidden w-full h-full"
       onClick={() => onClick(instance)}
       role="button"
       tabIndex={0}
       style={{
         border: `1px solid ${sc.border || 'var(--border)'}`,
-        background: sc.soft,
+        background: 'var(--bg-surface)',
       }}
       onMouseEnter={e => {
         e.currentTarget.style.borderColor = sc.accent;
-        e.currentTarget.style.boxShadow = `0 4px 20px -2px ${sc.soft}`;
       }}
       onMouseLeave={e => {
         e.currentTarget.style.borderColor = sc.border || 'var(--border)';
-        e.currentTarget.style.boxShadow = 'none';
       }}
       onKeyDown={e => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -35,7 +51,8 @@ export function InstanceCard({ instance, onClick }: InstanceCardProps) {
         }
       }}
     >
-      {/* Banner with source-themed gradient */}
+      <span className="instance-card-warp" style={{ background: sc.accent }} aria-hidden />
+
       <div
         className="relative overflow-hidden shrink-0 flex items-start justify-between p-3.5"
         style={{
@@ -52,35 +69,50 @@ export function InstanceCard({ instance, onClick }: InstanceCardProps) {
           />
           {sc.label}
         </span>
+        {instance.hasUpdate ? (
+          <span
+            className="badge badge-mono"
+            style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
+          >
+            Update
+          </span>
+        ) : null}
       </div>
 
-      {/* Card Body */}
+      {isInstalling ? (
+        <div className="warp-thread" aria-hidden>
+          <div className="warp-thread-fill" style={{ width: `${pct}%` }} />
+        </div>
+      ) : null}
+
       <div className="px-4 pb-4 pt-3 flex flex-col flex-1 justify-between gap-3 relative">
         <div>
           <div className="flex items-baseline justify-between gap-2 mb-1">
             <h3
               className="text-[14.5px] font-semibold tracking-tight leading-snug line-clamp-2"
-              style={{ color: 'var(--text-primary)', wordBreak: 'break-word' }}
+              style={{
+                color: 'var(--text-primary)',
+                wordBreak: 'break-word',
+                fontFamily: 'var(--font-heading)',
+              }}
+              title={instance.name}
             >
               {instance.name}
             </h3>
             <span
               className="text-[11px] font-medium shrink-0"
+              title={instance.status.startsWith('Error') ? instance.status : undefined}
               style={{
                 color: instance.status.startsWith('Error')
                   ? 'var(--danger)'
-                  : instance.status !== 'Ready' && instance.status !== 'syncing'
-                    ? sc.accent
-                    : 'var(--text-muted)',
+                  : instance.status === 'Ready'
+                    ? 'var(--success)'
+                    : instance.status !== 'syncing'
+                      ? 'var(--accent)'
+                      : 'var(--text-muted)',
               }}
             >
-              {instance.status === 'syncing'
-                ? 'Syncing...'
-                : instance.status.startsWith('Error')
-                  ? 'Error'
-                  : instance.status === 'Ready'
-                    ? 'Ready'
-                    : instance.status || 'Starting…'}
+              {statusLabel}
             </span>
           </div>
 
@@ -88,6 +120,7 @@ export function InstanceCard({ instance, onClick }: InstanceCardProps) {
             <p
               className="text-[13px] leading-relaxed line-clamp-2"
               style={{ color: 'var(--text-secondary)' }}
+              title={instance.description}
             >
               {instance.description}
             </p>
@@ -98,49 +131,28 @@ export function InstanceCard({ instance, onClick }: InstanceCardProps) {
           )}
         </div>
 
-        {((instance.status !== 'Ready' && !instance.status.startsWith('Error')) ||
-          instance.status === 'syncing') &&
-          instance.progress !== undefined &&
-          (() => {
-            const pct = instance.total
-              ? Math.min(100, Math.round((instance.progress! / instance.total) * 100))
-              : 0;
-            return (
-              <div>
-                <div className="progress-track">
-                  <div
-                    className="progress-fill"
-                    style={{ width: `${pct}%`, background: sc.accent }}
-                  />
-                </div>
-                <span className="text-[10.5px] mt-1 block" style={{ color: 'var(--text-muted)' }}>
-                  {pct}%
-                </span>
-              </div>
-            );
-          })()}
-
-        {/* Tags */}
-        <div className="flex items-center gap-1.5 flex-wrap">
-          {instance.mcVersion ? (
-            <span className="badge text-[11px] px-2 py-0.5">{instance.mcVersion}</span>
-          ) : null}
+        <div className="font-mono-meta flex items-center gap-2 flex-wrap">
+          <span title={instance.basePack}>{baseLabel}</span>
           {instance.loader ? (
-            <span className="badge text-[11px] px-2 py-0.5">{instance.loader}</span>
+            <>
+              <span aria-hidden>·</span>
+              <span>{instance.loader}</span>
+            </>
           ) : null}
-          <span className="badge text-[11px] px-2 py-0.5">{instance.totalModCount} mods</span>
+          <span aria-hidden>·</span>
+          <span>{instance.totalModCount} mods</span>
           {instance.customModCount > 0 && (
-            <span
-              className="badge text-[11px] px-2 py-0.5"
-              style={{
-                background: sc.soft,
-                color: sc.accent,
-                borderColor: sc.border,
-              }}
-            >
-              +{instance.customModCount} custom
-            </span>
+            <>
+              <span aria-hidden>·</span>
+              <span style={{ color: sc.accent }}>+{instance.customModCount} custom</span>
+            </>
           )}
+          {isInstalling ? (
+            <>
+              <span aria-hidden>·</span>
+              <span>{pct}%</span>
+            </>
+          ) : null}
         </div>
       </div>
     </div>

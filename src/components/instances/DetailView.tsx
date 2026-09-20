@@ -7,9 +7,9 @@ import { ClientModsTab } from '../detail/ClientModsTab';
 import { ServerModsTab } from '../detail/ServerModsTab';
 import { CustomModsTab } from '../detail/CustomModsTab';
 import { isServerExporterEnabled, getActiveSourcePlugins } from '../../plugins';
+import { getClientExportFormats } from '../../plugins';
 import { useToast } from '../../context/ToastContext';
-
-import { SOURCE_COLORS } from '../../constants';
+import { appLog } from '../../lib/appLog';
 
 interface DetailViewProps {
   instance: Instance;
@@ -29,7 +29,6 @@ export function DetailView({
   const [exportingClient, setExportingClient] = useState(false);
   const [exportingServer, setExportingServer] = useState(false);
   const { addToast } = useToast();
-  const sc = SOURCE_COLORS[instance.source] || SOURCE_COLORS.local;
 
   useEffect(() => {
     const sync = () => setServerPluginOn(isServerExporterEnabled());
@@ -41,11 +40,12 @@ export function DetailView({
   const visibleTab = !serverPluginOn && activeTab === 'server' ? 'overview' : activeTab;
 
   const runExport = useCallback(
-    async (format: 'zip' | 'server') => {
+    async (format: 'zip' | 'mrpack' | 'server') => {
       const isServer = format === 'server';
       if (isServer ? exportingServer : exportingClient) return;
       if (isServer) setExportingServer(true);
       else setExportingClient(true);
+      appLog('info', 'export', `${instance.id} → ${format}`);
       try {
         const path = await invoke<string>('export_instance', {
           instanceId: instance.id,
@@ -61,10 +61,14 @@ export function DetailView({
         } catch {
           /* best-effort persist */
         }
+        appLog('info', 'export', `saved ${path}`);
         addToast(`Saved ${path}`, 'success');
       } catch (e) {
         const msg = String(e);
-        if (!msg.toLowerCase().includes('cancelled')) addToast(msg, 'error');
+        if (!msg.toLowerCase().includes('cancelled')) {
+          appLog('error', 'export', msg);
+          addToast(msg, 'error');
+        }
       } finally {
         if (isServer) setExportingServer(false);
         else setExportingClient(false);
@@ -74,8 +78,11 @@ export function DetailView({
   );
 
   const handleExportClient = useCallback(() => {
-    void runExport('zip');
-  }, [runExport]);
+    const formats = getClientExportFormats();
+    const preferred = instance.exportSettings?.clientFormat ?? 'zip';
+    const format = formats.includes(preferred) ? preferred : (formats[0] ?? 'zip');
+    void runExport(format);
+  }, [instance.exportSettings?.clientFormat, runExport]);
 
   const handleExportServer = useCallback(() => {
     void runExport('server');
@@ -160,12 +167,7 @@ export function DetailView({
         onDelete={onDeleteInstance}
       />
 
-      <div
-        className="px-8 content-pad mt-6 flex gap-6 flex-shrink-0 overflow-x-auto"
-        style={{ borderBottom: '1px solid var(--border)' }}
-        role="tablist"
-        aria-label="Pack sections"
-      >
+      <div className="px-8 content-pad mt-6 loom-tabs" role="tablist" aria-label="Pack sections">
         {[
           { key: 'overview', label: 'Overview' },
           { key: 'client', label: 'Client Mods' },
@@ -180,11 +182,7 @@ export function DetailView({
               role="tab"
               aria-selected={isActive}
               aria-controls={`pack-panel-${tab.key}`}
-              className="pb-2.5 text-[13px] font-medium transition-colors relative"
-              style={{
-                color: isActive ? 'var(--text-primary)' : 'var(--text-muted)',
-                borderBottom: isActive ? `2px solid ${sc.accent}` : '2px solid transparent',
-              }}
+              className="loom-tab"
               onClick={() => setActiveTab(tab.key)}
             >
               {tab.label}
@@ -205,6 +203,10 @@ export function DetailView({
               instance={instance}
               onUpdate={handleUpdate}
               serverExporterEnabled={serverPluginOn}
+              onExportClient={handleExportClient}
+              onExportServer={serverPluginOn ? handleExportServer : undefined}
+              exportingClient={exportingClient}
+              exportingServer={exportingServer}
             />
           )}
           {visibleTab === 'client' && <ClientModsTab instance={instance} onUpdate={handleUpdate} />}

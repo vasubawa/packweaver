@@ -1,7 +1,7 @@
 //! Install a base pack into a Minecraft-instance-shaped workspace tree.
 
 use reqwest::Client;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
@@ -118,22 +118,38 @@ pub struct InstalledFile {
     pub dest_path: PathBuf,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub(crate) struct ModrinthIndex {
+    #[serde(rename = "formatVersion", default = "default_format_version")]
+    pub format_version: u32,
+    #[serde(default = "default_game")]
+    pub game: String,
     #[serde(default)]
     pub name: Option<String>,
     #[serde(default, rename = "versionId")]
     pub version_id: Option<String>,
     #[serde(default)]
     pub summary: Option<String>,
-    dependencies: std::collections::HashMap<String, String>,
-    files: Vec<ModrinthIndexFile>,
+    #[serde(default)]
+    pub dependencies: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    pub files: Vec<ModrinthIndexFile>,
+}
+
+fn default_format_version() -> u32 {
+    1
+}
+
+fn default_game() -> String {
+    "minecraft".into()
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct PackInstallMeta {
     pub mc_version: String,
     pub loader: String,
+    /// Loader version string (e.g. fabric-loader / forge version from index or mmc.json).
+    pub loader_version: String,
     pub pack_name: String,
     pub pack_version: String,
     pub summary: String,
@@ -151,20 +167,25 @@ pub struct ClientInstallResult {
     pub meta: PackInstallMeta,
 }
 
-#[derive(Deserialize, Debug)]
-struct ModrinthIndexFile {
-    path: String,
-    hashes: Option<std::collections::HashMap<String, String>>,
-    downloads: Vec<String>,
-    env: Option<ModrinthEnv>,
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub(crate) struct ModrinthIndexFile {
+    pub path: String,
+    #[serde(default)]
+    pub hashes: Option<std::collections::HashMap<String, String>>,
+    #[serde(default)]
+    pub downloads: Vec<String>,
+    #[serde(default, rename = "fileSize")]
+    pub file_size: Option<u64>,
+    #[serde(default)]
+    pub env: Option<ModrinthEnv>,
 }
 
-#[derive(Deserialize, Debug)]
-struct ModrinthEnv {
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub(crate) struct ModrinthEnv {
     #[serde(default)]
-    client: String,
+    pub client: String,
     #[serde(default)]
-    server: String,
+    pub server: String,
 }
 
 fn env_supported(value: &str) -> bool {
@@ -214,10 +235,11 @@ pub fn is_curseforge_pack(archive_path: &Path) -> Result<bool, String> {
 }
 
 fn meta_from_index(index: &ModrinthIndex) -> PackInstallMeta {
-    let (mc, loader) = parse_loader_mc(index);
+    let (mc, loader, loader_version) = parse_loader_mc(index);
     PackInstallMeta {
         mc_version: mc,
         loader,
+        loader_version,
         pack_name: index.name.clone().unwrap_or_default(),
         pack_version: index.version_id.clone().unwrap_or_default(),
         summary: index.summary.clone().unwrap_or_default(),
@@ -246,31 +268,31 @@ pub fn read_index_from_archive(
     Ok(None)
 }
 
-/// Merge overrides/ and client-overrides/ from the archive into workspace root.
-pub fn merge_client_overrides(archive_path: &Path, workspace: &Path) -> Result<(), String> {
+/// Flatten one override prefix from the archive into the workspace root.
+/// Creates empty directories; never skips a file under the prefix.
+fn merge_override_prefix(
+    archive_path: &Path,
+    workspace: &Path,
+    prefix: &str,
+) -> Result<(), String> {
     let file = fs::File::open(archive_path).map_err(|e| e.to_string())?;
     let mut archive = ZipArchive::new(file).map_err(|e| e.to_string())?;
 
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i).map_err(|e| e.to_string())?;
         let name = entry.name().replace('\\', "/");
-        if name.ends_with('/') {
-            continue;
-        }
-
-        let stripped = if let Some(rest) = name.strip_prefix("overrides/") {
-            rest
-        } else if let Some(rest) = name.strip_prefix("client-overrides/") {
-            rest
-        } else {
+        let Some(stripped) = name.strip_prefix(prefix) else {
             continue;
         };
-
         if stripped.is_empty() {
             continue;
         }
 
         let dest = safe_join(workspace, stripped)?;
+        if name.ends_with('/') {
+            fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
+            continue;
+        }
         if let Some(parent) = dest.parent() {
             fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
@@ -278,6 +300,12 @@ pub fn merge_client_overrides(archive_path: &Path, workspace: &Path) -> Result<(
         io::copy(&mut entry, &mut out).map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+/// Merge overrides/ then client-overrides/ into workspace root (client / both sides).
+pub fn merge_client_overrides(archive_path: &Path, workspace: &Path) -> Result<(), String> {
+    merge_override_prefix(archive_path, workspace, "overrides/")?;
+    merge_override_prefix(archive_path, workspace, "client-overrides/")
 }
 
 /// Download client-capable index files into workspace. Skips env.client == unsupported.
@@ -355,22 +383,24 @@ pub async fn download_index_files_client(
     Ok(installed)
 }
 
-pub fn parse_loader_mc(index: &ModrinthIndex) -> (String, String) {
+pub fn parse_loader_mc(index: &ModrinthIndex) -> (String, String, String) {
     let mc = index
         .dependencies
         .get("minecraft")
         .cloned()
         .unwrap_or_default();
-    let loader = if index.dependencies.contains_key("neoforge") {
-        "NeoForge"
-    } else if index.dependencies.contains_key("forge") {
-        "Forge"
-    } else if index.dependencies.contains_key("quilt-loader") {
-        "Quilt"
+    let (loader, loader_version) = if let Some(v) = index.dependencies.get("neoforge") {
+        ("NeoForge", v.clone())
+    } else if let Some(v) = index.dependencies.get("forge") {
+        ("Forge", v.clone())
+    } else if let Some(v) = index.dependencies.get("quilt-loader") {
+        ("Quilt", v.clone())
+    } else if let Some(v) = index.dependencies.get("fabric-loader") {
+        ("Fabric", v.clone())
     } else {
-        "Fabric"
+        ("Fabric", String::new())
     };
-    (mc, loader.to_string())
+    (mc, loader.to_string(), loader_version)
 }
 
 /// Extract a plain zip as an already instance-shaped tree into workspace.
@@ -548,12 +578,16 @@ fn apply_mmc_pack(path: &Path, meta: &mut PackInstallMeta) {
         } else if meta.loader.is_empty() {
             if uid.contains("fabric-loader") || uid.contains("fabricmc.fabric-loader") {
                 meta.loader = "Fabric".to_string();
+                meta.loader_version = ver;
             } else if uid.contains("neoforge") {
                 meta.loader = "NeoForge".to_string();
+                meta.loader_version = ver;
             } else if uid.contains("minecraftforge") || uid.ends_with(".forge") {
                 meta.loader = "Forge".to_string();
+                meta.loader_version = ver;
             } else if uid.contains("quilt-loader") {
                 meta.loader = "Quilt".to_string();
+                meta.loader_version = ver;
             }
         }
     }
@@ -824,33 +858,11 @@ pub async fn download_index_files_server(
     Ok(installed)
 }
 
-/// Merge server-overrides/ from the archive into workspace root.
+/// Merge shared overrides/ then server-overrides/ into workspace root.
+/// Modrinth: `overrides/` applies to both sides; `server-overrides/` overlays after.
 pub fn merge_server_overrides(archive_path: &Path, workspace: &Path) -> Result<(), String> {
-    let file = fs::File::open(archive_path).map_err(|e| e.to_string())?;
-    let mut archive = ZipArchive::new(file).map_err(|e| e.to_string())?;
-
-    for i in 0..archive.len() {
-        let mut entry = archive.by_index(i).map_err(|e| e.to_string())?;
-        let name = entry.name().replace('\\', "/");
-        if name.ends_with('/') {
-            continue;
-        }
-
-        let Some(stripped) = name.strip_prefix("server-overrides/") else {
-            continue;
-        };
-        if stripped.is_empty() {
-            continue;
-        }
-
-        let dest = safe_join(workspace, stripped)?;
-        if let Some(parent) = dest.parent() {
-            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
-        let mut out = fs::File::create(&dest).map_err(|e| e.to_string())?;
-        io::copy(&mut entry, &mut out).map_err(|e| e.to_string())?;
-    }
-    Ok(())
+    merge_override_prefix(archive_path, workspace, "overrides/")?;
+    merge_override_prefix(archive_path, workspace, "server-overrides/")
 }
 
 /// Full server install from an mrpack sitting in original/.
@@ -875,7 +887,7 @@ pub async fn install_mrpack_server(
         return Ok((Vec::new(), String::new(), String::new()));
     };
 
-    let (mc, loader) = parse_loader_mc(&index);
+    let (mc, loader, _) = parse_loader_mc(&index);
     let installed = download_index_files_server(client, &index, workspace).await?;
     merge_server_overrides(archive_path, workspace)?;
     Ok((installed, mc, loader))
@@ -981,6 +993,184 @@ pub fn extract_named_jar_from_zip(
     Ok(false)
 }
 
+/// Build a Modrinth `.mrpack` from a client workspace.
+/// CDN-linked base files stay in `modrinth.index.json`; everything else goes under `overrides/`.
+#[allow(clippy::too_many_arguments)]
+pub fn pack_workspace_as_mrpack(
+    workspace_dir: &Path,
+    dest: &Path,
+    source_archive: Option<&Path>,
+    pack_name: &str,
+    version_label: &str,
+    summary: &str,
+    mc_version: &str,
+    loader: &str,
+    loader_version: &str,
+    // Relative paths (forward slash) still served from the original index URLs.
+    enabled_index_paths: &std::collections::HashSet<String>,
+) -> Result<(), String> {
+    if !workspace_dir.is_dir() {
+        return Err("Workspace not found — rebuild the pack first".to_string());
+    }
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+
+    let source_index = source_archive
+        .and_then(|p| read_index_from_archive(p).ok().flatten())
+        .map(|(_raw, idx)| idx);
+
+    let mut out_files: Vec<ModrinthIndexFile> = Vec::new();
+    let mut indexed_rels: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    if let Some(idx) = source_index.as_ref() {
+        for file in &idx.files {
+            let path_norm = file.path.replace('\\', "/");
+            if !enabled_index_paths.contains(&path_norm) {
+                continue;
+            }
+            if file.downloads.is_empty() {
+                continue; // must land in overrides from disk
+            }
+            indexed_rels.insert(path_norm.clone());
+            out_files.push(ModrinthIndexFile {
+                path: path_norm,
+                hashes: file.hashes.clone(),
+                downloads: file.downloads.clone(),
+                file_size: file.file_size,
+                env: file.env.clone(),
+            });
+        }
+    }
+
+    let mut dependencies = source_index
+        .as_ref()
+        .map(|i| i.dependencies.clone())
+        .unwrap_or_default();
+    if !mc_version.is_empty() {
+        dependencies.insert("minecraft".into(), mc_version.to_string());
+    }
+    let loader_key = match loader.to_ascii_lowercase().as_str() {
+        "fabric" => Some("fabric-loader"),
+        "forge" => Some("forge"),
+        "neoforge" => Some("neoforge"),
+        "quilt" => Some("quilt-loader"),
+        _ => None,
+    };
+    if let Some(key) = loader_key {
+        let has_ver = dependencies
+            .get(key)
+            .map(|v| !v.trim().is_empty())
+            .unwrap_or(false);
+        if !has_ver {
+            let from_param = loader_version.trim();
+            let from_index = source_index
+                .as_ref()
+                .and_then(|i| i.dependencies.get(key))
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty());
+            if !from_param.is_empty() {
+                dependencies.insert(key.into(), from_param.to_string());
+            } else if let Some(v) = from_index {
+                dependencies.insert(key.into(), v.to_string());
+            } else {
+                return Err(format!(
+                    "Cannot export .mrpack: {loader} loader version is unknown. Re-import or rebuild the pack so the loader version is recorded."
+                ));
+            }
+        }
+    }
+
+    let version_id = if version_label.is_empty() {
+        source_index
+            .as_ref()
+            .and_then(|i| i.version_id.clone())
+            .unwrap_or_else(|| "modified".into())
+    } else {
+        version_label.to_string()
+    };
+
+    let out_index = ModrinthIndex {
+        format_version: 1,
+        game: "minecraft".into(),
+        name: Some(if pack_name.is_empty() {
+            "Packweaver Pack".into()
+        } else {
+            pack_name.to_string()
+        }),
+        version_id: Some(version_id),
+        summary: Some(summary.to_string()),
+        dependencies,
+        files: out_files,
+    };
+
+    let index_json = serde_json::to_string_pretty(&out_index).map_err(|e| e.to_string())?;
+
+    let file = fs::File::create(dest).map_err(|e| e.to_string())?;
+    let mut zip_writer = zip::ZipWriter::new(file);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+
+    zip_writer
+        .start_file("modrinth.index.json", options)
+        .map_err(|e| e.to_string())?;
+    use std::io::Write;
+    zip_writer
+        .write_all(index_json.as_bytes())
+        .map_err(|e| e.to_string())?;
+
+    fn add_overrides(
+        zip_writer: &mut zip::ZipWriter<fs::File>,
+        options: zip::write::SimpleFileOptions,
+        base: &Path,
+        current: &Path,
+        indexed: &std::collections::HashSet<String>,
+    ) -> Result<(), String> {
+        for entry in fs::read_dir(current).map_err(|e| e.to_string())?.flatten() {
+            let path = entry.path();
+            let name_str = entry.file_name().to_string_lossy().to_string();
+            if path.is_dir() {
+                add_overrides(zip_writer, options, base, &path, indexed)?;
+                continue;
+            }
+            if name_str == "modrinth.index.json" || name_str.ends_with(".disabled") {
+                continue;
+            }
+            let rel = path
+                .strip_prefix(base)
+                .map_err(|e| e.to_string())?
+                .to_string_lossy()
+                .replace('\\', "/");
+            if indexed.contains(&rel) {
+                continue;
+            }
+            if rel.starts_with("overrides/")
+                || rel.starts_with("client-overrides/")
+                || rel.starts_with("server-overrides/")
+            {
+                continue;
+            }
+            let zip_name = format!("overrides/{rel}");
+            zip_writer
+                .start_file(&zip_name, options)
+                .map_err(|e| e.to_string())?;
+            let mut f = fs::File::open(&path).map_err(|e| e.to_string())?;
+            io::copy(&mut f, zip_writer).map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
+    add_overrides(
+        &mut zip_writer,
+        options,
+        workspace_dir,
+        workspace_dir,
+        &indexed_rels,
+    )?;
+    zip_writer.finish().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1003,5 +1193,41 @@ mod tests {
             return; // fixture only present after a local CF import attempt
         }
         assert!(is_curseforge_pack(&p).unwrap());
+    }
+
+    #[test]
+    fn server_merge_includes_shared_overrides() {
+        use std::io::Write;
+        let dir = std::env::temp_dir().join(format!("pw-merge-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let zip_path = dir.join("pack.mrpack");
+        {
+            let file = fs::File::create(&zip_path).unwrap();
+            let mut zip = zip::ZipWriter::new(file);
+            let opts = zip::write::SimpleFileOptions::default();
+            zip.start_file("overrides/config/shared.toml", opts)
+                .unwrap();
+            zip.write_all(b"shared=1").unwrap();
+            zip.start_file("overrides/resourcepacks/pack.zip", opts)
+                .unwrap();
+            zip.write_all(b"rp").unwrap();
+            zip.add_directory("overrides/empty-dir/", opts).unwrap();
+            zip.start_file("server-overrides/eula.txt", opts).unwrap();
+            zip.write_all(b"eula=true").unwrap();
+            zip.start_file("client-overrides/options.txt", opts)
+                .unwrap();
+            zip.write_all(b"client=1").unwrap();
+            zip.finish().unwrap();
+        }
+        let ws = dir.join("ws");
+        fs::create_dir_all(&ws).unwrap();
+        merge_server_overrides(&zip_path, &ws).unwrap();
+        assert!(ws.join("config/shared.toml").is_file());
+        assert!(ws.join("resourcepacks/pack.zip").is_file());
+        assert!(ws.join("eula.txt").is_file());
+        assert!(ws.join("empty-dir").is_dir() || ws.join("empty-dir").exists());
+        assert!(!ws.join("options.txt").exists());
+        let _ = fs::remove_dir_all(&dir);
     }
 }

@@ -70,8 +70,22 @@ export function getActiveSourcePlugins(): SourcePlugin[] {
 
 export function getActiveExporterPlugins(): ExporterPlugin[] {
   return getAllPlugins().filter(
-    (p): p is ExporterPlugin => p.category === 'exporter' && p.enabled && p.targetFormat === 'zip'
+    (p): p is ExporterPlugin =>
+      p.category === 'exporter' &&
+      p.enabled &&
+      (p.targetFormat === 'zip' || p.targetFormat === 'mrpack')
   );
+}
+
+export function getClientExportFormats(): Array<'zip' | 'mrpack'> {
+  const formats = new Set<'zip' | 'mrpack'>();
+  for (const p of getActiveExporterPlugins()) {
+    if (p.targetFormat === 'zip' || p.targetFormat === 'mrpack') {
+      formats.add(p.targetFormat);
+    }
+  }
+  if (formats.size === 0) formats.add('zip');
+  return Array.from(formats);
 }
 
 export function isServerExporterEnabled(): boolean {

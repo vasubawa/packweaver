@@ -19,6 +19,7 @@ import {
   modMatchesQuery,
 } from './modListFormat';
 import { checkPackUpdates, loaderFacet } from '../../lib/packUpdates';
+import { applyOneCustomModUpdate } from '../../lib/applyPackUpdates';
 import type { PackVersionInfo } from '../../plugins';
 import { open } from '@tauri-apps/plugin-dialog';
 
@@ -106,44 +107,20 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
     if (updatingId) return;
     setUpdatingId(mod.id);
     try {
-      await invoke('update_custom_mod_versions', {
-        instanceId: instance.id,
-        updates: [
-          {
-            modId: mod.id,
-            version: latest.versionId,
-            versionNumber: latest.versionNumber,
-            fileName: latest.primaryFilename || undefined,
-          },
-        ],
+      const applied = await applyOneCustomModUpdate({
+        instance,
+        mod,
+        latest,
+        serverOn: serverPluginOn,
       });
-      onUpdate({
-        customMods: instance.customMods.map(m =>
-          m.id === mod.id
-            ? {
-                ...m,
-                version: latest.versionNumber,
-                versionId: latest.versionId,
-                fileName: latest.primaryFilename || m.fileName,
-              }
-            : m
-        ),
-      });
-      await invoke('layer_custom_mods', { instanceId: instance.id, forServer: false });
-      if (serverPluginOn) {
-        try {
-          await invoke('layer_custom_mods', { instanceId: instance.id, forServer: true });
-        } catch {
-          /* server workspace may not exist yet */
-        }
-      }
+      onUpdate({ customMods: applied.updatedMods });
       setModUpdates(prev => {
         const next = { ...prev };
         delete next[mod.id];
         return next;
       });
       addToast(
-        serverPluginOn
+        serverPluginOn && applied.serverLayered > 0
           ? `Updated ${mod.name} → ${latest.versionNumber} (client + server if present)`
           : `Updated ${mod.name} → ${latest.versionNumber}`,
         'success'
@@ -394,18 +371,20 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
             return (
               <button
                 key={s.id}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11.5px] font-medium transition-all"
+                className="flex items-center gap-1.5 px-2.5 py-1 text-[11.5px] font-medium transition-all"
                 style={
                   isActive
                     ? {
                         background: psc.soft,
                         color: psc.accent,
                         border: `1px solid ${psc.border}`,
+                        borderRadius: 'var(--radius-sm)',
                       }
                     : {
                         background: 'var(--bg-surface)',
                         color: 'var(--text-muted)',
                         border: '1px solid var(--border)',
+                        borderRadius: 'var(--radius-sm)',
                       }
                 }
                 onClick={() => {
@@ -571,11 +550,8 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
       </div>
 
       {instance.customMods.length === 0 ? (
-        <div
-          className="p-10 text-center rounded-xl"
-          style={{ background: 'var(--bg-surface)', border: '1px dashed var(--border)' }}
-        >
-          <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+        <div className="p-10 text-center loom-panel">
+          <p className="text-[13px] py-2" style={{ color: 'var(--text-secondary)' }}>
             No custom mods yet. Search above to layer mods on the base pack (client and/or server).
           </p>
         </div>
@@ -600,21 +576,12 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
           <div className="flex items-center justify-between gap-2">
             <p className="text-[12.5px] text-[var(--text-secondary)]">
               {Object.keys(modUpdates).length > 0
-                ? `${Object.keys(modUpdates).length} update${Object.keys(modUpdates).length === 1 ? '' : 's'} available`
-                : 'Modrinth customs can be updated without touching the base pack'}
+                ? `${Object.keys(modUpdates).length} update${Object.keys(modUpdates).length === 1 ? '' : 's'} available — use Update on a row, or Overview for base + customs`
+                : 'Row Update applies one custom. Base pack updates live on Overview.'}
             </p>
-            <button
-              className="btn-ghost text-[11px] px-2 py-0.5"
-              onClick={() => void refreshCustomUpdates()}
-              disabled={checkingUpdates}
-              title="Looks for newer versions of custom mods on Modrinth. Doesn't download until you click Update."
-            >
-              <Icon name="refresh" size={12} />
-              {checkingUpdates ? 'Checking…' : 'Check updates'}
-            </button>
           </div>
           <div
-            className="rounded-xl border overflow-x-auto"
+            className="loom-panel overflow-x-auto"
             style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}
           >
             {sorted.length === 0 ? (
@@ -669,47 +636,71 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
                     return (
                       <tr key={mod.id} className="group">
                         <td className="px-3 py-2.5 text-center">
-                          <button
-                            role="switch"
-                            aria-checked={mod.enabled}
-                            aria-disabled={clientLocked}
-                            disabled={clientLocked}
-                            title={
-                              clientLocked
-                                ? 'Server-only mod — cannot enable on client'
-                                : 'Include in client workspace'
-                            }
-                            className={`theme-toggle-track ${mod.enabled && !clientLocked ? 'on' : ''}`}
-                            style={{
-                              ...(mod.enabled && !clientLocked ? { background: modSc.accent } : {}),
-                              ...(clientLocked ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
-                            }}
-                            onClick={() => toggleSide(mod.id, 'client', mod.enabled)}
-                          >
-                            <div className="theme-toggle-knob" />
-                          </button>
-                        </td>
-                        {serverPluginOn && (
-                          <td className="px-3 py-2.5 text-center">
+                          <div className="flex flex-col items-center gap-1">
                             <button
                               role="switch"
-                              aria-checked={serverOn}
-                              aria-disabled={serverLocked}
-                              disabled={serverLocked}
+                              aria-checked={mod.enabled}
+                              aria-disabled={clientLocked}
+                              disabled={clientLocked}
                               title={
-                                serverLocked
-                                  ? 'Client-only mod — cannot enable on server'
-                                  : 'Include in server workspace'
+                                clientLocked
+                                  ? 'Server-only mod — cannot enable on client'
+                                  : 'Include in client workspace'
                               }
-                              className={`theme-toggle-track ${serverOn && !serverLocked ? 'on' : ''}`}
+                              className={`theme-toggle-track ${mod.enabled && !clientLocked ? 'on' : ''}`}
                               style={{
-                                ...(serverOn && !serverLocked ? { background: modSc.accent } : {}),
-                                ...(serverLocked ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
+                                ...(mod.enabled && !clientLocked
+                                  ? { background: modSc.accent }
+                                  : {}),
+                                ...(clientLocked ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
                               }}
-                              onClick={() => toggleSide(mod.id, 'server', serverOn)}
+                              onClick={() => toggleSide(mod.id, 'client', mod.enabled)}
                             >
                               <div className="theme-toggle-knob" />
                             </button>
+                            {mod.enabled && !clientLocked && mod.onDiskClient === false ? (
+                              <span
+                                className="disk-pending"
+                                title="Not on disk yet. Layer from Overview."
+                              >
+                                Pending
+                              </span>
+                            ) : null}
+                          </div>
+                        </td>
+                        {serverPluginOn && (
+                          <td className="px-3 py-2.5 text-center">
+                            <div className="flex flex-col items-center gap-1">
+                              <button
+                                role="switch"
+                                aria-checked={serverOn}
+                                aria-disabled={serverLocked}
+                                disabled={serverLocked}
+                                title={
+                                  serverLocked
+                                    ? 'Client-only mod — cannot enable on server'
+                                    : 'Include in server workspace'
+                                }
+                                className={`theme-toggle-track ${serverOn && !serverLocked ? 'on' : ''}`}
+                                style={{
+                                  ...(serverOn && !serverLocked
+                                    ? { background: modSc.accent }
+                                    : {}),
+                                  ...(serverLocked ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
+                                }}
+                                onClick={() => toggleSide(mod.id, 'server', serverOn)}
+                              >
+                                <div className="theme-toggle-knob" />
+                              </button>
+                              {serverOn && !serverLocked && mod.onDiskServer === false ? (
+                                <span
+                                  className="disk-pending"
+                                  title="Not on disk yet. Rebuild/layer server from Overview."
+                                >
+                                  Pending
+                                </span>
+                              ) : null}
+                            </div>
                           </td>
                         )}
                         <td className="px-3 py-2.5 overflow-hidden">
@@ -753,17 +744,16 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
                           {mod.author || '—'}
                         </td>
                         <td className="px-3 py-2.5 text-center overflow-hidden">
-                          <span
-                            className="px-1.5 py-0.5 text-[10px] rounded font-medium inline-block capitalize"
-                            style={{ background: 'var(--bg-muted)', color: 'var(--text-muted)' }}
-                          >
-                            {modSide}
-                          </span>
+                          <span className="badge badge-mono capitalize">{modSide}</span>
                         </td>
                         <td className="px-3 py-2.5 text-center overflow-hidden">
                           <span
-                            className="px-1.5 py-0.5 text-[10px] rounded font-medium inline-block"
-                            style={{ background: modSc.soft, color: modSc.accent }}
+                            className="badge badge-mono"
+                            style={{
+                              background: modSc.soft,
+                              color: modSc.accent,
+                              borderColor: modSc.border,
+                            }}
                             title={`Downloaded from ${modSc.label}`}
                           >
                             {modSc.label}
@@ -777,7 +767,7 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
                           {jarLeaf(mod.fileName, mod.id)}
                         </td>
                         <td
-                          className="px-3 py-2.5 text-[11px] truncate overflow-hidden"
+                          className="px-3 py-2.5 text-[11px] font-mono truncate overflow-hidden"
                           style={{
                             color: modUpdates[mod.id] ? modSc.accent : 'var(--text-muted)',
                             cursor: modUpdates[mod.id] ? 'help' : undefined,

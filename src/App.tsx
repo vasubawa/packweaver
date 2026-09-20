@@ -10,6 +10,7 @@ import { PluginsView } from './components/views/PluginsView';
 import { LibraryView } from './components/views/LibraryView';
 import { Instance } from './types';
 import { useToast } from './context/ToastContext';
+import { appLog, installAppLogBridges, isVerboseLogging } from './lib/appLog';
 import './App.css';
 
 interface ProgressEvent {
@@ -17,6 +18,7 @@ interface ProgressEvent {
   status: string;
   progress: number;
   total: number;
+  stage?: string;
 }
 
 function App() {
@@ -49,10 +51,22 @@ function App() {
             ...m,
             versionId: m.versionId || undefined,
           })),
-          serverFiles: (inst.serverFiles || []).map((f: any) => ({
-            ...f,
-            id: f.id || crypto.randomUUID(),
-          })),
+          serverFiles: (inst.serverFiles || []).map(
+            (f: {
+              id?: string;
+              name?: string;
+              type?: string;
+              fileType?: string;
+              source?: string;
+              enabled?: boolean;
+            }) => ({
+              id: f.id || crypto.randomUUID(),
+              name: f.name || '',
+              type: (f.type || f.fileType || 'config') as 'config' | 'script',
+              source: (f.source || 'local') as Instance['source'],
+              enabled: f.enabled !== false,
+            })
+          ),
         }));
 
         setInstances(augmented);
@@ -69,25 +83,39 @@ function App() {
   );
 
   useEffect(() => {
+    installAppLogBridges();
+  }, []);
+
+  useEffect(() => {
     // eslint-disable-next-line
     loadInstances();
 
     const unlisten = listen<ProgressEvent>('instance-progress', event => {
+      const p = event.payload;
+      const stage = p.stage || 'pipeline';
+      if (p.status.startsWith('Error:')) {
+        appLog('error', stage, `${p.instance_id}: ${p.status}`);
+      } else if (p.status === 'Ready') {
+        appLog('info', stage, `${p.instance_id}: Ready`);
+      } else if (isVerboseLogging()) {
+        appLog('debug', stage, `${p.instance_id}: ${p.status} (${p.progress}/${p.total})`);
+      }
+
       setInstances(prev =>
         prev.map(inst => {
-          if (inst.id === event.payload.instance_id) {
+          if (inst.id === p.instance_id) {
             return {
               ...inst,
-              status: event.payload.status,
-              progress: event.payload.progress,
-              total: event.payload.total,
+              status: p.status,
+              progress: p.progress,
+              total: p.total,
             };
           }
           return inst;
         })
       );
 
-      if (event.payload.status === 'Ready' || event.payload.status.startsWith('Error:')) {
+      if (p.status === 'Ready' || p.status.startsWith('Error:')) {
         void loadInstances({ quiet: true });
       }
     });

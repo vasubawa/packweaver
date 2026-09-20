@@ -1,6 +1,6 @@
 [package]
 name = "packweaver"
-version = "0.1.0"
+version = "0.2.0"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -34,6 +34,11 @@ async-trait = "0.1.81"
 sha1 = "0.11.0"
 sha2 = "0.11.0"
 toml = "1.1.5"
+tauri-plugin-log = "2"
+log = "0.4.34"
 
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))'.dependencies]
 glib = "0.22.8"
+
+[target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
+tauri-plugin-updater = "2"

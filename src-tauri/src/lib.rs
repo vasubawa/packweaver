@@ -1,3 +1,4 @@
+mod app_updater;
 mod db;
 mod downloader;
 pub mod fetchers;
@@ -243,15 +244,15 @@ fn get_instances(state: tauri::State<AppState>) -> Result<Vec<Instance>, String>
 
             let mut server_files = Vec::new();
             if let Ok(mut sf_stmt) = conn.prepare(
-                "SELECT name, type, source, enabled FROM server_files WHERE instance_id = ?",
+                "SELECT COALESCE(NULLIF(file_id, ''), CAST(id AS TEXT)), name, type, source, enabled FROM server_files WHERE instance_id = ?",
             ) {
                 if let Ok(sf_iter) = sf_stmt.query_map([&id], |sr| {
                     Ok(ServerFile {
-                        id: String::new(),
-                        name: sr.get(0)?,
-                        file_type: sr.get(1)?,
-                        source: sr.get(2)?,
-                        enabled: sr.get(3)?,
+                        id: sr.get(0)?,
+                        name: sr.get(1)?,
+                        file_type: sr.get(2)?,
+                        source: sr.get(3)?,
+                        enabled: sr.get(4)?,
                         source_path: String::new(),
                     })
                 }) {
@@ -601,6 +602,83 @@ fn update_instance_details(
     Ok(())
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ServerFileInput {
+    id: String,
+    name: String,
+    file_type: String,
+    source: String,
+    enabled: bool,
+}
+
+#[tauri::command]
+fn set_server_files(
+    instance_id: String,
+    files: Vec<ServerFileInput>,
+    state: tauri::State<AppState>,
+) -> Result<(), String> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| "Database lock poisoned".to_string())?;
+
+    let exists: bool = conn
+        .query_row(
+            "SELECT 1 FROM instances WHERE id = ?1",
+            [&instance_id],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+    if !exists {
+        return Err("Instance not found".to_string());
+    }
+
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+
+    tx.execute(
+        "DELETE FROM server_files WHERE instance_id = ?1",
+        [&instance_id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    for f in files {
+        let name = f.name.trim();
+        if name.is_empty() {
+            continue;
+        }
+        let file_type = match f.file_type.trim().to_lowercase().as_str() {
+            "script" => "script",
+            _ => "config",
+        };
+        let source = match f.source.trim().to_lowercase().as_str() {
+            "modrinth" => "modrinth",
+            "curseforge" => "curseforge",
+            _ => "local",
+        };
+        let file_id = if f.id.trim().is_empty() {
+            uuid::Uuid::new_v4().to_string()
+        } else {
+            f.id.trim().to_string()
+        };
+        tx.execute(
+            "INSERT INTO server_files (instance_id, file_id, name, type, source, enabled) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![
+                instance_id,
+                file_id,
+                name,
+                file_type,
+                source,
+                f.enabled,
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[tauri::command]
 fn set_base_pack_version(
     instance_id: String,
@@ -844,41 +922,108 @@ fn remove_custom_mod(
     Ok(())
 }
 
-#[tauri::command]
-fn get_app_info() -> Result<serde_json::Value, String> {
-    let data_dir = db::get_portable_data_dir();
-    Ok(serde_json::json!({
-        "data_dir": data_dir.to_string_lossy(),
-        "version": env!("CARGO_PKG_VERSION"),
-    }))
+fn logs_dir() -> std::path::PathBuf {
+    db::get_portable_data_dir().join("logs")
 }
 
-#[tauri::command]
-fn open_data_dir() -> Result<(), String> {
-    let data_dir = db::get_portable_data_dir();
-    let _ = std::fs::create_dir_all(&data_dir);
+fn open_path_in_os(path: &std::path::Path) -> Result<(), String> {
+    let _ = std::fs::create_dir_all(path);
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new("explorer")
-            .arg(data_dir)
+            .arg(path)
             .spawn()
             .map_err(|e| e.to_string())?;
     }
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")
-            .arg(data_dir)
+            .arg(path)
             .spawn()
             .map_err(|e| e.to_string())?;
     }
     #[cfg(target_os = "linux")]
     {
         std::process::Command::new("xdg-open")
-            .arg(data_dir)
+            .arg(path)
             .spawn()
             .map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+#[tauri::command]
+fn get_app_info() -> Result<serde_json::Value, String> {
+    let data_dir = db::get_portable_data_dir();
+    let logs = logs_dir();
+    Ok(serde_json::json!({
+        "data_dir": data_dir.to_string_lossy(),
+        "logs_dir": logs.to_string_lossy(),
+        "version": env!("CARGO_PKG_VERSION"),
+        "update_channel": app_updater::load_channel().as_str(),
+    }))
+}
+
+#[tauri::command]
+fn open_data_dir() -> Result<(), String> {
+    open_path_in_os(&db::get_portable_data_dir())
+}
+
+#[tauri::command]
+fn open_logs_dir() -> Result<(), String> {
+    open_path_in_os(&logs_dir())
+}
+
+/// Tail the newest `packweaver*.log` under the logs folder (last ~max_bytes).
+#[tauri::command]
+fn read_log_tail(max_bytes: Option<u64>) -> Result<String, String> {
+    let dir = logs_dir();
+    if !dir.is_dir() {
+        return Ok(String::new());
+    }
+    let mut newest: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
+    for entry in std::fs::read_dir(&dir)
+        .map_err(|e| e.to_string())?
+        .flatten()
+    {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if !(name.starts_with("packweaver") && name.ends_with(".log")) && name != "packweaver.log" {
+            // Also accept default plugin naming (app name based).
+            if !name.ends_with(".log") {
+                continue;
+            }
+        }
+        let modified = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::UNIX_EPOCH);
+        match &newest {
+            None => newest = Some((modified, path)),
+            Some((t, _)) if modified > *t => newest = Some((modified, path)),
+            _ => {}
+        }
+    }
+    let Some((_, path)) = newest else {
+        return Ok(String::new());
+    };
+    let data = std::fs::read(&path).map_err(|e| e.to_string())?;
+    let limit = max_bytes.unwrap_or(64 * 1024) as usize;
+    if data.len() <= limit {
+        return Ok(String::from_utf8_lossy(&data).into_owned());
+    }
+    let start = data.len() - limit;
+    // Skip partial first line.
+    let slice = &data[start..];
+    let skip = slice
+        .iter()
+        .position(|&b| b == b'\n')
+        .map(|i| i + 1)
+        .unwrap_or(0);
+    Ok(String::from_utf8_lossy(&slice[skip..]).into_owned())
 }
 
 #[tauri::command]
@@ -888,6 +1033,7 @@ async fn rebuild_workspace(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     crate::ids::assert_safe_instance_id(&instance_id)?;
+    log::info!(target: "packweaver", "rebuild_client start id={instance_id}");
     let (base_pack_id, source): (String, String) = {
         let conn = state
             .db
@@ -904,11 +1050,13 @@ async fn rebuild_workspace(
     downloader::run_pipeline(
         app.clone(),
         app.state::<AppState>(),
-        instance_id,
+        instance_id.clone(),
         base_pack_id,
         source,
     )
     .await
+    .inspect(|_| log::info!(target: "packweaver", "rebuild_client ok id={instance_id}"))
+    .inspect_err(|e| log::error!(target: "packweaver", "rebuild_client fail id={instance_id}: {e}"))
 }
 
 #[tauri::command]
@@ -934,7 +1082,7 @@ async fn layer_custom_mods(
     }
 
     let client = reqwest::Client::builder()
-        .user_agent("packweaver/0.1.0 (packweaver-app)")
+        .user_agent("packweaver/0.2.0 (packweaver-app)")
         .timeout(std::time::Duration::from_secs(120))
         .build()
         .map_err(|e| e.to_string())?;
@@ -979,7 +1127,13 @@ async fn rebuild_server_workspace(
     _state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     crate::ids::assert_safe_instance_id(&instance_id)?;
-    downloader::run_server_pipeline(app, instance_id).await
+    log::info!(target: "packweaver", "rebuild_server start id={instance_id}");
+    downloader::run_server_pipeline(app, instance_id.clone())
+        .await
+        .inspect(|_| log::info!(target: "packweaver", "rebuild_server ok id={instance_id}"))
+        .inspect_err(
+            |e| log::error!(target: "packweaver", "rebuild_server fail id={instance_id}: {e}"),
+        )
 }
 
 /// Copy a local server pack (.mrpack / .zip) into `original/server/` without touching the client archive.
@@ -1093,12 +1247,17 @@ async fn export_instance(
     crate::ids::assert_safe_instance_id(&instance_id)?;
     let format = format.to_lowercase();
     let is_server = format == "server";
-    if format != "zip" && !is_server {
+    let is_mrpack = format == "mrpack";
+    if format != "zip" && !is_server && !is_mrpack {
         return Err(format!(
-            "Export format '{}' is not available yet. Use zip or server.",
+            "Export format '{}' is not available yet. Use zip, mrpack, or server.",
             format
         ));
     }
+    log::info!(
+        target: "packweaver",
+        "export start id={instance_id} format={format}"
+    );
 
     let (stem, release_ver): (String, String) = {
         let conn = state
@@ -1127,6 +1286,7 @@ async fn export_instance(
         (downloader::stem_from_filename(&pack_name), ver)
     };
 
+    let ext = if is_mrpack { "mrpack" } else { "zip" };
     let default_name = if is_server {
         if release_ver.is_empty() {
             format!("{}-MODIFIED-server.zip", stem)
@@ -1134,9 +1294,9 @@ async fn export_instance(
             format!("{}-{}-MODIFIED-server.zip", stem, release_ver)
         }
     } else if release_ver.is_empty() {
-        format!("{}-MODIFIED.zip", stem)
+        format!("{}-MODIFIED.{}", stem, ext)
     } else {
-        format!("{}-{}-MODIFIED.zip", stem, release_ver)
+        format!("{}-{}-MODIFIED.{}", stem, release_ver, ext)
     };
 
     let _ = app.emit(
@@ -1145,6 +1305,8 @@ async fn export_instance(
             instance_id: instance_id.clone(),
             status: if is_server {
                 "Packaging server zip...".to_string()
+            } else if is_mrpack {
+                "Packaging .mrpack...".to_string()
             } else {
                 "Packaging as zip...".to_string()
             },
@@ -1154,46 +1316,120 @@ async fn export_instance(
         },
     );
 
-    let workspace_dir = if is_server {
+    let mut workspace_dir = if is_server {
         downloader::server_workspace_dir(&app, &instance_id)?
     } else {
         downloader::client_workspace_dir(&app, &instance_id)?
     };
 
     if !workspace_dir.exists() {
-        return Err(if is_server {
-            "Server workspace not found - rebuild server first".to_string()
+        log::info!(
+            target: "packweaver",
+            "export auto-rebuild id={instance_id} side={}",
+            if is_server { "server" } else { "client" }
+        );
+        let _ = app.emit(
+            "export-progress",
+            downloader::ProgressEvent {
+                instance_id: instance_id.clone(),
+                status: if is_server {
+                    "Rebuilding server workspace…".to_string()
+                } else {
+                    "Rebuilding client workspace…".to_string()
+                },
+                stage: "export".to_string(),
+                progress: 0,
+                total: 4,
+            },
+        );
+
+        let rebuild = if is_server {
+            downloader::run_server_pipeline(app.clone(), instance_id.clone()).await
         } else {
-            "Workspace not found - rebuild the pack first".to_string()
-        });
+            let (base_pack_id, source): (String, String) = {
+                let conn = state
+                    .db
+                    .lock()
+                    .map_err(|_| "Database lock poisoned".to_string())?;
+                conn.query_row(
+                    "SELECT base_pack_id, source FROM instances WHERE id = ?1",
+                    [&instance_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .map_err(|e| e.to_string())?
+            };
+            downloader::run_pipeline(
+                app.clone(),
+                app.state::<AppState>(),
+                instance_id.clone(),
+                base_pack_id,
+                source,
+            )
+            .await
+        };
+
+        if let Err(e) = rebuild {
+            log::error!(
+                target: "packweaver",
+                "export auto-rebuild fail id={instance_id}: {e}"
+            );
+            return Err(format!("Rebuild before export failed: {e}"));
+        }
+
+        workspace_dir = if is_server {
+            downloader::server_workspace_dir(&app, &instance_id)?
+        } else {
+            downloader::client_workspace_dir(&app, &instance_id)?
+        };
+        if !workspace_dir.exists() {
+            let err = "Rebuild finished but workspace is still missing".to_string();
+            log::error!(target: "packweaver", "export fail id={instance_id}: {err}");
+            return Err(err);
+        }
     }
 
-    // Build the zip first; only ask where to save once packaging is done.
     let temp_dir = std::env::temp_dir().join("packweaver-exports");
     std::fs::create_dir_all(&temp_dir).map_err(|e| e.to_string())?;
     let temp_zip = temp_dir.join(format!(
-        "{}-{}-{}.zip",
-        if is_server { "server" } else { "client" },
+        "{}-{}-{}.{}",
+        if is_server {
+            "server"
+        } else if is_mrpack {
+            "mrpack"
+        } else {
+            "client"
+        },
         instance_id,
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis())
-            .unwrap_or(0)
+            .unwrap_or(0),
+        ext
     ));
 
     let _ = app.emit(
         "export-progress",
         downloader::ProgressEvent {
             instance_id: instance_id.clone(),
-            status: "Writing zip...".to_string(),
+            status: if is_mrpack {
+                "Writing mrpack...".to_string()
+            } else {
+                "Writing zip...".to_string()
+            },
             stage: "export".to_string(),
             progress: 1,
             total: 3,
         },
     );
 
-    if let Err(e) = downloader::zip_workspace(&workspace_dir, &temp_zip) {
+    let pack_result = if is_mrpack {
+        downloader::export_client_mrpack(&app, &instance_id, &temp_zip, &release_ver)
+    } else {
+        downloader::zip_workspace(&workspace_dir, &temp_zip)
+    };
+    if let Err(e) = pack_result {
         let _ = std::fs::remove_file(&temp_zip);
+        log::error!(target: "packweaver", "export pack fail id={instance_id}: {e}");
         return Err(e);
     }
 
@@ -1211,12 +1447,18 @@ async fn export_instance(
     use tauri_plugin_dialog::DialogExt;
     let app_for_dialog = app.clone();
     let default_name_owned = default_name.clone();
+    let filter_ext = ext.to_string();
+    let filter_label = if is_mrpack {
+        "Modrinth Pack".to_string()
+    } else {
+        "ZIP Archive".to_string()
+    };
     let chosen = tokio::task::spawn_blocking(move || {
         app_for_dialog
             .dialog()
             .file()
             .set_file_name(&default_name_owned)
-            .add_filter("ZIP Archive", &["zip"])
+            .add_filter(&filter_label, &[filter_ext.as_str()])
             .blocking_save_file()
     })
     .await
@@ -1233,8 +1475,8 @@ async fn export_instance(
         }
     };
 
-    let dest = if dest.extension().and_then(|e| e.to_str()) != Some("zip") {
-        dest.with_extension("zip")
+    let dest = if dest.extension().and_then(|e| e.to_str()) != Some(ext) {
+        dest.with_extension(ext)
     } else {
         dest
     };
@@ -1265,6 +1507,7 @@ async fn export_instance(
     }
 
     let dest_str = dest.to_string_lossy().to_string();
+    log::info!(target: "packweaver", "export ok id={instance_id}");
     let _ = app.emit(
         "export-progress",
         downloader::ProgressEvent {
@@ -1305,9 +1548,66 @@ fn chrono_iso_now() -> String {
     format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", y, mo, d, h, m, s)
 }
 
+#[tauri::command]
+fn get_update_channel() -> Result<String, String> {
+    Ok(app_updater::load_channel().as_str().to_string())
+}
+
+#[tauri::command]
+fn set_update_channel(channel: String) -> Result<String, String> {
+    let ch = app_updater::UpdateChannel::parse(&channel);
+    app_updater::save_channel(ch)?;
+    log::info!(target: "packweaver", "update channel set to {}", ch.as_str());
+    Ok(ch.as_str().to_string())
+}
+
+#[tauri::command]
+async fn check_app_update(
+    app: tauri::AppHandle,
+    channel: Option<String>,
+) -> Result<app_updater::AppUpdateStatus, String> {
+    let ch = channel
+        .as_deref()
+        .map(app_updater::UpdateChannel::parse)
+        .unwrap_or_else(app_updater::load_channel);
+    log::info!(target: "packweaver", "app update check channel={}", ch.as_str());
+    app_updater::check(&app, ch).await
+}
+
+#[tauri::command]
+async fn install_app_update(app: tauri::AppHandle, channel: Option<String>) -> Result<(), String> {
+    let ch = channel
+        .as_deref()
+        .map(app_updater::UpdateChannel::parse)
+        .unwrap_or_else(app_updater::load_channel);
+    log::info!(target: "packweaver", "app update install channel={}", ch.as_str());
+    app_updater::install(&app, ch).await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .targets([
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Folder {
+                        path: logs_dir(),
+                        file_name: Some("packweaver".into()),
+                    }),
+                ])
+                .level(log::LevelFilter::Info)
+                .build(),
+        );
+
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    }
+
+    builder
         .setup(|app| {
             let conn = db::init_db(app.handle()).expect("Failed to initialize database");
             app.manage(AppState {
@@ -1315,14 +1615,13 @@ pub fn run() {
             });
             Ok(())
         })
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             get_instances,
             create_instance,
             delete_instance,
             toggle_mod_state,
             update_instance_details,
+            set_server_files,
             set_base_pack_version,
             update_custom_mod_versions,
             add_custom_mod,
@@ -1334,7 +1633,13 @@ pub fn run() {
             layer_custom_mods,
             export_instance,
             get_app_info,
-            open_data_dir
+            open_data_dir,
+            open_logs_dir,
+            read_log_tail,
+            get_update_channel,
+            set_update_channel,
+            check_app_update,
+            install_app_update
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

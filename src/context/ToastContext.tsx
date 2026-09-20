@@ -54,14 +54,14 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 toast.type === 'error'
                   ? 'var(--danger)'
                   : toast.type === 'success'
-                    ? 'var(--modrinth)'
+                    ? 'var(--success)'
                     : 'var(--accent)'
               }`,
               borderLeftWidth: '4px',
             }}
           >
             {toast.type === 'success' && (
-              <Icon name="check" size={16} style={{ color: 'var(--modrinth)' }} />
+              <Icon name="check" size={16} style={{ color: 'var(--success)' }} />
             )}
             {toast.type === 'error' && (
               <Icon name="x" size={16} style={{ color: 'var(--danger)' }} />

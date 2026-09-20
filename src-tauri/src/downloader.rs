@@ -259,7 +259,7 @@ where
 
 fn http_client() -> Result<Client, String> {
     Client::builder()
-        .user_agent("packweaver/0.1.0 (packweaver-app)")
+        .user_agent("packweaver/0.2.0 (packweaver-app)")
         .connect_timeout(std::time::Duration::from_secs(10))
         .timeout(std::time::Duration::from_secs(120))
         .build()
@@ -603,7 +603,10 @@ pub async fn run_pipeline(
 
     with_db(&app, |conn| {
         conn.execute(
-            "UPDATE instances SET mc_version = ?1, loader = ?2, status = 'Ready',
+            "UPDATE instances SET mc_version = ?1, loader = ?2, loader_version = CASE
+                    WHEN ?10 != '' THEN ?10
+                    ELSE loader_version
+                END, status = 'Ready',
                 base_pack_version_label = CASE
                     WHEN ?3 != '' THEN ?3
                     ELSE base_pack_version_label
@@ -638,6 +641,7 @@ pub async fn run_pipeline(
                 &banner_url,
                 &instance_id,
                 &pack_meta.notes,
+                &pack_meta.loader_version,
             ],
         )
         .map_err(|e| e.to_string())?;
@@ -1487,4 +1491,85 @@ pub async fn run_server_pipeline(app: AppHandle, instance_id: String) -> Result<
 
     emit("Server Ready", 100, 100);
     Ok(())
+}
+
+/// Package the client workspace as a Modrinth `.mrpack` (index + overrides).
+pub fn export_client_mrpack(
+    app: &AppHandle,
+    instance_id: &str,
+    dest: &Path,
+    release_ver: &str,
+) -> Result<(), String> {
+    let workspace = client_workspace_dir(app, instance_id)?;
+    let (original_filename, name, description, mc, loader, loader_version): (
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+    ) = with_db(app, |conn| {
+        conn.query_row(
+            "SELECT COALESCE(original_filename, ''), COALESCE(name, ''), COALESCE(description, ''),
+                    COALESCE(mc_version, ''), COALESCE(loader, ''), COALESCE(loader_version, '')
+             FROM instances WHERE id = ?1",
+            [instance_id],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            },
+        )
+        .map_err(|e| e.to_string())
+    })?;
+
+    let mut enabled_paths = std::collections::HashSet::new();
+    with_db(app, |conn| {
+        let mut stmt = conn
+            .prepare(
+                "SELECT COALESCE(file_name, ''), mod_id FROM instance_mods
+                 WHERE instance_id = ?1 AND is_base = 1 AND enabled_client = 1",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([instance_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|e| e.to_string())?;
+        for row in rows.flatten() {
+            let (file_name, mod_id) = row;
+            if !file_name.is_empty() {
+                enabled_paths.insert(file_name.replace('\\', "/"));
+            }
+            if !mod_id.is_empty() {
+                enabled_paths.insert(mod_id.replace('\\', "/"));
+            }
+        }
+        Ok(())
+    })?;
+
+    let archive = original_archive_path(instance_id, &original_filename).ok();
+    let pack_name = if name.is_empty() {
+        stem_from_filename(&original_filename)
+    } else {
+        name
+    };
+
+    installer::pack_workspace_as_mrpack(
+        &workspace,
+        dest,
+        archive.as_deref(),
+        &pack_name,
+        release_ver,
+        &description,
+        &mc,
+        &loader,
+        &loader_version,
+        &enabled_paths,
+    )
 }

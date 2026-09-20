@@ -9,6 +9,15 @@ import {
 } from '../../plugins';
 import { useToast } from '../../context/ToastContext';
 import { PluginCard } from './PluginCard';
+import { SOURCE_COLORS } from '../../constants';
+import { ModSource } from '../../types';
+
+function stripeForPlugin(id: string): string {
+  if (id === 'modrinth' || id === 'curseforge' || id === 'local') {
+    return SOURCE_COLORS[id as ModSource].accent;
+  }
+  return 'var(--accent)';
+}
 
 export function PluginsView() {
   const [plugins, setPlugins] = useState<AnyPlugin[]>(() => getAllPlugins());
@@ -70,23 +79,14 @@ export function PluginsView() {
 
   return (
     <div className="p-8 content-pad max-w-[var(--content-max)] animate-slide-in">
-      <div className="flex flex-row items-start justify-between gap-4 mb-6 flex-wrap">
+      <div className="flex flex-row items-end justify-between gap-4 mb-8 flex-wrap">
         <div>
-          <h2
-            className="text-xl font-semibold tracking-tight mb-1"
-            style={{ color: 'var(--text-primary)', fontFamily: "'Newsreader', Georgia, serif" }}
-          >
-            Plugins & Integrations
-          </h2>
-          <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
-            Manage platform sources, downloaders, and export packagers
-          </p>
+          <div className="page-kicker">Workshop</div>
+          <h2 className="page-title">Plugins</h2>
+          <p className="page-lede">Sources that pull packs, exporters that package them.</p>
         </div>
 
-        <div
-          className="flex p-1 gap-1.5 rounded-lg"
-          style={{ background: 'var(--bg-muted)', border: '1px solid var(--border)' }}
-        >
+        <div className="loom-filter" role="group" aria-label="Plugin category">
           {(
             [
               { id: 'all', label: 'All' },
@@ -97,11 +97,7 @@ export function PluginsView() {
             <button
               key={tab.id}
               aria-pressed={selectedCategory === tab.id}
-              className={`px-3 py-1.5 text-[12px] font-medium rounded-md transition-all ${
-                selectedCategory === tab.id
-                  ? 'bg-[var(--bg-surface)] shadow-sm text-[var(--text-primary)]'
-                  : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-              }`}
+              className="loom-filter-btn"
               onClick={() => setSelectedCategory(tab.id)}
             >
               {tab.label}
@@ -111,17 +107,8 @@ export function PluginsView() {
       </div>
 
       {sources.length > 0 && (
-        <div className="mb-8">
-          <div className="flex items-center gap-2 mb-3">
-            <Icon name="download" size={14} style={{ color: 'var(--accent)' }} />
-            <h3
-              className="text-xs font-semibold uppercase tracking-wider"
-              style={{ color: 'var(--text-muted)' }}
-            >
-              Platform Sources & Downloaders
-            </h3>
-          </div>
-
+        <div className="mb-10">
+          <h3 className="section-label">Sources</h3>
           <div className="responsive-card-grid">
             {sources.map(plugin => (
               <PluginCard
@@ -129,6 +116,7 @@ export function PluginsView() {
                 plugin={plugin}
                 onToggle={handleToggle}
                 subtitle={`by ${plugin.author}`}
+                stripeColor={stripeForPlugin(plugin.id)}
                 footerRight={
                   plugin.requiresApiKey && !plugin.comingSoon ? (
                     <button
@@ -146,19 +134,23 @@ export function PluginsView() {
               >
                 {editingApiKeyId === plugin.id && (
                   <div
-                    className="mt-3 p-3 rounded-lg flex flex-col gap-2"
-                    style={{ background: 'var(--bg-muted)', border: '1px solid var(--border)' }}
+                    className="mt-3 p-3 flex flex-col gap-2"
+                    style={{
+                      background: 'var(--bg-muted)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 'var(--radius-sm)',
+                    }}
                   >
                     <label
                       className="text-[11px] font-medium"
                       style={{ color: 'var(--text-primary)' }}
                     >
-                      Enter {plugin.name} API Key
+                      {plugin.name} API key
                     </label>
                     <input
                       type="password"
                       className="form-input text-[12px] py-1 px-2"
-                      placeholder="Paste API token..."
+                      placeholder="Paste API token…"
                       value={apiKeyInput}
                       onChange={e => setApiKeyInput(e.target.value)}
                     />
@@ -170,10 +162,10 @@ export function PluginsView() {
                         Cancel
                       </button>
                       <button
-                        className="btn-primary text-[11px] px-3 py-1"
+                        className="btn-accent text-[11px] px-3 py-1"
                         onClick={() => handleSaveApiKey(plugin.id)}
                       >
-                        Save Key
+                        Save key
                       </button>
                     </div>
                   </div>
@@ -186,16 +178,7 @@ export function PluginsView() {
 
       {exporters.length > 0 && (
         <div className="mb-8">
-          <div className="flex items-center gap-2 mb-3">
-            <Icon name="archive" size={14} style={{ color: 'var(--accent)' }} />
-            <h3
-              className="text-xs font-semibold uppercase tracking-wider"
-              style={{ color: 'var(--text-muted)' }}
-            >
-              Export & Packaging Formats
-            </h3>
-          </div>
-
+          <h3 className="section-label">Exporters</h3>
           <div className="responsive-card-grid">
             {exporters.map(plugin => (
               <PluginCard
@@ -203,15 +186,9 @@ export function PluginsView() {
                 plugin={plugin}
                 onToggle={handleToggle}
                 subtitle={`Target: ${plugin.fileExtension}`}
-                statusEnabledLabel="Enabled"
-                footerRight={
-                  <span
-                    className="text-[10.5px] font-mono px-2 py-0.5 rounded"
-                    style={{ background: 'var(--bg-muted)', color: 'var(--text-muted)' }}
-                  >
-                    Format: {plugin.targetFormat}
-                  </span>
-                }
+                statusEnabledLabel="On"
+                stripeColor="var(--accent)"
+                footerRight={<span className="badge badge-mono">{plugin.targetFormat}</span>}
               />
             ))}
           </div>

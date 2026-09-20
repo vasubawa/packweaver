@@ -1,15 +1,20 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { Instance } from '../../types';
-import { formatBasePackName, SOURCE_COLORS } from '../../constants';
+import { formatBasePackName, SOURCE_COLORS, formatExportedAt } from '../../constants';
 import { Icon } from '../Icon';
 import { UpdatesCard } from './UpdatesCard';
+import { getClientExportFormats } from '../../plugins';
 
 interface OverviewTabProps {
   instance: Instance;
   onUpdate: (updates: Partial<Instance>) => void;
   serverExporterEnabled?: boolean;
+  onExportClient?: () => void;
+  onExportServer?: () => void;
+  exportingClient?: boolean;
+  exportingServer?: boolean;
 }
 
 type StageStatus = 'idle' | 'running' | 'done' | 'error';
@@ -47,6 +52,10 @@ export function OverviewTab({
   instance,
   onUpdate,
   serverExporterEnabled = false,
+  onExportClient,
+  onExportServer,
+  exportingClient = false,
+  exportingServer = false,
 }: OverviewTabProps) {
   const [isEditingDesc, setIsEditingDesc] = useState(false);
   const [descInput, setDescInput] = useState(instance.description || '');
@@ -107,26 +116,37 @@ export function OverviewTab({
       unlistenRef.current = () => unlisteners.forEach(u => u());
     });
 
-    listen<{ instance_id: string; status: string; progress: number; total: number }>(
-      'instance-progress',
-      event => {
-        if (cancelled || event.payload.instance_id !== instance.id) return;
-        const { status, progress, total } = event.payload;
-        const isError = status.toLowerCase().startsWith('error');
-        setStages(prev => ({
-          ...prev,
-          rebuild: {
-            status: isError ? 'error' : total > 0 && progress >= total ? 'done' : 'running',
-            message: status,
-          },
-        }));
-        if (status === 'Ready' || (total > 0 && progress >= total && !isError)) {
-          onUpdate({ status: 'Ready' });
-        } else if (isError) {
-          onUpdate({ status });
-        }
+    listen<{
+      instance_id: string;
+      status: string;
+      progress: number;
+      total: number;
+      stage?: string;
+    }>('instance-progress', event => {
+      if (cancelled || event.payload.instance_id !== instance.id) return;
+      const { status, progress, total, stage } = event.payload;
+      const isError = status.toLowerCase().startsWith('error');
+      const stageStatus: StageStatus = isError
+        ? 'error'
+        : total > 0 && progress >= total
+          ? 'done'
+          : 'running';
+      const targetKey =
+        stage === 'server' ? 'serverRebuild' : stage === 'layer' ? 'layer' : 'rebuild';
+
+      setStages(prev => ({
+        ...prev,
+        [targetKey]: {
+          status: stageStatus,
+          message: status,
+        },
+      }));
+      if (status === 'Ready' || (total > 0 && progress >= total && !isError)) {
+        onUpdate({ status: 'Ready' });
+      } else if (isError) {
+        onUpdate({ status });
       }
-    ).then(fn => {
+    }).then(fn => {
       if (cancelled) {
         fn();
         return;
@@ -258,10 +278,10 @@ export function OverviewTab({
           </div>
 
           <div className="info-card">
-            <div className="info-card-label">Game</div>
-            <div className="info-card-value">{instance.mcVersion}</div>
+            <div className="info-card-label">Loader</div>
+            <div className="info-card-value">{instance.loader || '—'}</div>
             <div className="info-card-meta">
-              {instance.loader} · {sourceLabel}
+              {instance.mcVersion || '—'} · {sourceLabel}
             </div>
           </div>
 
@@ -277,17 +297,95 @@ export function OverviewTab({
           </div>
 
           <div className="info-card">
-            <div className="info-card-label">Export</div>
-            <div className="info-card-value">{instance.lastExported || 'Not exported yet'}</div>
+            <div className="info-card-label">Last export</div>
+            <div className="info-card-value" title={instance.lastExported || undefined}>
+              {formatExportedAt(instance.lastExported)}
+            </div>
             <div className="info-card-meta">
-              {serverExporterEnabled ? 'Client and server ZIP' : 'Client ZIP'}
-              {' · '}
-              release{' '}
-              {instance.exportSettings?.version
-                ? `v${instance.exportSettings.version}`
-                : 'version not set'}
+              {serverExporterEnabled
+                ? 'Client ZIP / .mrpack and server ZIP'
+                : 'Client ZIP / .mrpack'}
             </div>
           </div>
+        </div>
+      </div>
+
+      <div className="loom-panel">
+        <div className="loom-panel-body">
+          <div className="flex items-center justify-between mb-2">
+            <span className="section-label mb-0">Description</span>
+            {!isEditingDesc && (
+              <button
+                className="btn-ghost text-[13px] py-0.5 px-2"
+                onClick={() => {
+                  setDescInput(instance.description || '');
+                  setIsEditingDesc(true);
+                }}
+              >
+                <Icon name="pencil" size={12} />
+                <span className="ml-1">Edit</span>
+              </button>
+            )}
+          </div>
+
+          {isEditingDesc ? (
+            <div className="flex flex-col gap-2">
+              <textarea
+                className="form-input text-[13px] leading-relaxed"
+                rows={3}
+                placeholder="Pack description…"
+                value={descInput}
+                onChange={e => setDescInput(e.target.value)}
+                autoFocus
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  className="btn-ghost text-[13px] px-2.5 py-1"
+                  onClick={() => setIsEditingDesc(false)}
+                >
+                  Cancel
+                </button>
+                <button className="btn-accent text-[13px] px-3 py-1" onClick={handleDescSave}>
+                  Save
+                </button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-[14px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+              {instance.description || (
+                <span style={{ color: 'var(--text-muted)' }}>No description yet.</span>
+              )}
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="loom-panel">
+        <div className="loom-panel-body flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div className="min-w-0 flex-1">
+            <label className="form-label mb-1.5 block">Pack release version</label>
+            <input
+              className="form-input text-[13px] max-w-xs font-mono"
+              placeholder="1.0.0"
+              value={versionInput}
+              onChange={e => setVersionInput(e.target.value)}
+              onBlur={() => {
+                const prev = instance.exportSettings ?? {
+                  includeServer: false,
+                  version: '',
+                };
+                if ((prev.version ?? '') === versionInput) return;
+                onUpdate({
+                  exportSettings: { ...prev, version: versionInput },
+                });
+              }}
+            />
+            <p className="text-[13px] mt-1.5" style={{ color: 'var(--text-secondary)' }}>
+              Used in the export filename when set (stem-version-MODIFIED.zip / .mrpack
+              {serverExporterEnabled ? ' / stem-version-MODIFIED-server.zip' : ''}).
+            </p>
+          </div>
+          <ClientFormatPicker instance={instance} onUpdate={onUpdate} />
         </div>
       </div>
 
@@ -298,9 +396,40 @@ export function OverviewTab({
       />
 
       <div id="export-pipeline" className="flex flex-col gap-4">
-        <div id="pipeline-client">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="section-label mb-0">Client workspace</h3>
+        <div
+          className="flex flex-wrap items-center justify-between gap-3"
+          style={{
+            position: 'sticky',
+            top: 0,
+            zIndex: 5,
+            padding: '10px 0',
+            background: 'var(--bg-canvas)',
+          }}
+        >
+          <h3 className="section-label mb-0">Workspace</h3>
+          <div className="flex items-center gap-2 flex-wrap">
+            {onExportClient && (
+              <button
+                className="btn-accent text-[12px] px-3 py-1.5"
+                onClick={onExportClient}
+                disabled={exportingClient || anyBusy}
+                title="Package client workspace, then choose where to save"
+              >
+                <Icon name="package" size={13} />
+                {exportingClient ? 'Exporting…' : 'Export client'}
+              </button>
+            )}
+            {serverExporterEnabled && onExportServer && (
+              <button
+                className="btn-secondary text-[12px] px-3 py-1.5"
+                onClick={onExportServer}
+                disabled={exportingServer || anyBusy}
+                title="Package server workspace, then choose where to save"
+              >
+                <Icon name="package" size={13} />
+                {exportingServer ? 'Exporting…' : 'Export server'}
+              </button>
+            )}
             <button
               className="btn-ghost text-[13px] px-2 py-0.5"
               onClick={resetPipeline}
@@ -309,17 +438,21 @@ export function OverviewTab({
               Reset status
             </button>
           </div>
-          <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--border)' }}>
+        </div>
+
+        <div id="pipeline-client">
+          <h3 className="section-label">Client workspace</h3>
+          <div className="loom-panel">
             {(
               [
                 {
                   key: 'rebuild' as const,
-                  label: '① Rebuild client workspace',
+                  label: 'Rebuild client workspace',
                   onRun: runRebuild,
                 },
                 {
                   key: 'layer' as const,
-                  label: '② Layer custom mods',
+                  label: 'Layer custom mods',
                   onRun: runLayer,
                 },
               ] as const
@@ -340,10 +473,6 @@ export function OverviewTab({
               );
             })}
           </div>
-          <p className="text-[13px] mt-2" style={{ color: 'var(--text-secondary)' }}>
-            When the workspace looks right, use <span className="font-medium">Export client</span>{' '}
-            in the header.
-          </p>
         </div>
 
         {serverExporterEnabled && (
@@ -354,13 +483,10 @@ export function OverviewTab({
                 Optional — skip for client-only
               </p>
             </div>
-            <div
-              className="rounded-xl overflow-hidden"
-              style={{ border: '1px solid var(--border)' }}
-            >
+            <div className="loom-panel">
               <PipelineRow
                 stageKey="serverRebuild"
-                label="① Rebuild server workspace"
+                label="Rebuild server workspace"
                 stage={stages.serverRebuild}
                 isLast
                 busy={anyBusy}
@@ -368,90 +494,7 @@ export function OverviewTab({
                 onRun={runServerRebuild}
               />
             </div>
-            <p className="text-[13px] mt-2" style={{ color: 'var(--text-secondary)' }}>
-              Then use <span className="font-medium">Export server</span> in the header.
-            </p>
           </div>
-        )}
-
-        <div
-          className="p-4 rounded-xl flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"
-          style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
-        >
-          <div className="min-w-0 flex-1">
-            <label className="form-label mb-1.5 block">Pack release version</label>
-            <input
-              className="form-input text-[13px] max-w-xs"
-              placeholder="1.0.0"
-              value={versionInput}
-              onChange={e => setVersionInput(e.target.value)}
-              onBlur={() => {
-                const prev = instance.exportSettings ?? {
-                  includeServer: false,
-                  version: '',
-                };
-                if ((prev.version ?? '') === versionInput) return;
-                onUpdate({
-                  exportSettings: { ...prev, version: versionInput },
-                });
-              }}
-            />
-            <p className="text-[13px] mt-1.5" style={{ color: 'var(--text-secondary)' }}>
-              Used in the zip filename when set (stem-version-MODIFIED.zip
-              {serverExporterEnabled ? ' / stem-version-MODIFIED-server.zip' : ''}).
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div
-        className="p-4 rounded-xl relative transition-colors"
-        style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
-      >
-        <div className="flex items-center justify-between mb-2">
-          <span className="section-label mb-0">Description</span>
-          {!isEditingDesc && (
-            <button
-              className="btn-ghost text-[13px] py-0.5 px-2"
-              onClick={() => {
-                setDescInput(instance.description || '');
-                setIsEditingDesc(true);
-              }}
-            >
-              <Icon name="pencil" size={12} />
-              <span className="ml-1">Edit</span>
-            </button>
-          )}
-        </div>
-
-        {isEditingDesc ? (
-          <div className="flex flex-col gap-2">
-            <textarea
-              className="form-input text-[13px] leading-relaxed"
-              rows={3}
-              placeholder="Pack description…"
-              value={descInput}
-              onChange={e => setDescInput(e.target.value)}
-              autoFocus
-            />
-            <div className="flex justify-end gap-2">
-              <button
-                className="btn-ghost text-[13px] px-2.5 py-1"
-                onClick={() => setIsEditingDesc(false)}
-              >
-                Cancel
-              </button>
-              <button className="btn-primary text-[13px] px-3 py-1" onClick={handleDescSave}>
-                Save
-              </button>
-            </div>
-          </div>
-        ) : (
-          <p className="text-[14px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-            {instance.description || (
-              <span style={{ color: 'var(--text-muted)' }}>No description yet.</span>
-            )}
-          </p>
         )}
       </div>
     </div>
@@ -487,14 +530,16 @@ function PipelineRow({
     stage.status === 'running'
       ? 'var(--accent)'
       : stage.status === 'done'
-        ? 'var(--modrinth)'
+        ? 'var(--success)'
         : stage.status === 'error'
           ? 'var(--danger)'
           : 'var(--text-muted)';
 
   return (
     <div
-      className="flex items-center justify-between gap-3 px-4 py-3"
+      className={`pipeline-row flex items-center justify-between gap-3 px-4 py-3 ${
+        stage.status === 'running' ? 'is-running' : ''
+      }`}
       style={{
         background: 'var(--bg-surface)',
         borderBottom: isLast ? 'none' : '1px solid var(--border)',
@@ -514,10 +559,11 @@ function PipelineRow({
         <div className="min-w-0">
           <div className="text-[13px] font-medium text-[var(--text-primary)]">{label}</div>
           <div
-            className="text-[12.5px] truncate"
+            className="text-[12.5px]"
             style={{
               color: stage.status === 'error' ? 'var(--danger)' : 'var(--text-secondary)',
             }}
+            title={stage.message}
           >
             {stage.message}
           </div>
@@ -533,6 +579,78 @@ function PipelineRow({
       >
         {stage.status === 'running' ? 'Running…' : stage.status === 'done' ? 'Re-run' : 'Run'}
       </button>
+      {stage.status === 'running' ? (
+        <div className="warp-thread" aria-hidden>
+          <div className="warp-thread-fill is-indeterminate" />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ClientFormatPicker({
+  instance,
+  onUpdate,
+}: {
+  instance: Instance;
+  onUpdate: (updates: Partial<Instance>) => void;
+}) {
+  const [formats, setFormats] = useState(() => getClientExportFormats());
+
+  useEffect(() => {
+    const sync = () => setFormats(getClientExportFormats());
+    sync();
+    window.addEventListener('packweaver_plugins_changed', sync);
+    return () => window.removeEventListener('packweaver_plugins_changed', sync);
+  }, []);
+
+  const current = useMemo(() => {
+    const preferred = instance.exportSettings?.clientFormat ?? 'zip';
+    return formats.includes(preferred) ? preferred : (formats[0] ?? 'zip');
+  }, [formats, instance.exportSettings?.clientFormat]);
+
+  if (formats.length < 2) {
+    return (
+      <div className="shrink-0">
+        <div className="form-label mb-1.5">Client format</div>
+        <div className="text-[13px] font-mono" style={{ color: 'var(--text-muted)' }}>
+          {current === 'mrpack' ? '.mrpack' : '.zip'}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="shrink-0">
+      <div className="form-label mb-1.5" id="client-format-label">
+        Client format
+      </div>
+      <div className="flex gap-1" role="group" aria-labelledby="client-format-label">
+        {formats.map(fmt => (
+          <button
+            key={fmt}
+            type="button"
+            className={`btn-secondary text-[11px] px-3 py-1.5 ${current === fmt ? 'ring-1' : ''}`}
+            style={
+              current === fmt
+                ? { borderColor: 'var(--accent)', color: 'var(--text-primary)' }
+                : undefined
+            }
+            aria-pressed={current === fmt}
+            onClick={() => {
+              const prev = instance.exportSettings ?? {
+                includeServer: false,
+                version: '',
+              };
+              onUpdate({
+                exportSettings: { ...prev, clientFormat: fmt },
+              });
+            }}
+          >
+            {fmt === 'mrpack' ? '.mrpack' : '.zip'}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

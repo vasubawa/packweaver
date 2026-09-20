@@ -53,6 +53,15 @@ export function DetailHeader({
   };
 
   const displayBasePack = formatBasePackName(instance.basePack);
+  const isInstalling =
+    ((instance.status !== 'Ready' && !instance.status.startsWith('Error')) ||
+      instance.status === 'syncing') &&
+    instance.progress !== undefined;
+  const installPct = isInstalling
+    ? instance.total
+      ? Math.min(100, Math.round((instance.progress! / instance.total) * 100))
+      : 0
+    : 0;
 
   return (
     <>
@@ -103,6 +112,12 @@ export function DetailHeader({
         </button>
       </div>
 
+      {isInstalling ? (
+        <div className="warp-thread shrink-0" aria-hidden>
+          <div className="warp-thread-fill" style={{ width: `${installPct}%` }} />
+        </div>
+      ) : null}
+
       <div className="px-8 content-pad -mt-8 relative z-10 shrink-0">
         <div className="detail-heading-row flex flex-row items-end justify-between gap-4">
           <div className="min-w-0 flex-1 flex items-end gap-4">
@@ -120,7 +135,7 @@ export function DetailHeader({
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 mb-2">
                 <span
-                  className="badge text-[11px] font-medium px-2.5 py-0.5 rounded-full"
+                  className="badge text-[11px] font-medium"
                   style={{
                     background: sc.soft,
                     color: sc.accent,
@@ -134,23 +149,25 @@ export function DetailHeader({
                   {sc.label}
                 </span>
                 <span
-                  className="badge text-[11px] font-medium px-2.5 py-0.5 rounded-full"
+                  className="badge text-[11px] font-medium"
                   style={{
                     color: instance.status.startsWith('Error')
                       ? 'var(--danger)'
                       : instance.status === 'Ready'
-                        ? 'var(--text-secondary)'
+                        ? 'var(--success)'
                         : sc.accent,
                   }}
                 >
                   {instance.status === 'syncing'
                     ? 'Syncing'
-                    : instance.total && instance.progress !== undefined
-                      ? `${instance.status} · ${Math.min(
-                          100,
-                          Math.round((instance.progress / instance.total) * 100)
-                        )}%`
-                      : instance.status || 'Ready'}
+                    : instance.status.startsWith('Error')
+                      ? instance.status.replace(/^Error:\s*/i, 'Error: ').slice(0, 80)
+                      : instance.total && instance.progress !== undefined
+                        ? `${instance.status} · ${Math.min(
+                            100,
+                            Math.round((instance.progress / instance.total) * 100)
+                          )}%`
+                        : instance.status || 'Ready'}
                 </span>
               </div>
 
@@ -158,7 +175,7 @@ export function DetailHeader({
                 <div className="flex items-center gap-2 mb-2">
                   <input
                     className="form-input text-xl font-bold tracking-tight py-1"
-                    style={{ fontFamily: "'Newsreader', Georgia, serif", maxWidth: '360px' }}
+                    style={{ fontFamily: 'var(--font-heading)', maxWidth: '360px' }}
                     value={editName}
                     onChange={e => setEditName(e.target.value)}
                     onKeyDown={e => {
@@ -178,8 +195,9 @@ export function DetailHeader({
                     className="text-2xl font-bold tracking-tight truncate"
                     style={{
                       color: 'var(--text-primary)',
-                      fontFamily: "'Newsreader', Georgia, serif",
+                      fontFamily: 'var(--font-heading)',
                     }}
+                    title={instance.name}
                   >
                     {instance.name}
                   </h2>
@@ -194,33 +212,25 @@ export function DetailHeader({
                 </div>
               )}
 
-              <div
-                className="flex items-center gap-2 text-xs flex-wrap"
-                style={{ color: 'var(--text-muted)' }}
-              >
+              <div className="font-mono-meta flex items-center gap-2 flex-wrap">
                 <span
-                  className="font-medium max-w-full overflow-hidden text-ellipsis whitespace-nowrap"
-                  style={{ color: 'var(--text-secondary)', maxWidth: '300px' }}
+                  className="max-w-full overflow-hidden text-ellipsis whitespace-nowrap"
+                  style={{ color: 'var(--text-secondary)' }}
+                  title={instance.basePack}
                 >
                   {displayBasePack}
                 </span>
-                {instance.mcVersion ? (
-                  <>
-                    <span>&middot;</span>
-                    <span>{instance.mcVersion}</span>
-                  </>
-                ) : null}
                 {instance.loader ? (
                   <>
-                    <span>&middot;</span>
+                    <span aria-hidden>·</span>
                     <span>{instance.loader}</span>
                   </>
                 ) : null}
-                <span>&middot;</span>
+                <span aria-hidden>·</span>
                 <span>{instance.totalModCount} mods</span>
                 {instance.customModCount > 0 && (
                   <>
-                    <span>&middot;</span>
+                    <span aria-hidden>·</span>
                     <span style={{ color: sc.accent }}>+{instance.customModCount} custom</span>
                   </>
                 )}

@@ -61,7 +61,10 @@ export function LibraryView({
           >
             <Icon name="folder" size={22} />
           </div>
-          <p className="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+          <p
+            className="text-sm font-medium mb-1"
+            style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-heading)' }}
+          >
             {searchQuery ? 'No matching packs' : 'No packs yet'}
           </p>
           <p className="text-[13px] mb-4" style={{ color: 'var(--text-secondary)' }}>

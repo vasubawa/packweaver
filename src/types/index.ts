@@ -32,7 +32,9 @@ export interface ServerFileItem {
 export interface ExportSettings {
   includeServer: boolean;
   version: string;
-  format?: 'zip' | 'server';
+  /** Client export format — must match an enabled exporter plugin. */
+  clientFormat?: 'zip' | 'mrpack';
+  format?: 'zip' | 'server' | 'mrpack';
   targetDistribution?: string;
   exportPath?: string;
 }
