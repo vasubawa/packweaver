@@ -2,6 +2,8 @@
 
 > A desktop modpack builder for Minecraft — create, customize, and export modpacks from multiple sources.
 
+![Packweaver library](public/Homepage.png)
+
 Packweaver is a [Tauri](https://tauri.app) app (Rust + React + TypeScript) that lets you build Minecraft modpacks by picking a base pack from Modrinth or a local file, layering in your own custom mods, and exporting a client `.zip`. It is a **builder/exporter**, not a launcher — play stays in tools like Prism; a future “install into …” exporter is optional and far out.
 
 **Platform:** Windows only (other OS targets are not supported or tested).
@@ -46,8 +48,6 @@ instances/{id}/
       ...
 ```
 
-See [`CONTEXT.md`](./CONTEXT.md) for domain terminology.
-
 ---
 
 ## Tech stack
@@ -66,6 +66,7 @@ See [`CONTEXT.md`](./CONTEXT.md) for domain terminology.
 ## Project structure
 
 ```text
+public/                 # Static assets (README screenshot, plugin icons)
 src/                    # React frontend
   components/           # UI components
   plugins/              # Source + exporter plugins
@@ -113,5 +114,3 @@ pnpm tauri build
 | **Base Mod**        | A mod inherited from the Base Pack                        |
 | **Custom Mod**      | A mod added manually by the user on top of the Base Pack  |
 | **Enabled**         | Whether a mod is included in the exported output          |
-
-Full glossary in [`CONTEXT.md`](./CONTEXT.md).
