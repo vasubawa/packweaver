@@ -1165,7 +1165,7 @@ async fn export_instance(
     let temp_zip = temp_dir.join(format!(
         "{}-{}-{}.zip",
         if is_server { "server" } else { "client" },
-        &instance_id,
+        instance_id,
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis())
