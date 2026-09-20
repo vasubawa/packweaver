@@ -153,12 +153,7 @@ export function ServerModsTab({ instance, onUpdate }: ServerModsTabProps) {
           {mod.author || '—'}
         </td>
         <td className="px-3 py-2.5 text-center">
-          <span
-            className="px-1.5 py-0.5 text-[10px] rounded font-medium inline-block capitalize"
-            style={{ background: 'var(--bg-muted)', color: 'var(--text-muted)' }}
-          >
-            {modSide}
-          </span>
+          <span className="badge badge-mono capitalize">{modSide}</span>
         </td>
         <td
           className="px-3 py-2.5 text-[11px] font-mono truncate overflow-hidden"
@@ -168,20 +163,14 @@ export function ServerModsTab({ instance, onUpdate }: ServerModsTabProps) {
           {jarLeaf(mod.fileName, mod.id)}
         </td>
         <td
-          className="px-3 py-2.5 text-[11px] truncate overflow-hidden"
-          style={{ color: 'var(--text-muted)' }}
-        >
-          {instance.mcVersion} / {instance.loader}
-        </td>
-        <td
-          className="px-3 py-2.5 text-[11px] truncate overflow-hidden"
+          className="px-3 py-2.5 text-[11px] font-mono truncate overflow-hidden"
           style={{ color: 'var(--text-muted)' }}
           title={displayModVersion(mod.version, mod.fileName)}
         >
           v{displayModVersion(mod.version, mod.fileName)}
         </td>
         <td
-          className="px-3 py-2.5 text-[11px] text-right tabular-nums"
+          className="px-3 py-2.5 text-[11px] font-mono text-right tabular-nums"
           style={{ color: 'var(--text-muted)' }}
         >
           {formatBytes(mod.fileSize)}
@@ -197,6 +186,7 @@ export function ServerModsTab({ instance, onUpdate }: ServerModsTabProps) {
           ? 'Local packs can use a separate server zip. Upload it here, rebuild from Overview, then export from the header.'
           : 'Server mods come from the base pack (client-only mods stay off this list). Rebuild from Overview, then export from the header.'}
       </p>
+      {instance.loader ? <div className="font-mono-meta">{instance.loader}</div> : null}
 
       {isLocal && (
         <div
@@ -236,11 +226,8 @@ export function ServerModsTab({ instance, onUpdate }: ServerModsTabProps) {
       )}
 
       {serverBaseMods.length === 0 ? (
-        <div
-          className="p-10 text-center rounded-xl"
-          style={{ background: 'var(--bg-surface)', border: '1px dashed var(--border)' }}
-        >
-          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+        <div className="p-10 text-center loom-panel">
+          <p className="text-xs py-2" style={{ color: 'var(--text-muted)' }}>
             {isLocal && serverPackName
               ? 'Server pack stored. Rebuild server from Overview — the mod list fills after that rebuild.'
               : isLocal
@@ -271,7 +258,7 @@ export function ServerModsTab({ instance, onUpdate }: ServerModsTabProps) {
           </div>
 
           <div
-            className="rounded-xl border overflow-x-auto"
+            className="loom-panel overflow-x-auto"
             style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}
           >
             {filteredMods.length === 0 ? (
@@ -295,8 +282,7 @@ export function ServerModsTab({ instance, onUpdate }: ServerModsTabProps) {
                       <th className="font-medium px-3 py-2.5 w-28">Author</th>
                       <th className="font-medium px-3 py-2.5 w-16 text-center">Side</th>
                       <th className="font-medium px-3 py-2.5 w-40">File</th>
-                      <th className="font-medium px-3 py-2.5 w-28">MC / Loader</th>
-                      <th className="font-medium px-3 py-2.5 w-24">Version</th>
+                      <th className="font-medium px-3 py-2.5 w-28">Version</th>
                       <th className="font-medium px-3 py-2.5 w-16 text-right">Size</th>
                     </tr>
                   </thead>

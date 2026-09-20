@@ -258,11 +258,9 @@ export function OverviewTab({
           </div>
 
           <div className="info-card">
-            <div className="info-card-label">Game</div>
-            <div className="info-card-value">{instance.mcVersion}</div>
-            <div className="info-card-meta">
-              {instance.loader} · {sourceLabel}
-            </div>
+            <div className="info-card-label">Loader</div>
+            <div className="info-card-value">{instance.loader || '—'}</div>
+            <div className="info-card-meta">{sourceLabel}</div>
           </div>
 
           <div className="info-card">
@@ -309,17 +307,17 @@ export function OverviewTab({
               Reset status
             </button>
           </div>
-          <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--border)' }}>
+          <div className="loom-panel">
             {(
               [
                 {
                   key: 'rebuild' as const,
-                  label: '① Rebuild client workspace',
+                  label: 'Rebuild client workspace',
                   onRun: runRebuild,
                 },
                 {
                   key: 'layer' as const,
-                  label: '② Layer custom mods',
+                  label: 'Layer custom mods',
                   onRun: runLayer,
                 },
               ] as const
@@ -354,13 +352,10 @@ export function OverviewTab({
                 Optional — skip for client-only
               </p>
             </div>
-            <div
-              className="rounded-xl overflow-hidden"
-              style={{ border: '1px solid var(--border)' }}
-            >
+            <div className="loom-panel">
               <PipelineRow
                 stageKey="serverRebuild"
-                label="① Rebuild server workspace"
+                label="Rebuild server workspace"
                 stage={stages.serverRebuild}
                 isLast
                 busy={anyBusy}
@@ -374,85 +369,83 @@ export function OverviewTab({
           </div>
         )}
 
-        <div
-          className="p-4 rounded-xl flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"
-          style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
-        >
-          <div className="min-w-0 flex-1">
-            <label className="form-label mb-1.5 block">Pack release version</label>
-            <input
-              className="form-input text-[13px] max-w-xs"
-              placeholder="1.0.0"
-              value={versionInput}
-              onChange={e => setVersionInput(e.target.value)}
-              onBlur={() => {
-                const prev = instance.exportSettings ?? {
-                  includeServer: false,
-                  version: '',
-                };
-                if ((prev.version ?? '') === versionInput) return;
-                onUpdate({
-                  exportSettings: { ...prev, version: versionInput },
-                });
-              }}
-            />
-            <p className="text-[13px] mt-1.5" style={{ color: 'var(--text-secondary)' }}>
-              Used in the zip filename when set (stem-version-MODIFIED.zip
-              {serverExporterEnabled ? ' / stem-version-MODIFIED-server.zip' : ''}).
-            </p>
+        <div className="loom-panel">
+          <div className="loom-panel-body flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div className="min-w-0 flex-1">
+              <label className="form-label mb-1.5 block">Pack release version</label>
+              <input
+                className="form-input text-[13px] max-w-xs font-mono"
+                placeholder="1.0.0"
+                value={versionInput}
+                onChange={e => setVersionInput(e.target.value)}
+                onBlur={() => {
+                  const prev = instance.exportSettings ?? {
+                    includeServer: false,
+                    version: '',
+                  };
+                  if ((prev.version ?? '') === versionInput) return;
+                  onUpdate({
+                    exportSettings: { ...prev, version: versionInput },
+                  });
+                }}
+              />
+              <p className="text-[13px] mt-1.5" style={{ color: 'var(--text-secondary)' }}>
+                Used in the zip filename when set (stem-version-MODIFIED.zip
+                {serverExporterEnabled ? ' / stem-version-MODIFIED-server.zip' : ''}).
+              </p>
+            </div>
           </div>
         </div>
       </div>
 
-      <div
-        className="p-4 rounded-xl relative transition-colors"
-        style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
-      >
-        <div className="flex items-center justify-between mb-2">
-          <span className="section-label mb-0">Description</span>
-          {!isEditingDesc && (
-            <button
-              className="btn-ghost text-[13px] py-0.5 px-2"
-              onClick={() => {
-                setDescInput(instance.description || '');
-                setIsEditingDesc(true);
-              }}
-            >
-              <Icon name="pencil" size={12} />
-              <span className="ml-1">Edit</span>
-            </button>
+      <div className="loom-panel">
+        <div className="loom-panel-body">
+          <div className="flex items-center justify-between mb-2">
+            <span className="section-label mb-0">Description</span>
+            {!isEditingDesc && (
+              <button
+                className="btn-ghost text-[13px] py-0.5 px-2"
+                onClick={() => {
+                  setDescInput(instance.description || '');
+                  setIsEditingDesc(true);
+                }}
+              >
+                <Icon name="pencil" size={12} />
+                <span className="ml-1">Edit</span>
+              </button>
+            )}
+          </div>
+
+          {isEditingDesc ? (
+            <div className="flex flex-col gap-2">
+              <textarea
+                className="form-input text-[13px] leading-relaxed"
+                rows={3}
+                placeholder="Pack description…"
+                value={descInput}
+                onChange={e => setDescInput(e.target.value)}
+                autoFocus
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  className="btn-ghost text-[13px] px-2.5 py-1"
+                  onClick={() => setIsEditingDesc(false)}
+                >
+                  Cancel
+                </button>
+                <button className="btn-accent text-[13px] px-3 py-1" onClick={handleDescSave}>
+                  Save
+                </button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-[14px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+              {instance.description || (
+                <span style={{ color: 'var(--text-muted)' }}>No description yet.</span>
+              )}
+            </p>
           )}
         </div>
-
-        {isEditingDesc ? (
-          <div className="flex flex-col gap-2">
-            <textarea
-              className="form-input text-[13px] leading-relaxed"
-              rows={3}
-              placeholder="Pack description…"
-              value={descInput}
-              onChange={e => setDescInput(e.target.value)}
-              autoFocus
-            />
-            <div className="flex justify-end gap-2">
-              <button
-                className="btn-ghost text-[13px] px-2.5 py-1"
-                onClick={() => setIsEditingDesc(false)}
-              >
-                Cancel
-              </button>
-              <button className="btn-primary text-[13px] px-3 py-1" onClick={handleDescSave}>
-                Save
-              </button>
-            </div>
-          </div>
-        ) : (
-          <p className="text-[14px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-            {instance.description || (
-              <span style={{ color: 'var(--text-muted)' }}>No description yet.</span>
-            )}
-          </p>
-        )}
       </div>
     </div>
   );
@@ -487,14 +480,16 @@ function PipelineRow({
     stage.status === 'running'
       ? 'var(--accent)'
       : stage.status === 'done'
-        ? 'var(--modrinth)'
+        ? 'var(--success)'
         : stage.status === 'error'
           ? 'var(--danger)'
           : 'var(--text-muted)';
 
   return (
     <div
-      className="flex items-center justify-between gap-3 px-4 py-3"
+      className={`pipeline-row flex items-center justify-between gap-3 px-4 py-3 ${
+        stage.status === 'running' ? 'is-running' : ''
+      }`}
       style={{
         background: 'var(--bg-surface)',
         borderBottom: isLast ? 'none' : '1px solid var(--border)',
@@ -533,6 +528,11 @@ function PipelineRow({
       >
         {stage.status === 'running' ? 'Running…' : stage.status === 'done' ? 'Re-run' : 'Run'}
       </button>
+      {stage.status === 'running' ? (
+        <div className="warp-thread" aria-hidden>
+          <div className="warp-thread-fill is-indeterminate" />
+        </div>
+      ) : null}
     </div>
   );
 }

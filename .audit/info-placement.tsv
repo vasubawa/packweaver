@@ -1,0 +1,5 @@
+ts	phase	decision	why	evidence	result
+2026-09-20T12:51:00Z	frame	reframed ask from visual paint to information architecture and placement	user said home looks fine but rest do not and want all info to show and work; token pass was wrong lever	agent-transcripts/329de0cd; explore audit 6b7895c6	open
+2026-09-20T12:52:00Z	frame	rejected web-artifacts-builder for this task	Packweaver is Tauri product UI; a Claude HTML artifact would not fix live placement	.agents/skills/web-artifacts-builder/SKILL.md	open
+2026-09-20T12:53:00Z	frame	top gaps: orphan ServerFilesTab, onDisk never shown, export far from pipeline, duplicate updates, truncation without recovery	IA audit ranked 8 falsifiable fixes	explore agent 6b7895c6	open
+2026-09-20T12:53:30Z	fix	removed per-row MC/Loader column; show pack MC and loader once above tables	user reported Fabric truncated to Fa in narrow w-28 cell	ClientModsTab.tsx; ServerModsTab.tsx; App.css font-mono-meta nowrap	open

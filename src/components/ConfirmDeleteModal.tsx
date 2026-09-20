@@ -51,7 +51,7 @@ export function ConfirmDeleteModal({
             </div>
             <h3
               id="delete-pack-title"
-              className="text-[15px] font-semibold"
+              className="modal-title text-[15px]"
               style={{ color: 'var(--text-primary)' }}
             >
               Delete Pack

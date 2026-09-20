@@ -321,11 +321,11 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
           style={{ borderBottom: '1px solid var(--border)' }}
         >
           <div>
-            <h3 className="text-[15px] font-semibold" style={{ color: 'var(--text-primary)' }}>
+            <h3 className="modal-title text-[15px]" style={{ color: 'var(--text-primary)' }}>
               Create New Pack
             </h3>
             <p className="text-[11.5px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
-              Select a source and base pack to get started
+              Pick a source, then a base pack
             </p>
           </div>
           <button className="btn-ghost" onClick={handleClose} aria-label="Close">
@@ -363,7 +363,7 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
                       >
                         <span
                           className="seg-dot"
-                          style={{ background: s.colors.primary || '#64748b' }}
+                          style={{ background: s.colors.primary || 'var(--text-muted)' }}
                         />
                         {s.name}
                       </button>
@@ -624,7 +624,7 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
                       <div
                         className="form-input flex items-center"
                         style={{
-                          fontFamily: "'JetBrains Mono', monospace",
+                          fontFamily: 'var(--font-mono)',
                           fontSize: 12.5,
                           color: isResolvingVersion ? 'var(--text-muted)' : 'var(--text-primary)',
                           background: 'var(--bg-muted)',
@@ -643,7 +643,7 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
                           value={version}
                           onChange={e => setVersion(e.target.value)}
                           placeholder="1.0.0"
-                          style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12.5 }}
+                          style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5 }}
                         />
                         {source === 'local' ? (
                           <p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>

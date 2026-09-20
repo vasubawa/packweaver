@@ -195,134 +195,138 @@ export function UpdatesCard({
         </button>
       </div>
 
-      <div
-        className="rounded-xl p-4 flex flex-col gap-4"
-        style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
-      >
-        {!result && (
-          <p className="text-[13px] text-[var(--text-secondary)]">
-            Scan Modrinth for a newer base pack or custom mods. Checking never downloads — you
-            choose what to apply.
-            {serverOn &&
-              ' With Server Pack Packager on, applying updates also refreshes the server workspace when it exists.'}
-          </p>
-        )}
+      <div className="loom-panel">
+        <div className="loom-panel-body flex flex-col gap-4">
+          {!result && (
+            <p className="text-[13px] text-[var(--text-secondary)]">
+              Scan Modrinth for a newer base pack or custom mods. Checking never downloads — you
+              choose what to apply.
+              {serverOn &&
+                ' With Server Pack Packager on, applying updates also refreshes the server workspace when it exists.'}
+            </p>
+          )}
 
-        {result && !hasAny && (
-          <p className="text-[13px]" style={{ color: 'var(--text-primary)' }}>
-            Up to date
-            {result.skippedNonModrinth > 0 && (
-              <span className="text-[var(--text-muted)]">
-                {' '}
-                · {result.skippedNonModrinth} non-Modrinth custom
-                {result.skippedNonModrinth === 1 ? '' : 's'} skipped
-              </span>
-            )}
-          </p>
-        )}
+          {result && !hasAny && (
+            <p className="text-[13px]" style={{ color: 'var(--text-primary)' }}>
+              Up to date
+              {result.skippedNonModrinth > 0 && (
+                <span className="text-[var(--text-muted)]">
+                  {' '}
+                  · {result.skippedNonModrinth} non-Modrinth custom
+                  {result.skippedNonModrinth === 1 ? '' : 's'} skipped
+                </span>
+              )}
+            </p>
+          )}
 
-        {result?.base && instance.source === 'modrinth' && (
-          <div className="flex items-start justify-between gap-3 flex-wrap">
-            <div className="min-w-0">
-              <div className="text-[13px] font-medium text-[var(--text-primary)]">Base pack</div>
-              <div className="text-[12px] text-[var(--text-secondary)]">
-                {result.base.available && result.base.latest
-                  ? `${result.base.currentLabel} → ${result.base.latest.versionNumber}`
-                  : `Current ${result.base.currentLabel}`}
-              </div>
-            </div>
-            {result.base.available && (
-              <button
-                className="btn-secondary text-[11px] px-3 py-1 shrink-0"
-                onClick={applyBase}
-                disabled={applyingBase || checking}
-                title={
-                  serverOn
-                    ? 'Downloads the new pack, rebuilds client and server workspaces, then re-layers enabled customs on both.'
-                    : 'Downloads the new pack, rebuilds the client workspace, then puts your enabled custom mods back.'
-                }
-              >
-                {applyingBase ? 'Updating…' : 'Update base pack'}
-              </button>
-            )}
-          </div>
-        )}
-
-        {result && result.customs.length > 0 && (
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <div>
-                <div className="text-[13px] font-medium text-[var(--text-primary)]">
-                  Custom mods · {result.customs.length} update
-                  {result.customs.length === 1 ? '' : 's'}
-                </div>
+          {result?.base && instance.source === 'modrinth' && (
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div className="min-w-0">
+                <div className="text-[13px] font-medium text-[var(--text-primary)]">Base pack</div>
                 <div className="text-[12px] text-[var(--text-secondary)]">
-                  Doesn’t change the base pack
-                  {serverOn ? ' · layers client + server when present' : ''}
+                  {result.base.available && result.base.latest
+                    ? `${result.base.currentLabel} → ${result.base.latest.versionNumber}`
+                    : `Current ${result.base.currentLabel}`}
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              {result.base.available && (
                 <button
-                  className="btn-ghost text-[11px] px-2 py-0.5"
-                  onClick={() => toggleAll(true)}
-                  type="button"
-                >
-                  Select all
-                </button>
-                <button
-                  className="btn-ghost text-[11px] px-2 py-0.5"
-                  onClick={() => toggleAll(false)}
-                  type="button"
-                >
-                  Clear
-                </button>
-                <button
-                  className="btn-secondary text-[11px] px-3 py-1"
-                  onClick={applyCustoms}
-                  disabled={applyingCustoms || selectedCustoms().length === 0}
+                  className="btn-secondary text-[11px] px-3 py-1 shrink-0"
+                  onClick={applyBase}
+                  disabled={applyingBase || checking}
                   title={
                     serverOn
-                      ? 'Downloads newer selected customs into client and server workspaces (server only if rebuilt).'
-                      : "Downloads newer versions of selected customs only. Doesn't change the base pack."
+                      ? 'Downloads the new pack, rebuilds client and server workspaces, then re-layers enabled customs on both.'
+                      : 'Downloads the new pack, rebuilds the client workspace, then puts your enabled custom mods back.'
                   }
                 >
-                  {applyingCustoms ? 'Updating…' : `Update selected (${selectedCustoms().length})`}
+                  {applyingBase ? 'Updating…' : 'Update base pack'}
                 </button>
-              </div>
+              )}
             </div>
-            <ul className="flex flex-col gap-1.5 max-h-48 overflow-y-auto">
-              {result.customs.map(c => (
-                <li
-                  key={c.mod.id}
-                  className="flex items-center gap-2 text-[12px] px-2 py-1.5 rounded-md"
-                  style={{ background: 'var(--bg-muted)' }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={!!selected[c.mod.id]}
-                    onChange={e => setSelected(prev => ({ ...prev, [c.mod.id]: e.target.checked }))}
-                    aria-label={`Update ${c.mod.name}`}
-                  />
-                  <span
-                    className="truncate flex-1 font-medium"
-                    style={{ color: 'var(--text-primary)' }}
-                  >
-                    {c.mod.name}
-                  </span>
-                  <span className="text-[11px] text-[var(--text-muted)] shrink-0">
-                    {c.currentLabel} → {c.latest.versionNumber}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+          )}
 
-        {result?.base.available && result.customs.length > 0 && (
-          <p className="text-[11px] text-[var(--text-muted)]">
-            Tip: update the base pack first if you want both — rebuild re-layers customs afterward.
-          </p>
-        )}
+          {result && result.customs.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div>
+                  <div className="text-[13px] font-medium text-[var(--text-primary)]">
+                    Custom mods · {result.customs.length} update
+                    {result.customs.length === 1 ? '' : 's'}
+                  </div>
+                  <div className="text-[12px] text-[var(--text-secondary)]">
+                    Doesn’t change the base pack
+                    {serverOn ? ' · layers client + server when present' : ''}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    className="btn-ghost text-[11px] px-2 py-0.5"
+                    onClick={() => toggleAll(true)}
+                    type="button"
+                  >
+                    Select all
+                  </button>
+                  <button
+                    className="btn-ghost text-[11px] px-2 py-0.5"
+                    onClick={() => toggleAll(false)}
+                    type="button"
+                  >
+                    Clear
+                  </button>
+                  <button
+                    className="btn-secondary text-[11px] px-3 py-1"
+                    onClick={applyCustoms}
+                    disabled={applyingCustoms || selectedCustoms().length === 0}
+                    title={
+                      serverOn
+                        ? 'Downloads newer selected customs into client and server workspaces (server only if rebuilt).'
+                        : "Downloads newer versions of selected customs only. Doesn't change the base pack."
+                    }
+                  >
+                    {applyingCustoms
+                      ? 'Updating…'
+                      : `Update selected (${selectedCustoms().length})`}
+                  </button>
+                </div>
+              </div>
+              <ul className="flex flex-col gap-1.5 max-h-48 overflow-y-auto">
+                {result.customs.map(c => (
+                  <li
+                    key={c.mod.id}
+                    className="flex items-center gap-2 text-[12px] px-2 py-1.5 rounded-md"
+                    style={{ background: 'var(--bg-muted)' }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={!!selected[c.mod.id]}
+                      onChange={e =>
+                        setSelected(prev => ({ ...prev, [c.mod.id]: e.target.checked }))
+                      }
+                      aria-label={`Update ${c.mod.name}`}
+                    />
+                    <span
+                      className="truncate flex-1 font-medium"
+                      style={{ color: 'var(--text-primary)' }}
+                    >
+                      {c.mod.name}
+                    </span>
+                    <span className="text-[11px] text-[var(--text-muted)] shrink-0">
+                      {c.currentLabel} → {c.latest.versionNumber}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {result?.base.available && result.customs.length > 0 && (
+            <p className="text-[11px] text-[var(--text-muted)]">
+              Tip: update the base pack first if you want both — rebuild re-layers customs
+              afterward.
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );

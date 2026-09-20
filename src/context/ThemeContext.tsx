@@ -22,16 +22,16 @@ interface AccentDefinition {
 
 const ACCENT_MAP: Record<ThemeMode, Record<AccentColor, AccentDefinition>> = {
   light: {
-    packweaver: { primary: '#d97355', hover: '#c55a3a', soft: 'rgba(217,115,85,0.1)' },
-    modrinth: { primary: '#16a34a', hover: '#15803d', soft: 'rgba(22,163,74,0.1)' },
-    curseforge: { primary: '#ea580c', hover: '#c2410c', soft: 'rgba(234,88,12,0.1)' },
-    deepslate: { primary: '#64748b', hover: '#475569', soft: 'rgba(100,116,139,0.1)' },
+    packweaver: { primary: '#b86b2c', hover: '#9a5824', soft: '#f3e8dc' },
+    modrinth: { primary: '#15803d', hover: '#166534', soft: 'rgba(21,128,61,0.1)' },
+    curseforge: { primary: '#c2410c', hover: '#9a3412', soft: 'rgba(194,65,12,0.1)' },
+    deepslate: { primary: '#5c6570', hover: '#3d4656', soft: 'rgba(92,101,112,0.1)' },
   },
   dark: {
-    packweaver: { primary: '#e6826a', hover: '#f0ad9c', soft: '#2d1f1a' },
+    packweaver: { primary: '#e09a5a', hover: '#ebb07a', soft: '#2a2118' },
     modrinth: { primary: '#1bd96a', hover: '#4ade80', soft: 'rgba(27,217,106,0.12)' },
     curseforge: { primary: '#f16436', hover: '#fb8a63', soft: 'rgba(241,100,54,0.12)' },
-    deepslate: { primary: '#94a3b8', hover: '#cbd5e1', soft: 'rgba(148,163,184,0.12)' },
+    deepslate: { primary: '#8b95a3', hover: '#b8c0cc', soft: 'rgba(139,149,163,0.12)' },
   },
 };
 

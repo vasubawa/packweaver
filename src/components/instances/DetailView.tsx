@@ -9,8 +9,6 @@ import { CustomModsTab } from '../detail/CustomModsTab';
 import { isServerExporterEnabled, getActiveSourcePlugins } from '../../plugins';
 import { useToast } from '../../context/ToastContext';
 
-import { SOURCE_COLORS } from '../../constants';
-
 interface DetailViewProps {
   instance: Instance;
   onBack: () => void;
@@ -29,7 +27,6 @@ export function DetailView({
   const [exportingClient, setExportingClient] = useState(false);
   const [exportingServer, setExportingServer] = useState(false);
   const { addToast } = useToast();
-  const sc = SOURCE_COLORS[instance.source] || SOURCE_COLORS.local;
 
   useEffect(() => {
     const sync = () => setServerPluginOn(isServerExporterEnabled());
@@ -160,12 +157,7 @@ export function DetailView({
         onDelete={onDeleteInstance}
       />
 
-      <div
-        className="px-8 content-pad mt-6 flex gap-6 flex-shrink-0 overflow-x-auto"
-        style={{ borderBottom: '1px solid var(--border)' }}
-        role="tablist"
-        aria-label="Pack sections"
-      >
+      <div className="px-8 content-pad mt-6 loom-tabs" role="tablist" aria-label="Pack sections">
         {[
           { key: 'overview', label: 'Overview' },
           { key: 'client', label: 'Client Mods' },
@@ -180,11 +172,7 @@ export function DetailView({
               role="tab"
               aria-selected={isActive}
               aria-controls={`pack-panel-${tab.key}`}
-              className="pb-2.5 text-[13px] font-medium transition-colors relative"
-              style={{
-                color: isActive ? 'var(--text-primary)' : 'var(--text-muted)',
-                borderBottom: isActive ? `2px solid ${sc.accent}` : '2px solid transparent',
-              }}
+              className="loom-tab"
               onClick={() => setActiveTab(tab.key)}
             >
               {tab.label}

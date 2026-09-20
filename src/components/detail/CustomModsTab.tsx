@@ -394,18 +394,20 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
             return (
               <button
                 key={s.id}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11.5px] font-medium transition-all"
+                className="flex items-center gap-1.5 px-2.5 py-1 text-[11.5px] font-medium transition-all"
                 style={
                   isActive
                     ? {
                         background: psc.soft,
                         color: psc.accent,
                         border: `1px solid ${psc.border}`,
+                        borderRadius: 'var(--radius-sm)',
                       }
                     : {
                         background: 'var(--bg-surface)',
                         color: 'var(--text-muted)',
                         border: '1px solid var(--border)',
+                        borderRadius: 'var(--radius-sm)',
                       }
                 }
                 onClick={() => {
@@ -571,11 +573,8 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
       </div>
 
       {instance.customMods.length === 0 ? (
-        <div
-          className="p-10 text-center rounded-xl"
-          style={{ background: 'var(--bg-surface)', border: '1px dashed var(--border)' }}
-        >
-          <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+        <div className="p-10 text-center loom-panel">
+          <p className="text-[13px] py-2" style={{ color: 'var(--text-secondary)' }}>
             No custom mods yet. Search above to layer mods on the base pack (client and/or server).
           </p>
         </div>
@@ -614,7 +613,7 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
             </button>
           </div>
           <div
-            className="rounded-xl border overflow-x-auto"
+            className="loom-panel overflow-x-auto"
             style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}
           >
             {sorted.length === 0 ? (
@@ -753,17 +752,16 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
                           {mod.author || '—'}
                         </td>
                         <td className="px-3 py-2.5 text-center overflow-hidden">
-                          <span
-                            className="px-1.5 py-0.5 text-[10px] rounded font-medium inline-block capitalize"
-                            style={{ background: 'var(--bg-muted)', color: 'var(--text-muted)' }}
-                          >
-                            {modSide}
-                          </span>
+                          <span className="badge badge-mono capitalize">{modSide}</span>
                         </td>
                         <td className="px-3 py-2.5 text-center overflow-hidden">
                           <span
-                            className="px-1.5 py-0.5 text-[10px] rounded font-medium inline-block"
-                            style={{ background: modSc.soft, color: modSc.accent }}
+                            className="badge badge-mono"
+                            style={{
+                              background: modSc.soft,
+                              color: modSc.accent,
+                              borderColor: modSc.border,
+                            }}
                             title={`Downloaded from ${modSc.label}`}
                           >
                             {modSc.label}
@@ -777,7 +775,7 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
                           {jarLeaf(mod.fileName, mod.id)}
                         </td>
                         <td
-                          className="px-3 py-2.5 text-[11px] truncate overflow-hidden"
+                          className="px-3 py-2.5 text-[11px] font-mono truncate overflow-hidden"
                           style={{
                             color: modUpdates[mod.id] ? modSc.accent : 'var(--text-muted)',
                             cursor: modUpdates[mod.id] ? 'help' : undefined,

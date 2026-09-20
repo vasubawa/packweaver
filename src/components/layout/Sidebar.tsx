@@ -29,13 +29,20 @@ export function Sidebar({ activeScreen, onNavigate }: SidebarProps) {
         style={{ height: 'var(--header-h)', borderBottom: '1px solid var(--border)' }}
       >
         <div
-          className="flex items-center justify-center rounded-lg"
-          style={{ width: 28, height: 28, background: 'var(--accent)', color: '#fff' }}
+          className="flex items-center justify-center"
+          style={{
+            width: 28,
+            height: 28,
+            borderRadius: 6,
+            background: 'var(--accent-soft)',
+            color: 'var(--accent)',
+            border: '1px solid var(--accent)',
+          }}
         >
           <Icon name="package" size={15} />
         </div>
         <span
-          className="text-sm font-semibold tracking-tight"
+          className="sidebar-brand text-sm tracking-tight"
           style={{ color: 'var(--text-primary)' }}
         >
           Packweaver
