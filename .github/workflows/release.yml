@@ -35,9 +35,15 @@ jobs:
           
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
-          
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: release
+
       - name: Install frontend dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
         
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v1
