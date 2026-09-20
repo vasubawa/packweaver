@@ -53,6 +53,7 @@ export function OverviewTab({
   const [prevInstanceId, setPrevInstanceId] = useState(instance.id);
   const [stages, setStages] = useState<Record<string, StageState>>(IDLE_STAGES);
   const [runningKeys, setRunningKeys] = useState<Set<string>>(() => new Set());
+  const [versionInput, setVersionInput] = useState(instance.exportSettings?.version ?? '');
 
   const startRun = (key: string) =>
     setRunningKeys(prev => {
@@ -98,6 +99,10 @@ export function OverviewTab({
         },
       }));
     }).then(fn => {
+      if (cancelled) {
+        fn();
+        return;
+      }
       unlisteners.push(fn);
       unlistenRef.current = () => unlisteners.forEach(u => u());
     });
@@ -122,6 +127,10 @@ export function OverviewTab({
         }
       }
     ).then(fn => {
+      if (cancelled) {
+        fn();
+        return;
+      }
       unlisteners.push(fn);
       unlistenRef.current = () => unlisteners.forEach(u => u());
     });
@@ -135,10 +144,27 @@ export function OverviewTab({
   if (instance.id !== prevInstanceId) {
     setPrevInstanceId(instance.id);
     setDescInput(instance.description || '');
+    setVersionInput(instance.exportSettings?.version ?? '');
     setIsEditingDesc(false);
     setStages({ ...IDLE_STAGES });
     setRunningKeys(new Set());
   }
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      const prev = instance.exportSettings ?? {
+        includeServer: false,
+        version: '',
+      };
+      if ((prev.version ?? '') === versionInput) return;
+      onUpdate({
+        exportSettings: { ...prev, version: versionInput },
+      });
+    }, 400);
+    return () => window.clearTimeout(handle);
+    // Persist debounced version only; intentionally omit onUpdate/exportSettings object identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [versionInput, instance.id]);
 
   const displayBasePack = formatBasePackName(instance.basePack);
   const sourceLabel = (SOURCE_COLORS[instance.source] || SOURCE_COLORS.local).label;
@@ -357,14 +383,16 @@ export function OverviewTab({
             <input
               className="form-input text-[13px] max-w-xs"
               placeholder="1.0.0"
-              value={instance.exportSettings?.version ?? ''}
-              onChange={e => {
+              value={versionInput}
+              onChange={e => setVersionInput(e.target.value)}
+              onBlur={() => {
                 const prev = instance.exportSettings ?? {
                   includeServer: false,
                   version: '',
                 };
+                if ((prev.version ?? '') === versionInput) return;
                 onUpdate({
-                  exportSettings: { ...prev, version: e.target.value },
+                  exportSettings: { ...prev, version: versionInput },
                 });
               }}
             />

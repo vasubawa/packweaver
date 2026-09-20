@@ -387,6 +387,18 @@ pub async fn run_pipeline(
     let enrichment = fetch_modrinth_enrichment(&client, &hashes).await;
 
     // Remove disabled base jars from workspace (install put all client-capable files)
+    let mut upserts: Vec<(
+        String,
+        String,
+        String,
+        String,
+        bool,
+        bool,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+    )> = Vec::with_capacity(installed.len());
     for file in &installed {
         let (ec, es) = preserve_enabled
             .get(&file.mod_id)
@@ -427,9 +439,27 @@ pub async fn run_pipeline(
             );
         }
 
+        upserts.push((
+            file.mod_id.clone(),
+            name,
+            version,
+            file.file_path.clone(),
+            ec,
+            es,
+            file.side.clone(),
+            icon_url.unwrap_or_default(),
+            author,
+            description,
+        ));
+    }
+
+    if !upserts.is_empty() {
         with_db(&app, |conn| {
-            conn.execute(
-                "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, file_name, source, is_base, enabled, enabled_client, enabled_server, side, icon_url, author, description)
+            let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+            {
+                let mut stmt = tx
+                    .prepare(
+                        "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, file_name, source, is_base, enabled, enabled_client, enabled_server, side, icon_url, author, description)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
                  ON CONFLICT(instance_id, mod_id) DO UPDATE SET
                     name=excluded.name,
@@ -444,23 +474,40 @@ pub async fn run_pipeline(
                     icon_url=excluded.icon_url,
                     author=excluded.author,
                     description=excluded.description",
-                params![
-                    &instance_id,
-                    &file.mod_id,
-                    &name,
-                    &version,
-                    &file.file_path,
-                    &source,
-                    ec,
+                    )
+                    .map_err(|e| e.to_string())?;
+                for (
+                    mod_id,
+                    name,
+                    version,
+                    file_path,
                     ec,
                     es,
-                    &file.side,
-                    icon_url.unwrap_or_default(),
-                    author.unwrap_or_default(),
-                    description.unwrap_or_default(),
-                ],
-            )
-            .map_err(|e| e.to_string())?;
+                    side,
+                    icon_url,
+                    author,
+                    description,
+                ) in &upserts
+                {
+                    stmt.execute(params![
+                        &instance_id,
+                        mod_id,
+                        name,
+                        version,
+                        file_path,
+                        &source,
+                        ec,
+                        ec,
+                        es,
+                        side,
+                        icon_url,
+                        author.as_deref().unwrap_or(""),
+                        description.as_deref().unwrap_or(""),
+                    ])
+                    .map_err(|e| e.to_string())?;
+                }
+            }
+            tx.commit().map_err(|e| e.to_string())?;
             Ok(())
         })?;
     }
@@ -470,6 +517,8 @@ pub async fn run_pipeline(
         let mods_dir = workspace_dir.join("mods");
         if mods_dir.is_dir() {
             if let Ok(entries) = fs::read_dir(&mods_dir) {
+                let mut local_upserts: Vec<(String, String, String, bool, bool, String, String)> =
+                    Vec::new();
                 for entry in entries.flatten() {
                     let path = entry.path();
                     if !path.is_file() {
@@ -488,27 +537,48 @@ pub async fn run_pipeline(
                     if !ec {
                         let _ = fs::remove_file(&path);
                     }
+                    local_upserts.push((
+                        file_name.to_string(),
+                        name,
+                        version,
+                        ec,
+                        es,
+                        jar_meta.author.unwrap_or_default(),
+                        jar_meta.description.unwrap_or_default(),
+                    ));
+                }
+                if !local_upserts.is_empty() {
                     with_db(&app, |conn| {
-                        conn.execute(
-                            "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, file_name, source, is_base, enabled, enabled_client, enabled_server, side, author, description)
+                        let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+                        {
+                            let mut stmt = tx
+                                .prepare(
+                                    "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, file_name, source, is_base, enabled, enabled_client, enabled_server, side, author, description)
                              VALUES (?1, ?2, ?3, ?4, ?5, 'local', 1, ?6, ?7, ?8, 'both', ?9, ?10)
                              ON CONFLICT(instance_id, mod_id) DO UPDATE SET
                                 name=excluded.name, mod_version_id=excluded.mod_version_id, file_name=excluded.file_name,
                                 is_base=1, enabled=excluded.enabled, enabled_client=excluded.enabled_client, enabled_server=excluded.enabled_server",
-                            params![
-                                &instance_id,
-                                file_name,
-                                &name,
-                                &version,
-                                file_name,
-                                ec,
-                                ec,
-                                es,
-                                jar_meta.author.unwrap_or_default(),
-                                jar_meta.description.unwrap_or_default(),
-                            ],
-                        )
-                        .map_err(|e| e.to_string())?;
+                                )
+                                .map_err(|e| e.to_string())?;
+                            for (file_name, name, version, ec, es, author, description) in
+                                &local_upserts
+                            {
+                                stmt.execute(params![
+                                    &instance_id,
+                                    file_name,
+                                    name,
+                                    version,
+                                    file_name,
+                                    ec,
+                                    ec,
+                                    es,
+                                    author,
+                                    description,
+                                ])
+                                .map_err(|e| e.to_string())?;
+                            }
+                        }
+                        tx.commit().map_err(|e| e.to_string())?;
                         Ok(())
                     })?;
                 }
@@ -1256,6 +1326,8 @@ pub async fn run_server_pipeline(app: AppHandle, instance_id: String) -> Result<
     let (installed, _mc, _loader) =
         installer::install_mrpack_server(&client, &archive, &server_dir).await?;
 
+    let mut server_upserts: Vec<(String, String, bool, String)> =
+        Vec::with_capacity(installed.len());
     for file in &installed {
         let es = preserve_server
             .get(&file.mod_id)
@@ -1268,35 +1340,52 @@ pub async fn run_server_pipeline(app: AppHandle, instance_id: String) -> Result<
                 &file.mod_id,
             );
         }
+        server_upserts.push((
+            file.mod_id.clone(),
+            file.file_path.clone(),
+            es,
+            file.side.clone(),
+        ));
+    }
+
+    if !server_upserts.is_empty() {
         // Upsert server-only / both base rows without wiping client fields
         with_db(&app, |conn| {
-            let exists: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM instance_mods WHERE instance_id = ?1 AND mod_id = ?2",
-                    params![&instance_id, &file.mod_id],
-                    |row| row.get(0),
-                )
-                .unwrap_or(0);
-            if exists == 0 {
-                let _ = conn.execute(
-                    "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, file_name, source, is_base, enabled, enabled_client, enabled_server, side)
+            let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+            {
+                let mut exists_stmt = tx
+                    .prepare(
+                        "SELECT COUNT(*) FROM instance_mods WHERE instance_id = ?1 AND mod_id = ?2",
+                    )
+                    .map_err(|e| e.to_string())?;
+                let mut insert_stmt = tx
+                    .prepare(
+                        "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, file_name, source, is_base, enabled, enabled_client, enabled_server, side)
                      VALUES (?1, ?2, ?3, 'unknown', ?4, 'modrinth', 1, 0, 0, ?5, ?6)",
-                    params![
-                        &instance_id,
-                        &file.mod_id,
-                        &file.mod_id,
-                        &file.file_path,
-                        es,
-                        &file.side,
-                    ],
-                );
-            } else {
-                let _ = conn.execute(
-                    "UPDATE instance_mods SET enabled_server = ?1, side = COALESCE(NULLIF(side, ''), ?2), file_name = COALESCE(NULLIF(file_name, ''), ?3)
+                    )
+                    .map_err(|e| e.to_string())?;
+                let mut update_stmt = tx
+                    .prepare(
+                        "UPDATE instance_mods SET enabled_server = ?1, side = COALESCE(NULLIF(side, ''), ?2), file_name = COALESCE(NULLIF(file_name, ''), ?3)
                      WHERE instance_id = ?4 AND mod_id = ?5",
-                    params![es, &file.side, &file.file_path, &instance_id, &file.mod_id],
-                );
+                    )
+                    .map_err(|e| e.to_string())?;
+                for (mod_id, file_path, es, side) in &server_upserts {
+                    let exists: i64 = exists_stmt
+                        .query_row(params![&instance_id, mod_id], |row| row.get(0))
+                        .unwrap_or(0);
+                    if exists == 0 {
+                        insert_stmt
+                            .execute(params![&instance_id, mod_id, mod_id, file_path, es, side,])
+                            .map_err(|e| e.to_string())?;
+                    } else {
+                        update_stmt
+                            .execute(params![es, side, file_path, &instance_id, mod_id])
+                            .map_err(|e| e.to_string())?;
+                    }
+                }
             }
+            tx.commit().map_err(|e| e.to_string())?;
             Ok(())
         })?;
     }
@@ -1306,6 +1395,8 @@ pub async fn run_server_pipeline(app: AppHandle, instance_id: String) -> Result<
         let mods_dir = server_dir.join("mods");
         if mods_dir.is_dir() {
             if let Ok(entries) = fs::read_dir(&mods_dir) {
+                let mut local_rows: Vec<(String, String, String, bool, String, String)> =
+                    Vec::new();
                 for entry in entries.flatten() {
                     let path = entry.path();
                     if !path.is_file() {
@@ -1321,50 +1412,75 @@ pub async fn run_server_pipeline(app: AppHandle, instance_id: String) -> Result<
                     if !es {
                         let _ = fs::remove_file(&path);
                     }
+                    local_rows.push((
+                        file_name.to_string(),
+                        name,
+                        version,
+                        es,
+                        jar_meta.author.unwrap_or_default(),
+                        jar_meta.description.unwrap_or_default(),
+                    ));
+                }
+                if !local_rows.is_empty() {
                     with_db(&app, |conn| {
-                        let exists: i64 = conn
-                            .query_row(
-                                "SELECT COUNT(*) FROM instance_mods WHERE instance_id = ?1 AND mod_id = ?2",
-                                params![&instance_id, file_name],
-                                |row| row.get(0),
-                            )
-                            .unwrap_or(0);
-                        if exists == 0 {
-                            let _ = conn.execute(
-                                "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, file_name, source, is_base, enabled, enabled_client, enabled_server, side, author, description)
+                        let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+                        {
+                            let mut exists_stmt = tx
+                                .prepare(
+                                    "SELECT COUNT(*) FROM instance_mods WHERE instance_id = ?1 AND mod_id = ?2",
+                                )
+                                .map_err(|e| e.to_string())?;
+                            let mut insert_stmt = tx
+                                .prepare(
+                                    "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, file_name, source, is_base, enabled, enabled_client, enabled_server, side, author, description)
                                  VALUES (?1, ?2, ?3, ?4, ?5, 'local', 1, 0, 0, ?6, 'server', ?7, ?8)",
-                                params![
-                                    &instance_id,
-                                    file_name,
-                                    &name,
-                                    &version,
-                                    file_name,
-                                    es,
-                                    jar_meta.author.unwrap_or_default(),
-                                    jar_meta.description.unwrap_or_default(),
-                                ],
-                            );
-                        } else {
-                            let _ = conn.execute(
-                                "UPDATE instance_mods SET enabled_server = ?1,
+                                )
+                                .map_err(|e| e.to_string())?;
+                            let mut update_stmt = tx
+                                .prepare(
+                                    "UPDATE instance_mods SET enabled_server = ?1,
                                     name = CASE WHEN name = '' OR name = mod_id THEN ?2 ELSE name END,
                                     mod_version_id = CASE WHEN mod_version_id IN ('', 'unknown', 'local', 'latest') THEN ?3 ELSE mod_version_id END,
                                     file_name = COALESCE(NULLIF(file_name, ''), ?4),
                                     author = CASE WHEN COALESCE(author, '') = '' THEN ?5 ELSE author END,
                                     description = CASE WHEN COALESCE(description, '') = '' THEN ?6 ELSE description END
                                  WHERE instance_id = ?7 AND mod_id = ?8",
-                                params![
-                                    es,
-                                    &name,
-                                    &version,
-                                    file_name,
-                                    jar_meta.author.unwrap_or_default(),
-                                    jar_meta.description.unwrap_or_default(),
-                                    &instance_id,
-                                    file_name,
-                                ],
-                            );
+                                )
+                                .map_err(|e| e.to_string())?;
+                            for (file_name, name, version, es, author, description) in &local_rows {
+                                let exists: i64 = exists_stmt
+                                    .query_row(params![&instance_id, file_name], |row| row.get(0))
+                                    .unwrap_or(0);
+                                if exists == 0 {
+                                    insert_stmt
+                                        .execute(params![
+                                            &instance_id,
+                                            file_name,
+                                            name,
+                                            version,
+                                            file_name,
+                                            es,
+                                            author,
+                                            description,
+                                        ])
+                                        .map_err(|e| e.to_string())?;
+                                } else {
+                                    update_stmt
+                                        .execute(params![
+                                            es,
+                                            name,
+                                            version,
+                                            file_name,
+                                            author,
+                                            description,
+                                            &instance_id,
+                                            file_name,
+                                        ])
+                                        .map_err(|e| e.to_string())?;
+                                }
+                            }
                         }
+                        tx.commit().map_err(|e| e.to_string())?;
                         Ok(())
                     })?;
                 }

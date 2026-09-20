@@ -104,6 +104,12 @@ jobs:
     steps:
       - name: Verify required jobs
         run: |
+          changes_result="${{ needs.changes.result }}"
+          if [ "$changes_result" != "success" ]; then
+            echo "changes job failed: $changes_result"
+            exit 1
+          fi
+
           fe="${{ needs.changes.outputs.frontend }}"
           rs="${{ needs.changes.outputs.rust }}"
           fe_result="${{ needs.frontend.result }}"

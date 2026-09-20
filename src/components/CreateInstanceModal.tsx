@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, startTransition } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { Icon } from './Icon';
 import { SOURCE_COLORS, normalizeLoaderName, pickNewestGameVersion } from '../constants';
 import { ModSource, LoaderType } from '../types';
@@ -137,6 +138,43 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
 
   const sc = SOURCE_COLORS[source] || SOURCE_COLORS.local;
 
+  const applyLocalPath = (file: string) => {
+    const fileName = file.split('\\').pop()?.split('/').pop() || 'pack';
+    if (!/\.(zip|mrpack)$/i.test(fileName)) {
+      addToast('Choose a .mrpack or .zip file', 'error');
+      return;
+    }
+    setLocalFile({ path: file, name: fileName });
+    setName(fileName.replace(/\.(zip|mrpack)$/i, ''));
+  };
+
+  useEffect(() => {
+    if (!isOpen || currentPlugin?.canSearch) return;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    getCurrentWebview()
+      .onDragDropEvent(event => {
+        if (event.payload.type !== 'drop') return;
+        const path = event.payload.paths[0];
+        if (path) applyLocalPath(path);
+      })
+      .then(fn => {
+        if (cancelled) {
+          fn();
+          return;
+        }
+        unlisten = fn;
+      })
+      .catch(() => {
+        /* webview API unavailable outside Tauri */
+      });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, currentPlugin?.canSearch]);
+
   if (!isOpen) return null;
 
   const handleSourceChange = (src: ModSource) => {
@@ -177,16 +215,6 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
       console.error('File dialog failed', e);
       addToast(String(e), 'error');
     }
-  };
-
-  const applyLocalPath = (file: string) => {
-    const fileName = file.split('\\').pop()?.split('/').pop() || 'pack';
-    if (!/\.(zip|mrpack)$/i.test(fileName)) {
-      addToast('Choose a .mrpack or .zip file', 'error');
-      return;
-    }
-    setLocalFile({ path: file, name: fileName });
-    setName(fileName.replace(/\.(zip|mrpack)$/i, ''));
   };
 
   const handleCreate = async () => {
@@ -300,7 +328,7 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
               Select a source and base pack to get started
             </p>
           </div>
-          <button className="btn-ghost" onClick={handleClose}>
+          <button className="btn-ghost" onClick={handleClose} aria-label="Close">
             <Icon name="x" size={16} />
           </button>
         </div>
@@ -391,6 +419,7 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
                           </div>
                           <button
                             className="btn-ghost ml-2"
+                            aria-label="Clear selected file"
                             onClick={e => {
                               e.stopPropagation();
                               setLocalFile(null);

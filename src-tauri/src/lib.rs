@@ -65,11 +65,12 @@ fn enrich_mods_on_disk(instance_id: &str, pack_label: &str, mods: &mut [Instance
         let is_author_empty = m.author.as_deref().unwrap_or("").trim().is_empty();
         let is_version_unknown =
             m.version.trim().is_empty() || m.version == "latest" || m.version == "local";
-        if is_author_empty
-            || is_version_unknown
-            || m.name.ends_with(".jar")
-            || m.name.ends_with(".zip")
-        {
+        let is_name_missing = {
+            let n = m.name.trim();
+            n.is_empty() || n.ends_with(".jar") || n.ends_with(".zip")
+        };
+        let is_description_empty = m.description.as_deref().unwrap_or("").trim().is_empty();
+        if is_author_empty || is_version_unknown || is_name_missing || is_description_empty {
             let mut possible_paths = vec![
                 client_ws.join(&normalized_rel),
                 client_ws.join("mods").join(filename),
@@ -86,17 +87,25 @@ fn enrich_mods_on_disk(instance_id: &str, pack_label: &str, mods: &mut [Instance
             }
             if let Some(jar_path) = possible_paths.iter().find(|p| p.exists() && p.is_file()) {
                 let meta = jar_inspector::inspect_jar(jar_path);
-                if let Some(real_name) = meta.name {
-                    m.name = real_name;
+                if is_name_missing {
+                    if let Some(real_name) = meta.name {
+                        m.name = real_name;
+                    }
                 }
-                if let Some(real_ver) = meta.version {
-                    m.version = real_ver;
+                if is_version_unknown {
+                    if let Some(real_ver) = meta.version {
+                        m.version = real_ver;
+                    }
                 }
-                if meta.author.is_some() {
-                    m.author = meta.author;
+                if is_author_empty {
+                    if meta.author.is_some() {
+                        m.author = meta.author;
+                    }
                 }
-                if meta.description.is_some() {
-                    m.description = meta.description;
+                if is_description_empty {
+                    if meta.description.is_some() {
+                        m.description = meta.description;
+                    }
                 }
             }
         }
@@ -808,7 +817,7 @@ fn remove_custom_mod(
             .map_err(|_| "Database lock poisoned".to_string())?;
         let file_name: String = conn
             .query_row(
-                "SELECT COALESCE(file_name, '') FROM instance_mods WHERE instance_id = ?1 AND mod_id = ?2",
+                "SELECT COALESCE(file_name, '') FROM instance_mods WHERE instance_id = ?1 AND mod_id = ?2 AND is_base = 0",
                 rusqlite::params![&instance_id, &mod_id],
                 |row| row.get(0),
             )
@@ -820,11 +829,15 @@ fn remove_custom_mod(
                 |row| row.get(0),
             )
             .unwrap_or_default();
-        conn.execute(
-            "DELETE FROM instance_mods WHERE instance_id = ?1 AND mod_id = ?2 AND is_base = 0",
-            rusqlite::params![&instance_id, &mod_id],
-        )
-        .map_err(|e| e.to_string())?;
+        let deleted = conn
+            .execute(
+                "DELETE FROM instance_mods WHERE instance_id = ?1 AND mod_id = ?2 AND is_base = 0",
+                rusqlite::params![&instance_id, &mod_id],
+            )
+            .map_err(|e| e.to_string())?;
+        if deleted == 0 {
+            return Err("Custom mod not found (base mods cannot be removed this way)".to_string());
+        }
         (file_name, downloader::stem_from_filename(&pack_name))
     };
 

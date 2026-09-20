@@ -5,7 +5,13 @@ import { Icon } from '../Icon';
 import { SOURCE_COLORS } from '../../constants';
 import { Instance, InstanceMod } from '../../types';
 import { useToast } from '../../context/ToastContext';
-import { jarLeaf, formatBytes, compareModName, modMatchesQuery } from './modListFormat';
+import {
+  jarLeaf,
+  formatBytes,
+  compareModName,
+  modMatchesQuery,
+  displayModVersion,
+} from './modListFormat';
 
 const PAGE_SIZE = 50;
 
@@ -170,9 +176,9 @@ export function ServerModsTab({ instance, onUpdate }: ServerModsTabProps) {
         <td
           className="px-3 py-2.5 text-[11px] truncate overflow-hidden"
           style={{ color: 'var(--text-muted)' }}
-          title={mod.version}
+          title={displayModVersion(mod.version, mod.fileName)}
         >
-          v{mod.version}
+          v{displayModVersion(mod.version, mod.fileName)}
         </td>
         <td
           className="px-3 py-2.5 text-[11px] text-right tabular-nums"

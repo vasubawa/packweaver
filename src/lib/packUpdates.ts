@@ -59,6 +59,8 @@ export async function checkPackUpdates(instance: Instance): Promise<UpdateCheckR
     skippedNonModrinth: 0,
   };
   if (!modrinth?.getLatestVersion) return empty;
+  const getLatestVersion = modrinth.getLatestVersion;
+  const getVersions = modrinth.getVersions;
 
   const versionOpts = {
     gameVersions: instance.mcVersion ? [instance.mcVersion] : undefined,
@@ -67,12 +69,12 @@ export async function checkPackUpdates(instance: Instance): Promise<UpdateCheckR
 
   let baseLatest: PackVersionInfo | null = null;
   if (instance.source === 'modrinth' && instance.basePack) {
-    if (modrinth.getVersions) {
-      const matched = await modrinth.getVersions(instance.basePack, versionOpts);
+    if (getVersions) {
+      const matched = await getVersions(instance.basePack, versionOpts);
       baseLatest = matched[0] ?? null;
     }
     if (!baseLatest) {
-      baseLatest = await modrinth.getLatestVersion(instance.basePack);
+      baseLatest = await getLatestVersion(instance.basePack);
     }
   }
 
@@ -85,26 +87,40 @@ export async function checkPackUpdates(instance: Instance): Promise<UpdateCheckR
   const customs: CustomUpdateInfo[] = [];
   let skippedNonModrinth = 0;
 
-  for (const mod of instance.customMods) {
+  const modrinthCustoms = instance.customMods.filter(mod => {
     if (mod.source !== 'modrinth') {
       skippedNonModrinth += 1;
-      continue;
+      return false;
     }
-    let latest: PackVersionInfo | null = null;
-    if (modrinth.getVersions) {
-      const matched = await modrinth.getVersions(mod.id, versionOpts);
-      latest = matched[0] ?? null;
+    return true;
+  });
+
+  const CONCURRENCY = 4;
+  let nextIndex = 0;
+  const workers = Array.from(
+    { length: Math.min(CONCURRENCY, modrinthCustoms.length) },
+    async () => {
+      while (nextIndex < modrinthCustoms.length) {
+        const idx = nextIndex++;
+        const mod = modrinthCustoms[idx];
+        let latest: PackVersionInfo | null = null;
+        if (getVersions) {
+          const matched = await getVersions(mod.id, versionOpts);
+          latest = matched[0] ?? null;
+        }
+        if (!latest) latest = await getLatestVersion(mod.id);
+        if (!latest) continue;
+        if (isNewer(mod.version || '', latest)) {
+          customs.push({
+            mod,
+            currentLabel: mod.version || 'unknown',
+            latest,
+          });
+        }
+      }
     }
-    if (!latest) latest = await modrinth.getLatestVersion(mod.id);
-    if (!latest) continue;
-    if (isNewer(mod.version || '', latest)) {
-      customs.push({
-        mod,
-        currentLabel: mod.version || 'unknown',
-        latest,
-      });
-    }
-  }
+  );
+  await Promise.all(workers);
 
   return {
     checkedAt: Date.now(),

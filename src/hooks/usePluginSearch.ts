@@ -14,6 +14,8 @@ export function usePluginSearch(
   const versionsKey = (filters?.gameVersions || []).join(',');
 
   useEffect(() => {
+    let active = true;
+
     if (searchFn && query.trim().length > 2) {
       const timeout = setTimeout(async () => {
         try {
@@ -22,19 +24,31 @@ export function usePluginSearch(
             loaders: filters?.loaders,
             gameVersions: filters?.gameVersions,
           });
+          if (!active) return;
           setResults(r);
+          setLastCompletedQuery(query);
         } catch (e) {
           console.error(e);
+          if (!active) return;
           setResults([]);
-        } finally {
           setLastCompletedQuery(query);
         }
       }, 400);
-      return () => clearTimeout(timeout);
-    } else {
-      const timeout = setTimeout(() => setResults([]), 0);
-      return () => clearTimeout(timeout);
+      return () => {
+        active = false;
+        clearTimeout(timeout);
+      };
     }
+
+    const timeout = setTimeout(() => {
+      if (!active) return;
+      setResults([]);
+      setLastCompletedQuery(null);
+    }, 0);
+    return () => {
+      active = false;
+      clearTimeout(timeout);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchFn, query, loadersKey, versionsKey]);
 

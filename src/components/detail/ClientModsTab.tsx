@@ -196,6 +196,7 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
                             <button
                               role="switch"
                               aria-checked={mod.enabled}
+                              aria-label={`Client toggle ${mod.name}`}
                               className={`theme-toggle-track ${mod.enabled ? 'on' : ''}`}
                               style={mod.enabled ? { background: sc.accent } : {}}
                               onClick={() => toggleBaseMod(mod.id, mod.enabled)}

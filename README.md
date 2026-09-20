@@ -23,7 +23,7 @@ Packweaver is a [Tauri](https://tauri.app) app (Rust + React + TypeScript) that 
 
 ```mermaid
 flowchart LR
-    A([Pick Source\nModrinth · Local]) --> B[Fetch to original/]
+    A([Pick Source<br/>Modrinth · Local]) --> B[Fetch to original/]
     B --> C[Install into workspace/client/stem]
     C --> D{Customize}
     D -->|Toggle / add| D

@@ -151,12 +151,19 @@ impl BasePackFetcher for ModrinthFetcher {
             pick_primary_file(latest.files)?
         };
 
-        let leaf = pack_file
-            .filename
-            .clone()
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| format!("{}.mrpack", source_id));
-
+        let leaf = {
+            let raw = pack_file
+                .filename
+                .clone()
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| format!("{}.mrpack", source_id));
+            let sanitized = crate::ids::jar_leaf(&raw);
+            if sanitized.is_empty() || sanitized == "." || sanitized == ".." {
+                format!("{}.mrpack", source_id)
+            } else {
+                sanitized
+            }
+        };
         fs::create_dir_all(dest_dir).map_err(|e| e.to_string())?;
         if dest_dir.exists() {
             for entry in fs::read_dir(dest_dir).map_err(|e| e.to_string())? {

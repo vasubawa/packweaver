@@ -70,6 +70,7 @@ export function Header({
         <button
           className="btn-accent shrink-0 flex items-center gap-1.5 whitespace-nowrap"
           onClick={onNewInstance}
+          aria-label="New Pack"
         >
           <Icon name="plus" size={14} />
           <span className="new-pack-label">New Pack</span>
