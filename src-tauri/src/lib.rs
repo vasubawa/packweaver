@@ -97,15 +97,11 @@ fn enrich_mods_on_disk(instance_id: &str, pack_label: &str, mods: &mut [Instance
                         m.version = real_ver;
                     }
                 }
-                if is_author_empty {
-                    if meta.author.is_some() {
-                        m.author = meta.author;
-                    }
+                if is_author_empty && meta.author.is_some() {
+                    m.author = meta.author;
                 }
-                if is_description_empty {
-                    if meta.description.is_some() {
-                        m.description = meta.description;
-                    }
+                if is_description_empty && meta.description.is_some() {
+                    m.description = meta.description;
                 }
             }
         }

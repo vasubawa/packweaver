@@ -77,15 +77,17 @@ pub fn is_install_running(instance_id: &str) -> bool {
 pub async fn wait_until_idle(instance_id: &str, timeout_ms: u64) -> Result<(), String> {
     let start = std::time::Instant::now();
     loop {
-        if !is_install_running(instance_id) {
-            return Ok(());
+        if is_install_running(instance_id) {
+            if start.elapsed().as_millis() as u64 > timeout_ms {
+                return Err(
+                    "This pack is still rebuilding. Wait for it to finish, then delete."
+                        .to_string(),
+                );
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            continue;
         }
-        if start.elapsed().as_millis() as u64 > timeout_ms {
-            return Err(
-                "This pack is still rebuilding. Wait for it to finish, then delete.".to_string(),
-            );
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        return Ok(());
     }
 }
 
@@ -228,6 +230,19 @@ async fn fetch_modrinth_enrichment(
     }
 
     map
+}
+
+struct BaseModUpsert {
+    mod_id: String,
+    name: String,
+    version: String,
+    file_path: String,
+    enabled_client: bool,
+    enabled_server: bool,
+    side: String,
+    icon_url: String,
+    author: Option<String>,
+    description: Option<String>,
 }
 
 fn with_db<F, T>(app: &AppHandle, f: F) -> Result<T, String>
@@ -387,18 +402,7 @@ pub async fn run_pipeline(
     let enrichment = fetch_modrinth_enrichment(&client, &hashes).await;
 
     // Remove disabled base jars from workspace (install put all client-capable files)
-    let mut upserts: Vec<(
-        String,
-        String,
-        String,
-        String,
-        bool,
-        bool,
-        String,
-        String,
-        Option<String>,
-        Option<String>,
-    )> = Vec::with_capacity(installed.len());
+    let mut upserts: Vec<BaseModUpsert> = Vec::with_capacity(installed.len());
     for file in &installed {
         let (ec, es) = preserve_enabled
             .get(&file.mod_id)
@@ -439,18 +443,18 @@ pub async fn run_pipeline(
             );
         }
 
-        upserts.push((
-            file.mod_id.clone(),
+        upserts.push(BaseModUpsert {
+            mod_id: file.mod_id.clone(),
             name,
             version,
-            file.file_path.clone(),
-            ec,
-            es,
-            file.side.clone(),
-            icon_url.unwrap_or_default(),
+            file_path: file.file_path.clone(),
+            enabled_client: ec,
+            enabled_server: es,
+            side: file.side.clone(),
+            icon_url: icon_url.unwrap_or_default(),
             author,
             description,
-        ));
+        });
     }
 
     if !upserts.is_empty() {
@@ -476,33 +480,21 @@ pub async fn run_pipeline(
                     description=excluded.description",
                     )
                     .map_err(|e| e.to_string())?;
-                for (
-                    mod_id,
-                    name,
-                    version,
-                    file_path,
-                    ec,
-                    es,
-                    side,
-                    icon_url,
-                    author,
-                    description,
-                ) in &upserts
-                {
+                for row in &upserts {
                     stmt.execute(params![
                         &instance_id,
-                        mod_id,
-                        name,
-                        version,
-                        file_path,
+                        &row.mod_id,
+                        &row.name,
+                        &row.version,
+                        &row.file_path,
                         &source,
-                        ec,
-                        ec,
-                        es,
-                        side,
-                        icon_url,
-                        author.as_deref().unwrap_or(""),
-                        description.as_deref().unwrap_or(""),
+                        row.enabled_client,
+                        row.enabled_client,
+                        row.enabled_server,
+                        &row.side,
+                        &row.icon_url,
+                        row.author.as_deref().unwrap_or(""),
+                        row.description.as_deref().unwrap_or(""),
                     ])
                     .map_err(|e| e.to_string())?;
                 }
@@ -1195,7 +1187,9 @@ pub async fn apply_mod_enabled(
         client_workspace_dir(app, instance_id)?
     };
 
-    if !enabled {
+    if enabled {
+        // continue below
+    } else {
         installer::remove_mod_file_from_workspace(&workspace_dir, Some(&file_name), mod_id);
         return Ok(());
     }
