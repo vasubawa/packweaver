@@ -20,7 +20,7 @@ export interface UpdateCheckResult {
   skippedNonModrinth: number;
 }
 
-function loaderFacet(loader: string): string {
+export function loaderFacet(loader: string): string {
   return loader.trim().toLowerCase();
 }
 

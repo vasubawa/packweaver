@@ -18,7 +18,7 @@ import {
   compareModName,
   modMatchesQuery,
 } from './modListFormat';
-import { checkPackUpdates } from '../../lib/packUpdates';
+import { checkPackUpdates, loaderFacet } from '../../lib/packUpdates';
 import type { PackVersionInfo } from '../../plugins';
 import { open } from '@tauri-apps/plugin-dialog';
 
@@ -156,15 +156,13 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
   };
 
   const currentSourcePlugin = activeSources.find(s => s.id === addModSource);
-  const loaderFacet = instance.loader
-    ? [instance.loader.toLowerCase().replace('neoforge', 'neoforge')]
-    : undefined;
+  const loaders = instance.loader ? [loaderFacet(instance.loader)] : undefined;
   const { results: modResults, isSearching: isSearchingMods } = usePluginSearch(
     currentSourcePlugin,
     modQuery,
     'mod',
     {
-      loaders: loaderFacet,
+      loaders,
       gameVersions: instance.mcVersion ? [instance.mcVersion] : undefined,
     }
   );
