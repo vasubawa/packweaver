@@ -4,11 +4,11 @@ export const ServerPackExporterPlugin: ExporterPlugin = {
   id: 'server_pack_exporter',
   name: 'Server Pack Packager',
   description:
-    'Assemble server-side mods, scripts, configs, and startup scripts into a server archive.',
+    'Build workspace/server/{stem} and export {stem}-MODIFIED-server.zip (or {stem}-{version}-MODIFIED-server.zip when a release version is set). Toggle off to hide Server Mods UI.',
   version: '1.0.0',
   author: 'Packweaver Core',
   category: 'exporter',
-  enabled: true,
+  enabled: false,
   builtIn: true,
   fallbackEmoji: '🖥️',
   targetFormat: 'server',

@@ -4,15 +4,16 @@ import { Instance } from '../../types';
 import { DetailHeader } from '../detail/DetailHeader';
 import { OverviewTab } from '../detail/OverviewTab';
 import { ClientModsTab } from '../detail/ClientModsTab';
-import { ServerFilesTab } from '../detail/ServerFilesTab';
-import { getActiveSourcePlugins } from '../../plugins';
+import { ServerModsTab } from '../detail/ServerModsTab';
+import { CustomModsTab } from '../detail/CustomModsTab';
+import { isServerExporterEnabled, getActiveSourcePlugins } from '../../plugins';
+import { useToast } from '../../context/ToastContext';
 
 import { SOURCE_COLORS } from '../../constants';
 
 interface DetailViewProps {
   instance: Instance;
   onBack: () => void;
-  onExport: (instance: Instance) => void;
   onUpdateInstance: (updated: Instance) => void;
   onDeleteInstance: (id: string) => void;
 }
@@ -20,12 +21,65 @@ interface DetailViewProps {
 export function DetailView({
   instance,
   onBack,
-  onExport,
   onUpdateInstance,
   onDeleteInstance,
 }: DetailViewProps) {
   const [activeTab, setActiveTab] = useState('overview');
+  const [serverPluginOn, setServerPluginOn] = useState(() => isServerExporterEnabled());
+  const [exportingClient, setExportingClient] = useState(false);
+  const [exportingServer, setExportingServer] = useState(false);
+  const { addToast } = useToast();
   const sc = SOURCE_COLORS[instance.source] || SOURCE_COLORS.local;
+
+  useEffect(() => {
+    const sync = () => setServerPluginOn(isServerExporterEnabled());
+    sync();
+    window.addEventListener('packweaver_plugins_changed', sync);
+    return () => window.removeEventListener('packweaver_plugins_changed', sync);
+  }, []);
+
+  const visibleTab = !serverPluginOn && activeTab === 'server' ? 'overview' : activeTab;
+
+  const runExport = useCallback(
+    async (format: 'zip' | 'server') => {
+      const isServer = format === 'server';
+      if (isServer ? exportingServer : exportingClient) return;
+      if (isServer) setExportingServer(true);
+      else setExportingClient(true);
+      try {
+        const path = await invoke<string>('export_instance', {
+          instanceId: instance.id,
+          format,
+        });
+        const exportedAt = new Date().toISOString();
+        onUpdateInstance({ ...instance, lastExported: exportedAt });
+        try {
+          await invoke('update_instance_details', {
+            id: instance.id,
+            lastExported: exportedAt,
+          });
+        } catch {
+          /* best-effort persist */
+        }
+        addToast(`Saved ${path}`, 'success');
+      } catch (e) {
+        const msg = String(e);
+        if (!msg.toLowerCase().includes('cancelled')) addToast(msg, 'error');
+      } finally {
+        if (isServer) setExportingServer(false);
+        else setExportingClient(false);
+      }
+    },
+    [addToast, exportingClient, exportingServer, instance, onUpdateInstance]
+  );
+
+  const handleExportClient = useCallback(() => {
+    void runExport('zip');
+  }, [runExport]);
+
+  const handleExportServer = useCallback(() => {
+    void runExport('server');
+  }, [runExport]);
 
   const handleUpdate = useCallback(
     async (updates: Partial<Instance>) => {
@@ -40,7 +94,8 @@ export function DetailView({
         'name' in updates ||
         'description' in updates ||
         'bannerUrl' in updates ||
-        'exportSettings' in updates
+        'exportSettings' in updates ||
+        'lastExported' in updates
       ) {
         try {
           await invoke('update_instance_details', {
@@ -51,6 +106,7 @@ export function DetailView({
             exportSettings: updates.exportSettings
               ? JSON.stringify(updates.exportSettings)
               : undefined,
+            lastExported: updates.lastExported,
           });
         } catch (e) {
           console.error('Failed to update instance details in DB', e);
@@ -95,24 +151,35 @@ export function DetailView({
       <DetailHeader
         instance={instance}
         onBack={onBack}
-        onExport={() => onExport(instance)}
+        onExportClient={handleExportClient}
+        onExportServer={serverPluginOn ? handleExportServer : undefined}
+        serverExporterEnabled={serverPluginOn}
+        exportingClient={exportingClient}
+        exportingServer={exportingServer}
         onUpdate={handleUpdate}
         onDelete={onDeleteInstance}
       />
 
       <div
-        className="px-8 mt-6 flex gap-6 flex-shrink-0"
+        className="px-8 content-pad mt-6 flex gap-6 flex-shrink-0 overflow-x-auto"
         style={{ borderBottom: '1px solid var(--border)' }}
+        role="tablist"
+        aria-label="Pack sections"
       >
         {[
           { key: 'overview', label: 'Overview' },
           { key: 'client', label: 'Client Mods' },
-          { key: 'server', label: 'Server Files' },
+          { key: 'custom', label: 'Custom Mods' },
+          ...(serverPluginOn ? [{ key: 'server', label: 'Server Mods' }] : []),
         ].map(tab => {
-          const isActive = activeTab === tab.key;
+          const isActive = visibleTab === tab.key;
           return (
             <button
               key={tab.key}
+              id={`pack-tab-${tab.key}`}
+              role="tab"
+              aria-selected={isActive}
+              aria-controls={`pack-panel-${tab.key}`}
               className="pb-2.5 text-[13px] font-medium transition-colors relative"
               style={{
                 color: isActive ? 'var(--text-primary)' : 'var(--text-muted)',
@@ -127,10 +194,24 @@ export function DetailView({
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        <div className="px-8 py-5 w-full">
-          {activeTab === 'overview' && <OverviewTab instance={instance} onUpdate={handleUpdate} />}
-          {activeTab === 'client' && <ClientModsTab instance={instance} onUpdate={handleUpdate} />}
-          {activeTab === 'server' && <ServerFilesTab instance={instance} onUpdate={handleUpdate} />}
+        <div
+          id={`pack-panel-${visibleTab}`}
+          role="tabpanel"
+          aria-labelledby={`pack-tab-${visibleTab}`}
+          className="px-8 content-pad py-5 w-full"
+        >
+          {visibleTab === 'overview' && (
+            <OverviewTab
+              instance={instance}
+              onUpdate={handleUpdate}
+              serverExporterEnabled={serverPluginOn}
+            />
+          )}
+          {visibleTab === 'client' && <ClientModsTab instance={instance} onUpdate={handleUpdate} />}
+          {visibleTab === 'custom' && <CustomModsTab instance={instance} onUpdate={handleUpdate} />}
+          {visibleTab === 'server' && serverPluginOn && (
+            <ServerModsTab instance={instance} onUpdate={handleUpdate} />
+          )}
         </div>
       </div>
     </div>

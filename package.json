@@ -2,15 +2,20 @@
   "name": "packweaver",
   "private": true,
   "version": "0.1.0",
+  "packageManager": "pnpm@12.3.4",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "test": "vitest run && cargo test --manifest-path src-tauri/Cargo.toml",
+    "test:frontend": "vitest run",
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "test": "pnpm test:frontend && pnpm test:rust",
     "test:ui": "vitest",
-    "check": "prettier --check \"src/**/*.{ts,tsx,css,json}\" && eslint \"src/**/*.{ts,tsx}\" && tsc --noEmit && cargo fmt --manifest-path src-tauri/Cargo.toml --check && cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings && pnpm test",
+    "check:frontend": "prettier --check \"src/**/*.{ts,tsx,css,json}\" && eslint \"src/**/*.{ts,tsx}\" && tsc --noEmit",
+    "check:rust": "cargo fmt --manifest-path src-tauri/Cargo.toml --check && cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings",
+    "check": "pnpm check:frontend && pnpm check:rust && pnpm test",
     "fix": "prettier --write \"src/**/*.{ts,tsx,css,json}\" && eslint \"src/**/*.{ts,tsx}\" --fix && cargo fmt --manifest-path src-tauri/Cargo.toml",
     "update": "pnpm up && cargo update --manifest-path src-tauri/Cargo.toml && pnpm test",
     "build:zip:win": "pnpm tauri build && powershell -Command \"Compress-Archive -Path src-tauri\\target\\release\\packweaver.exe -DestinationPath packweaver-windows.zip -Force\"",
@@ -53,11 +58,8 @@
       "eslint --fix",
       "prettier --write"
     ],
-    "src/**/*.{css,json}": "prettier --write"
-  },
-  "pnpm": {
-    "overrides": {
-      "typescript": "~6.0.3"
-    }
+    "src/**/*.{css,json}": "prettier --write",
+    "src-tauri/src/**/*.rs": "cargo fmt --manifest-path src-tauri/Cargo.toml --",
+    "*.md": "prettier --write"
   }
 }

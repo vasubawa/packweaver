@@ -2,15 +2,20 @@
 
 > A desktop modpack builder for Minecraft — create, customize, and export modpacks from multiple sources.
 
-Packweaver is a [Tauri](https://tauri.app) app (Rust + React + TypeScript) that lets you build Minecraft modpacks by picking a base pack from Modrinth or a local file, layering in your own custom mods and server files, and exporting everything to a standard archive format.
+Packweaver is a [Tauri](https://tauri.app) app (Rust + React + TypeScript) that lets you build Minecraft modpacks by picking a base pack from Modrinth or a local file, layering in your own custom mods, and exporting a client `.zip`. It is a **builder/exporter**, not a launcher — play stays in tools like Prism; a future “install into …” exporter is optional and far out.
+
+**Platform:** Windows only (other OS targets are not supported or tested).
 
 ---
 
 ## What it does
 
-1. **Create an Instance** — pick a base modpack from Modrinth or a local `.mrpack`/`.zip` file.
-2. **Customize** — add your own mods (from Modrinth or local `.jar` files) and server files on top of the base pack. Toggle individual mods on/off without deleting them.
-3. **Export** — package the result as a `.zip` (default), `.mrpack` (Modrinth format, plugin), or server archive (plugin).
+1. **Create an Instance** — pick a base modpack from Modrinth or a local `.mrpack`/`.zip`. Packweaver **installs** it into `workspace/client/{stem}/` (Minecraft-shaped, not a raw archive dump).
+2. **Customize** — add custom mods; toggle base or custom mods on/off (off = jar removed from that side’s tree).
+3. **Rebuild** — wipe `workspace/client/`, reinstall the base pack under `{stem}/`, re-layer enabled customs (repairs messy instances).
+4. **Export** — zip `workspace/client/{stem}/` as `{stem}-MODIFIED.zip`. With **Server Pack Packager** enabled: rebuild `workspace/server/{stem}/` and export `-MODIFIED-server.zip`.
+
+`.mrpack` exporter is not available yet.
 
 ---
 
@@ -18,35 +23,43 @@ Packweaver is a [Tauri](https://tauri.app) app (Rust + React + TypeScript) that 
 
 ```mermaid
 flowchart LR
-    A([Pick Source\nModrinth · Local]) --> B[Download\nBase Pack]
-    B --> C[Extract\nWorkspace]
+    A([Pick Source<br/>Modrinth · Local]) --> B[Fetch to original/]
+    B --> C[Install into workspace/client/stem]
     C --> D{Customize}
-    D -->|Add mod| D
-    D -->|Add server file| D
-    D -->|Toggle enabled| D
-    D --> E[Export]
-    E --> F[Download\nCustom Mods]
-    F --> G[Assemble\nWorkspace]
-    G --> H{Format?}
-    H -->|.zip default| I([Output .zip])
-    H -->|.mrpack plugin| J([Output .mrpack])
-    H -->|server plugin| K([Output server.zip])
+    D -->|Toggle / add| D
+    D --> E[Rebuild or Layer]
+    E --> F([Export -MODIFIED.zip])
 ```
 
-See [`CONTEXT.md`](./CONTEXT.md) for domain terminology (Instance, Base Pack, Custom Mod, etc.).
+Per-instance layout:
+
+```text
+instances/{id}/
+  original/{realFilename}.mrpack
+  workspace/
+    client/{stem}/        # client — enabled content only
+      mods/
+      config/
+      ...
+    server/{stem}/        # server — when Server Pack Packager plugin is on
+      mods/
+      ...
+```
+
+See [`CONTEXT.md`](./CONTEXT.md) for domain terminology.
 
 ---
 
 ## Tech stack
 
-| Layer | Tech |
-|---|---|
-| Desktop shell | [Tauri v2](https://tauri.app) |
-| Backend | Rust |
-| Frontend | React 19 + TypeScript + Vite |
-| Database | SQLite via `rusqlite` |
-| HTTP | `reqwest` (async) |
-| Modpack sources | Modrinth API, local files |
+| Layer           | Tech                          |
+| --------------- | ----------------------------- |
+| Desktop shell   | [Tauri v2](https://tauri.app) |
+| Backend         | Rust                          |
+| Frontend        | React 19 + TypeScript + Vite  |
+| Database        | SQLite via `rusqlite`         |
+| HTTP            | `reqwest` (async)             |
+| Modpack sources | Modrinth API, local files     |
 
 ---
 
@@ -62,12 +75,13 @@ src/                    # React frontend
 
 src-tauri/              # Rust backend
   src/
-    lib.rs              # Tauri commands (get_instances, create_instance, etc.)
-    downloader.rs       # Base pack download & extraction pipeline
+    lib.rs              # Tauri commands
+    downloader.rs       # Install/rebuild + custom layer + zip
+    installer.rs        # mrpack → Minecraft-shaped workspace
     fetchers.rs         # BasePackFetcher trait (Modrinth, Local)
-    db.rs               # SQLite init & migrations
-    models.rs           # Rust structs (Instance, InstanceMod, ServerFile)
-    jar_inspector.rs    # Reads mod metadata from .jar / .zip files
+    db.rs               # SQLite init & additive column upgrades
+    models.rs           # Rust structs
+    jar_inspector.rs    # Reads mod metadata from .jar / .zip
 ```
 
 ---
@@ -91,13 +105,13 @@ pnpm tauri build
 
 ## Domain model
 
-| Term | Meaning |
-|---|---|
-| **Instance** | A workspace built on top of a Base Pack |
-| **Base Pack** | The modpack used as the foundation (e.g. a Modrinth pack) |
-| **Platform Source** | Where the Base Pack comes from (Modrinth, local) |
-| **Base Mod** | A mod inherited from the Base Pack |
-| **Custom Mod** | A mod added manually by the user on top of the Base Pack |
-| **Enabled** | Whether a mod is included in the exported output |
+| Term                | Meaning                                                   |
+| ------------------- | --------------------------------------------------------- |
+| **Instance**        | A workspace built on top of a Base Pack                   |
+| **Base Pack**       | The modpack used as the foundation (e.g. a Modrinth pack) |
+| **Platform Source** | Where the Base Pack comes from (Modrinth, local)          |
+| **Base Mod**        | A mod inherited from the Base Pack                        |
+| **Custom Mod**      | A mod added manually by the user on top of the Base Pack  |
+| **Enabled**         | Whether a mod is included in the exported output          |
 
 Full glossary in [`CONTEXT.md`](./CONTEXT.md).

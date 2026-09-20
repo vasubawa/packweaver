@@ -79,6 +79,7 @@ export interface BasePlugin {
   isCore?: boolean;
   iconUrl?: string;
   fallbackEmoji: string;
+  comingSoon?: boolean;
   requiresApiKey?: boolean;
   apiKey?: string;
 }

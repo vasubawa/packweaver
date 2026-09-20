@@ -2,51 +2,125 @@ name: CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ['main']
   pull_request:
-    branches: [ "main" ]
+    branches: ['main']
 
 permissions:
   contents: read
 
 jobs:
-  lint-and-test:
-    strategy:
-      fail-fast: false
-      matrix:
-        platform: [windows-latest]
-        
-    runs-on: ${{ matrix.platform }}
-    
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      frontend: ${{ steps.filter.outputs.frontend }}
+      rust: ${{ steps.filter.outputs.rust }}
     steps:
-    - uses: actions/checkout@v7
-      with:
-        persist-credentials: false
-    
-    - name: Install pnpm
-      uses: pnpm/action-setup@v6
-      with:
-        version: 9
-        
-    - name: Use Node.js
-      uses: actions/setup-node@v7
-      with:
-        node-version: '20.x'
-        cache: 'pnpm'
-        
-    - name: Install dependencies
-      run: pnpm install
-      
-    - name: Setup Rust
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        components: rustfmt, clippy
-        
-    - name: Run All Checks (Format, Lint, Types, Rust Clippy)
-      run: pnpm check
-      
-    - name: Run Tests
-      run: pnpm test
-      
-    - name: Check Rust Build
-      run: cargo check --manifest-path src-tauri/Cargo.toml
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            frontend:
+              - 'src/**'
+              - 'index.html'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - 'tsconfig*.json'
+              - 'vite.config.*'
+              - 'vitest.config.*'
+              - 'eslint.config.*'
+              - '.github/workflows/ci.yml'
+            rust:
+              - 'src-tauri/**'
+              - '.github/workflows/ci.yml'
+
+  frontend:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 12.3.4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '20.x'
+          cache: 'pnpm'
+
+      # Restores from cache when pnpm-lock.yaml is unchanged.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Frontend check
+        run: pnpm check:frontend
+
+      - name: Frontend tests
+        run: pnpm test:frontend
+
+  rust:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      # Restores target/ + registry when Cargo.lock is unchanged.
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Rust format + clippy
+        run: |
+          cargo fmt --manifest-path src-tauri/Cargo.toml --check
+          cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
+
+      - name: Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+  # Single required status for branch protection when path filters skip a job.
+  ci-success:
+    needs: [changes, frontend, rust]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify required jobs
+        run: |
+          changes_result="${{ needs.changes.result }}"
+          if [ "$changes_result" != "success" ]; then
+            echo "changes job failed: $changes_result"
+            exit 1
+          fi
+
+          fe="${{ needs.changes.outputs.frontend }}"
+          rs="${{ needs.changes.outputs.rust }}"
+          fe_result="${{ needs.frontend.result }}"
+          rs_result="${{ needs.rust.result }}"
+
+          if [ "$fe" = "true" ] && [ "$fe_result" != "success" ]; then
+            echo "frontend job failed: $fe_result"
+            exit 1
+          fi
+          if [ "$rs" = "true" ] && [ "$rs_result" != "success" ]; then
+            echo "rust job failed: $rs_result"
+            exit 1
+          fi
+          echo "CI OK (frontend=$fe/$fe_result rust=$rs/$rs_result)"
