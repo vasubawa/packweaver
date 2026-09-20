@@ -1241,7 +1241,7 @@
     overflow-y: auto;
     padding: 10px 12px;
     border-radius: var(--radius-md, 8px);
-    background: color-mix(in srgb, var(--bg-deep, var(--bg)) 88%, #1a2332);
+    background: color-mix(in srgb, var(--bg-muted) 88%, var(--text-primary));
     border: 1px solid var(--border);
     font-family: var(--font-mono);
     font-size: 11px;
@@ -1262,11 +1262,11 @@
     border-bottom: none;
   }
   .warp-tape-time {
-    color: #b86b2c;
+    color: var(--accent);
     font-variant-numeric: tabular-nums;
   }
   .warp-tape-scope {
-    color: #2a9d8f;
+    color: var(--success);
     overflow: hidden;
     text-overflow: ellipsis;
   }
@@ -1275,10 +1275,10 @@
     word-break: break-word;
   }
   .warp-tape-error .warp-tape-msg {
-    color: #c45c4a;
+    color: var(--danger);
   }
   .warp-tape-warn .warp-tape-msg {
-    color: #c4923a;
+    color: var(--local);
   }
   .warp-tape-disk {
     max-height: 160px;

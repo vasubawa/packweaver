@@ -116,6 +116,7 @@ pub fn apply_schema(conn: &Connection) -> Result<()> {
         ("instances", "server_original_filename", "TEXT DEFAULT ''"),
         ("instances", "notes", "TEXT DEFAULT ''"),
         ("instances", "base_pack_version_label", "TEXT DEFAULT ''"),
+        ("instances", "loader_version", "TEXT DEFAULT ''"),
         ("server_files", "file_id", "TEXT DEFAULT ''"),
         ("server_files", "source_path", "TEXT DEFAULT ''"),
     ];

@@ -27,7 +27,7 @@ export function ServerFilesTab({ instance, onUpdate }: ServerFilesTabProps) {
   const sc = SOURCE_COLORS[instance.source] || SOURCE_COLORS.local;
   const { addToast } = useToast();
 
-  const persistFiles = async (next: ServerFileItem[]) => {
+  const persistFiles = async (next: ServerFileItem[]): Promise<boolean> => {
     setBusy(true);
     try {
       await invoke('set_server_files', {
@@ -35,8 +35,10 @@ export function ServerFilesTab({ instance, onUpdate }: ServerFilesTabProps) {
         files: toPayload(next),
       });
       onUpdate({ serverFiles: next });
+      return true;
     } catch (e) {
       addToast(`Failed to save server files: ${e}`, 'error');
+      return false;
     } finally {
       setBusy(false);
     }
@@ -66,8 +68,9 @@ export function ServerFilesTab({ instance, onUpdate }: ServerFilesTabProps) {
         enabled: true,
       },
     ];
-    setNewFileName('');
-    void persistFiles(next);
+    void persistFiles(next).then(ok => {
+      if (ok) setNewFileName('');
+    });
   };
 
   const toggleIncludeServer = () => {

@@ -280,7 +280,9 @@ export function OverviewTab({
           <div className="info-card">
             <div className="info-card-label">Loader</div>
             <div className="info-card-value">{instance.loader || '—'}</div>
-            <div className="info-card-meta">{sourceLabel}</div>
+            <div className="info-card-meta">
+              {instance.mcVersion || '—'} · {sourceLabel}
+            </div>
           </div>
 
           <div className="info-card">

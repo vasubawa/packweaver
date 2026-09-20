@@ -634,7 +634,9 @@ fn set_server_files(
         return Err("Instance not found".to_string());
     }
 
-    conn.execute(
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+
+    tx.execute(
         "DELETE FROM server_files WHERE instance_id = ?1",
         [&instance_id],
     )
@@ -659,7 +661,7 @@ fn set_server_files(
         } else {
             f.id.trim().to_string()
         };
-        conn.execute(
+        tx.execute(
             "INSERT INTO server_files (instance_id, file_id, name, type, source, enabled) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             rusqlite::params![
                 instance_id,
@@ -673,6 +675,7 @@ fn set_server_files(
         .map_err(|e| e.to_string())?;
     }
 
+    tx.commit().map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -1504,7 +1507,7 @@ async fn export_instance(
     }
 
     let dest_str = dest.to_string_lossy().to_string();
-    log::info!(target: "packweaver", "export ok id={instance_id} path={dest_str}");
+    log::info!(target: "packweaver", "export ok id={instance_id}");
     let _ = app.emit(
         "export-progress",
         downloader::ProgressEvent {

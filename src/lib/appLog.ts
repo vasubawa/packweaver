@@ -13,7 +13,7 @@ const MAX_ENTRIES = 200;
 const VERBOSE_KEY = 'packweaver_debug_verbose';
 
 let nextId = 1;
-const entries: AppLogEntry[] = [];
+let entries: AppLogEntry[] = [];
 const listeners = new Set<() => void>();
 
 function notify() {
@@ -53,21 +53,24 @@ export function getAppLogEntries(): readonly AppLogEntry[] {
 }
 
 export function clearAppLog() {
-  entries.length = 0;
+  entries = [];
   notify();
 }
 
 export function appLog(level: AppLogLevel, scope: string, message: string) {
   if (level === 'debug' && !isVerboseLogging()) return;
-  entries.push({
-    kind: 'entry',
-    id: nextId++,
-    at: isoNow(),
-    level,
-    scope,
-    message,
-  });
-  while (entries.length > MAX_ENTRIES) entries.shift();
+  const next = [
+    ...entries,
+    {
+      kind: 'entry' as const,
+      id: nextId++,
+      at: isoNow(),
+      level,
+      scope,
+      message,
+    },
+  ];
+  entries = next.length > MAX_ENTRIES ? next.slice(next.length - MAX_ENTRIES) : next;
   notify();
   if (level === 'error') {
     console.error(`[${scope}] ${message}`);

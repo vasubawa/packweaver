@@ -148,6 +148,8 @@ fn default_game() -> String {
 pub struct PackInstallMeta {
     pub mc_version: String,
     pub loader: String,
+    /// Loader version string (e.g. fabric-loader / forge version from index or mmc.json).
+    pub loader_version: String,
     pub pack_name: String,
     pub pack_version: String,
     pub summary: String,
@@ -233,10 +235,11 @@ pub fn is_curseforge_pack(archive_path: &Path) -> Result<bool, String> {
 }
 
 fn meta_from_index(index: &ModrinthIndex) -> PackInstallMeta {
-    let (mc, loader) = parse_loader_mc(index);
+    let (mc, loader, loader_version) = parse_loader_mc(index);
     PackInstallMeta {
         mc_version: mc,
         loader,
+        loader_version,
         pack_name: index.name.clone().unwrap_or_default(),
         pack_version: index.version_id.clone().unwrap_or_default(),
         summary: index.summary.clone().unwrap_or_default(),
@@ -380,22 +383,24 @@ pub async fn download_index_files_client(
     Ok(installed)
 }
 
-pub fn parse_loader_mc(index: &ModrinthIndex) -> (String, String) {
+pub fn parse_loader_mc(index: &ModrinthIndex) -> (String, String, String) {
     let mc = index
         .dependencies
         .get("minecraft")
         .cloned()
         .unwrap_or_default();
-    let loader = if index.dependencies.contains_key("neoforge") {
-        "NeoForge"
-    } else if index.dependencies.contains_key("forge") {
-        "Forge"
-    } else if index.dependencies.contains_key("quilt-loader") {
-        "Quilt"
+    let (loader, loader_version) = if let Some(v) = index.dependencies.get("neoforge") {
+        ("NeoForge", v.clone())
+    } else if let Some(v) = index.dependencies.get("forge") {
+        ("Forge", v.clone())
+    } else if let Some(v) = index.dependencies.get("quilt-loader") {
+        ("Quilt", v.clone())
+    } else if let Some(v) = index.dependencies.get("fabric-loader") {
+        ("Fabric", v.clone())
     } else {
-        "Fabric"
+        ("Fabric", String::new())
     };
-    (mc, loader.to_string())
+    (mc, loader.to_string(), loader_version)
 }
 
 /// Extract a plain zip as an already instance-shaped tree into workspace.
@@ -573,12 +578,16 @@ fn apply_mmc_pack(path: &Path, meta: &mut PackInstallMeta) {
         } else if meta.loader.is_empty() {
             if uid.contains("fabric-loader") || uid.contains("fabricmc.fabric-loader") {
                 meta.loader = "Fabric".to_string();
+                meta.loader_version = ver;
             } else if uid.contains("neoforge") {
                 meta.loader = "NeoForge".to_string();
+                meta.loader_version = ver;
             } else if uid.contains("minecraftforge") || uid.ends_with(".forge") {
                 meta.loader = "Forge".to_string();
+                meta.loader_version = ver;
             } else if uid.contains("quilt-loader") {
                 meta.loader = "Quilt".to_string();
+                meta.loader_version = ver;
             }
         }
     }
@@ -878,7 +887,7 @@ pub async fn install_mrpack_server(
         return Ok((Vec::new(), String::new(), String::new()));
     };
 
-    let (mc, loader) = parse_loader_mc(&index);
+    let (mc, loader, _) = parse_loader_mc(&index);
     let installed = download_index_files_server(client, &index, workspace).await?;
     merge_server_overrides(archive_path, workspace)?;
     Ok((installed, mc, loader))
@@ -996,6 +1005,7 @@ pub fn pack_workspace_as_mrpack(
     summary: &str,
     mc_version: &str,
     loader: &str,
+    loader_version: &str,
     // Relative paths (forward slash) still served from the original index URLs.
     enabled_index_paths: &std::collections::HashSet<String>,
 ) -> Result<(), String> {
@@ -1016,13 +1026,7 @@ pub fn pack_workspace_as_mrpack(
     if let Some(idx) = source_index.as_ref() {
         for file in &idx.files {
             let path_norm = file.path.replace('\\', "/");
-            let leaf = path_norm.rsplit('/').next().unwrap_or(&path_norm);
-            let keep = enabled_index_paths.contains(&path_norm)
-                || enabled_index_paths.iter().any(|e| {
-                    let e_leaf = e.rsplit('/').next().unwrap_or(e.as_str());
-                    e == &path_norm || e_leaf == leaf || e.ends_with(&path_norm)
-                });
-            if !keep {
+            if !enabled_index_paths.contains(&path_norm) {
                 continue;
             }
             if file.downloads.is_empty() {
@@ -1054,12 +1058,25 @@ pub fn pack_workspace_as_mrpack(
         _ => None,
     };
     if let Some(key) = loader_key {
-        if !dependencies.contains_key(key) {
-            // Keep existing loader version from source; if none, omit (host/launcher may still open).
-            if let Some(idx) = source_index.as_ref() {
-                if let Some(v) = idx.dependencies.get(key) {
-                    dependencies.insert(key.into(), v.clone());
-                }
+        let has_ver = dependencies
+            .get(key)
+            .map(|v| !v.trim().is_empty())
+            .unwrap_or(false);
+        if !has_ver {
+            let from_param = loader_version.trim();
+            let from_index = source_index
+                .as_ref()
+                .and_then(|i| i.dependencies.get(key))
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty());
+            if !from_param.is_empty() {
+                dependencies.insert(key.into(), from_param.to_string());
+            } else if let Some(v) = from_index {
+                dependencies.insert(key.into(), v.to_string());
+            } else {
+                return Err(format!(
+                    "Cannot export .mrpack: {loader} loader version is unknown. Re-import or rebuild the pack so the loader version is recorded."
+                ));
             }
         }
     }
