@@ -54,9 +54,14 @@ jobs:
         if: matrix.platform == 'windows-latest'
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path release-staging
-          Copy-Item src-tauri\target\release\packweaver.exe release-staging\
-          New-Item -ItemType Directory -Force -Path release-staging\packweaver-data\instances
+          $exe = "src-tauri\target\release\packweaver.exe"
+          if (-not (Test-Path $exe)) { throw "Missing $exe — Tauri build did not produce the binary" }
+          New-Item -ItemType Directory -Force -Path release-staging | Out-Null
+          Copy-Item $exe release-staging\
+          # Compress-Archive drops empty directories; seed so packweaver-data/instances survives.
+          New-Item -ItemType Directory -Force -Path release-staging\packweaver-data\instances | Out-Null
+          New-Item -ItemType File -Force -Path release-staging\packweaver-data\instances\.keep | Out-Null
+          if (Test-Path Packweaver-Windows.zip) { Remove-Item Packweaver-Windows.zip -Force }
           Compress-Archive -Path release-staging\* -DestinationPath Packweaver-Windows.zip
 
       - name: Upload Release Assets
@@ -65,5 +70,6 @@ jobs:
         with:
           files: |
             Packweaver-Windows.zip
+          fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
