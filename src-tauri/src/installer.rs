@@ -986,6 +986,7 @@ pub fn extract_named_jar_from_zip(
 
 /// Build a Modrinth `.mrpack` from a client workspace.
 /// CDN-linked base files stay in `modrinth.index.json`; everything else goes under `overrides/`.
+#[allow(clippy::too_many_arguments)]
 pub fn pack_workspace_as_mrpack(
     workspace_dir: &Path,
     dest: &Path,
