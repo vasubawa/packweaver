@@ -375,7 +375,12 @@
     letter-spacing: 0.01em;
     color: var(--text-muted);
   }
-  .font-mono-meta > span {
+  .disk-pending {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: var(--accent);
     white-space: nowrap;
   }
   @keyframes loom-card-enter {
@@ -1225,6 +1230,70 @@
       padding-left: 16px;
       padding-right: 16px;
     }
+  }
+
+  /* Warp tape — inspection log: copper time ticks on a dark beam */
+  .warp-tape.loom-panel::before {
+    background: linear-gradient(180deg, #b86b2c 0%, #2a9d8f 100%);
+  }
+  .warp-tape-roll {
+    max-height: 220px;
+    overflow-y: auto;
+    padding: 10px 12px;
+    border-radius: var(--radius-md, 8px);
+    background: color-mix(in srgb, var(--bg-deep, var(--bg)) 88%, #1a2332);
+    border: 1px solid var(--border);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.55;
+  }
+  .warp-tape-empty {
+    color: var(--text-muted);
+    font-style: italic;
+  }
+  .warp-tape-line {
+    display: grid;
+    grid-template-columns: 4.5rem 5.5rem 1fr;
+    gap: 8px;
+    padding: 2px 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  }
+  .warp-tape-line:last-child {
+    border-bottom: none;
+  }
+  .warp-tape-time {
+    color: #b86b2c;
+    font-variant-numeric: tabular-nums;
+  }
+  .warp-tape-scope {
+    color: #2a9d8f;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .warp-tape-msg {
+    color: var(--text-secondary);
+    word-break: break-word;
+  }
+  .warp-tape-error .warp-tape-msg {
+    color: #c45c4a;
+  }
+  .warp-tape-warn .warp-tape-msg {
+    color: #c4923a;
+  }
+  .warp-tape-disk {
+    max-height: 160px;
+    overflow: auto;
+    margin: 0;
+    padding: 10px 12px;
+    border-radius: var(--radius-md, 8px);
+    background: color-mix(in srgb, var(--bg-surface) 70%, transparent);
+    border: 1px dashed var(--border);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    line-height: 1.45;
+    color: var(--text-muted);
+    white-space: pre-wrap;
+    word-break: break-word;
   }
 
   @media (prefers-reduced-motion: reduce) {

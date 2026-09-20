@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import { Instance } from '../../types';
 import { Icon } from '../Icon';
 import { useToast } from '../../context/ToastContext';
 import { isServerExporterEnabled } from '../../plugins';
 import { checkPackUpdates, CustomUpdateInfo, UpdateCheckResult } from '../../lib/packUpdates';
+import { applyBasePackUpdate, applyCustomModUpdates } from '../../lib/applyPackUpdates';
 
 interface UpdatesCardProps {
   instance: Instance;
@@ -12,22 +12,6 @@ interface UpdatesCardProps {
   onBaseUpdated?: () => void;
   /** When true (Server Pack Packager on), also rebuild/layer the server workspace. */
   serverExporterEnabled?: boolean;
-}
-
-async function layerClient(instanceId: string): Promise<number> {
-  return invoke<number>('layer_custom_mods', { instanceId, forServer: false });
-}
-
-async function layerServerIfPresent(instanceId: string, serverOn: boolean): Promise<number> {
-  if (!serverOn) return 0;
-  try {
-    return await invoke<number>('layer_custom_mods', { instanceId, forServer: true });
-  } catch (e) {
-    const msg = String(e).toLowerCase();
-    // No server tree yet — skip quietly; user can Rebuild server later.
-    if (msg.includes('not found') || msg.includes('rebuild server')) return 0;
-    throw e;
-  }
 }
 
 export function UpdatesCard({
@@ -74,45 +58,39 @@ export function UpdatesCard({
 
   const applyBase = async () => {
     if (!result?.base.latest || applyingBase) return;
+    const latest = result.base.latest;
     setApplyingBase(true);
     onUpdate({ status: 'Installing...' });
     try {
-      await invoke('set_base_pack_version', {
+      const applied = await applyBasePackUpdate({
         instanceId: instance.id,
-        versionId: result.base.latest.versionId,
-        versionLabel: result.base.latest.versionNumber,
+        latest,
+        serverOn,
       });
       onUpdate({
-        basePackVersion: result.base.latest.versionId,
-        basePackVersionLabel: result.base.latest.versionNumber,
-        status: 'Installing...',
+        basePackVersion: applied.versionId,
+        basePackVersionLabel: applied.versionNumber,
+        status: 'Ready',
       });
-      await invoke('rebuild_workspace', { instanceId: instance.id });
-      if (serverOn) {
-        try {
-          await invoke('rebuild_server_workspace', { instanceId: instance.id });
-        } catch (e) {
-          // Server rebuild is best-effort when plugin is on.
-          addToast(`Client updated; server rebuild skipped: ${e}`, 'info');
-        }
+      if (applied.serverWarning) {
+        addToast(`Client updated; server rebuild skipped: ${applied.serverWarning}`, 'info');
       }
-      onUpdate({ status: 'Ready' });
       setResult(prev =>
         prev
           ? {
               ...prev,
               base: {
                 available: false,
-                currentLabel: result.base.latest!.versionNumber,
-                latest: result.base.latest,
+                currentLabel: applied.versionNumber,
+                latest,
               },
             }
           : prev
       );
       addToast(
-        serverOn
-          ? `Base pack updated to ${result.base.latest.versionNumber} (client + server)`
-          : `Base pack updated to ${result.base.latest.versionNumber}`,
+        serverOn && applied.serverRebuilt
+          ? `Base pack updated to ${applied.versionNumber} (client + server)`
+          : `Base pack updated to ${applied.versionNumber}`,
         'success'
       );
       onBaseUpdated?.();
@@ -132,35 +110,24 @@ export function UpdatesCard({
     if (picks.length === 0 || applyingCustoms) return;
     setApplyingCustoms(true);
     try {
-      await invoke('update_custom_mod_versions', {
-        instanceId: instance.id,
-        updates: picks.map(c => ({
+      const applied = await applyCustomModUpdates({
+        instance,
+        serverOn,
+        pins: picks.map(c => ({
           modId: c.mod.id,
-          version: c.latest.versionId,
+          versionId: c.latest.versionId,
           versionNumber: c.latest.versionNumber,
           fileName: c.latest.primaryFilename || undefined,
         })),
       });
-      const nextMods = instance.customMods.map(m => {
-        const hit = picks.find(p => p.mod.id === m.id);
-        if (!hit) return m;
-        return {
-          ...m,
-          version: hit.latest.versionNumber,
-          versionId: hit.latest.versionId,
-          fileName: hit.latest.primaryFilename || m.fileName,
-        };
-      });
-      onUpdate({ customMods: nextMods });
-      const clientCount = await layerClient(instance.id);
-      const serverCount = await layerServerIfPresent(instance.id, serverOn);
+      onUpdate({ customMods: applied.updatedMods });
       setResult(prev =>
         prev ? { ...prev, customs: prev.customs.filter(c => !selected[c.mod.id]) } : prev
       );
-      const layered = clientCount + serverCount;
+      const layered = applied.clientLayered + applied.serverLayered;
       addToast(
-        serverOn && serverCount > 0
-          ? `Updated ${picks.length} custom mod${picks.length === 1 ? '' : 's'} (client ${clientCount}, server ${serverCount})`
+        serverOn && applied.serverLayered > 0
+          ? `Updated ${picks.length} custom mod${picks.length === 1 ? '' : 's'} (client ${applied.clientLayered}, server ${applied.serverLayered})`
           : `Updated ${picks.length} custom mod${picks.length === 1 ? '' : 's'} (${layered} layered)`,
         'success'
       );

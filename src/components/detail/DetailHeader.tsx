@@ -160,12 +160,14 @@ export function DetailHeader({
                 >
                   {instance.status === 'syncing'
                     ? 'Syncing'
-                    : instance.total && instance.progress !== undefined
-                      ? `${instance.status} · ${Math.min(
-                          100,
-                          Math.round((instance.progress / instance.total) * 100)
-                        )}%`
-                      : instance.status || 'Ready'}
+                    : instance.status.startsWith('Error')
+                      ? instance.status.replace(/^Error:\s*/i, 'Error: ').slice(0, 80)
+                      : instance.total && instance.progress !== undefined
+                        ? `${instance.status} · ${Math.min(
+                            100,
+                            Math.round((instance.progress / instance.total) * 100)
+                          )}%`
+                        : instance.status || 'Ready'}
                 </span>
               </div>
 
@@ -195,6 +197,7 @@ export function DetailHeader({
                       color: 'var(--text-primary)',
                       fontFamily: 'var(--font-heading)',
                     }}
+                    title={instance.name}
                   >
                     {instance.name}
                   </h2>
@@ -212,7 +215,8 @@ export function DetailHeader({
               <div className="font-mono-meta flex items-center gap-2 flex-wrap">
                 <span
                   className="max-w-full overflow-hidden text-ellipsis whitespace-nowrap"
-                  style={{ color: 'var(--text-secondary)', maxWidth: '300px' }}
+                  style={{ color: 'var(--text-secondary)' }}
+                  title={instance.basePack}
                 >
                   {displayBasePack}
                 </span>

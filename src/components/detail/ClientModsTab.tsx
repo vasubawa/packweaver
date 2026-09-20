@@ -190,16 +190,26 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
                           title={mod.description || mod.name}
                         >
                           <td className="px-3 py-2.5 text-center">
-                            <button
-                              role="switch"
-                              aria-checked={mod.enabled}
-                              aria-label={`Client toggle ${mod.name}`}
-                              className={`theme-toggle-track ${mod.enabled ? 'on' : ''}`}
-                              style={mod.enabled ? { background: sc.accent } : {}}
-                              onClick={() => toggleBaseMod(mod.id, mod.enabled)}
-                            >
-                              <div className="theme-toggle-knob" />
-                            </button>
+                            <div className="flex flex-col items-center gap-1">
+                              <button
+                                role="switch"
+                                aria-checked={mod.enabled}
+                                aria-label={`Client toggle ${mod.name}`}
+                                className={`theme-toggle-track ${mod.enabled ? 'on' : ''}`}
+                                style={mod.enabled ? { background: sc.accent } : {}}
+                                onClick={() => toggleBaseMod(mod.id, mod.enabled)}
+                              >
+                                <div className="theme-toggle-knob" />
+                              </button>
+                              {mod.enabled && mod.onDiskClient === false ? (
+                                <span
+                                  className="disk-pending"
+                                  title="Enabled but not on disk yet. Rebuild or layer from Overview."
+                                >
+                                  Pending
+                                </span>
+                              ) : null}
+                            </div>
                           </td>
                           <td className="px-3 py-2.5 overflow-hidden">
                             <div className="flex items-center gap-3 min-w-0">
@@ -228,6 +238,7 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
                               <div
                                 className="text-[12.5px] font-medium truncate min-w-0"
                                 style={{ color: 'var(--text-primary)' }}
+                                title={displayName}
                               >
                                 {displayName}
                               </div>

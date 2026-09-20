@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "packweaver",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "identifier": "com.vasus.packweaver",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -20,7 +20,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' ipc: http://ipc.localhost; connect-src 'self' ipc: http://ipc.localhost https://api.modrinth.com; img-src 'self' asset: http://asset.localhost https://cdn.modrinth.com data:; style-src 'self' 'unsafe-inline'; script-src 'self'",
+      "csp": "default-src 'self' ipc: http://ipc.localhost; connect-src 'self' ipc: http://ipc.localhost https://api.modrinth.com https://github.com https://objects.githubusercontent.com; img-src 'self' asset: http://asset.localhost https://cdn.modrinth.com data:; style-src 'self' 'unsafe-inline'; script-src 'self'",
       "assetProtocol": {
         "enable": true,
         "scope": ["$EXE/packweaver-data/instances/*/media/**"]
@@ -29,7 +29,8 @@
   },
   "bundle": {
     "active": true,
-    "targets": [],
+    "targets": ["nsis"],
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -37,5 +38,16 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "REPLACE_WITH_TAURI_UPDATER_PUBKEY",
+      "endpoints": [
+        "https://github.com/vasubawa/packweaver/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

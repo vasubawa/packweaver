@@ -12,6 +12,7 @@ import {
   modMatchesQuery,
   displayModVersion,
 } from './modListFormat';
+import { ServerFilesTab } from './ServerFilesTab';
 
 const PAGE_SIZE = 50;
 
@@ -127,16 +128,26 @@ export function ServerModsTab({ instance, onUpdate }: ServerModsTabProps) {
     return (
       <tr key={mod.id} style={{ opacity: on ? 1 : 0.55 }}>
         <td className="px-3 py-2.5 text-center">
-          <button
-            role="switch"
-            aria-checked={on}
-            aria-label={`Server toggle ${mod.name}`}
-            className={`theme-toggle-track ${on ? 'on' : ''}`}
-            style={on ? { background: sc.accent } : {}}
-            onClick={() => toggleServer(mod)}
-          >
-            <div className="theme-toggle-knob" />
-          </button>
+          <div className="flex flex-col items-center gap-1">
+            <button
+              role="switch"
+              aria-checked={on}
+              aria-label={`Server toggle ${mod.name}`}
+              className={`theme-toggle-track ${on ? 'on' : ''}`}
+              style={on ? { background: sc.accent } : {}}
+              onClick={() => toggleServer(mod)}
+            >
+              <div className="theme-toggle-knob" />
+            </button>
+            {on && mod.onDiskServer === false ? (
+              <span
+                className="disk-pending"
+                title="Enabled but not on disk yet. Rebuild server from Overview."
+              >
+                Pending
+              </span>
+            ) : null}
+          </div>
         </td>
         <td
           className="px-3 py-2.5 text-[13px] font-medium truncate overflow-hidden"
@@ -306,6 +317,10 @@ export function ServerModsTab({ instance, onUpdate }: ServerModsTabProps) {
           </div>
         </>
       )}
+
+      <div className="mt-2">
+        <ServerFilesTab instance={instance} onUpdate={onUpdate} />
+      </div>
     </div>
   );
 }

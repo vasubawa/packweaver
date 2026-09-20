@@ -7,7 +7,9 @@ import { ClientModsTab } from '../detail/ClientModsTab';
 import { ServerModsTab } from '../detail/ServerModsTab';
 import { CustomModsTab } from '../detail/CustomModsTab';
 import { isServerExporterEnabled, getActiveSourcePlugins } from '../../plugins';
+import { getClientExportFormats } from '../../plugins';
 import { useToast } from '../../context/ToastContext';
+import { appLog } from '../../lib/appLog';
 
 interface DetailViewProps {
   instance: Instance;
@@ -38,11 +40,12 @@ export function DetailView({
   const visibleTab = !serverPluginOn && activeTab === 'server' ? 'overview' : activeTab;
 
   const runExport = useCallback(
-    async (format: 'zip' | 'server') => {
+    async (format: 'zip' | 'mrpack' | 'server') => {
       const isServer = format === 'server';
       if (isServer ? exportingServer : exportingClient) return;
       if (isServer) setExportingServer(true);
       else setExportingClient(true);
+      appLog('info', 'export', `${instance.id} → ${format}`);
       try {
         const path = await invoke<string>('export_instance', {
           instanceId: instance.id,
@@ -58,10 +61,14 @@ export function DetailView({
         } catch {
           /* best-effort persist */
         }
+        appLog('info', 'export', `saved ${path}`);
         addToast(`Saved ${path}`, 'success');
       } catch (e) {
         const msg = String(e);
-        if (!msg.toLowerCase().includes('cancelled')) addToast(msg, 'error');
+        if (!msg.toLowerCase().includes('cancelled')) {
+          appLog('error', 'export', msg);
+          addToast(msg, 'error');
+        }
       } finally {
         if (isServer) setExportingServer(false);
         else setExportingClient(false);
@@ -71,8 +78,11 @@ export function DetailView({
   );
 
   const handleExportClient = useCallback(() => {
-    void runExport('zip');
-  }, [runExport]);
+    const formats = getClientExportFormats();
+    const preferred = instance.exportSettings?.clientFormat ?? 'zip';
+    const format = formats.includes(preferred) ? preferred : (formats[0] ?? 'zip');
+    void runExport(format);
+  }, [instance.exportSettings?.clientFormat, runExport]);
 
   const handleExportServer = useCallback(() => {
     void runExport('server');
@@ -193,6 +203,10 @@ export function DetailView({
               instance={instance}
               onUpdate={handleUpdate}
               serverExporterEnabled={serverPluginOn}
+              onExportClient={handleExportClient}
+              onExportServer={serverPluginOn ? handleExportServer : undefined}
+              exportingClient={exportingClient}
+              exportingServer={exportingServer}
             />
           )}
           {visibleTab === 'client' && <ClientModsTab instance={instance} onUpdate={handleUpdate} />}

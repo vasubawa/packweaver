@@ -1,5 +1,5 @@
 import { Instance } from '../../types';
-import { SOURCE_COLORS } from '../../constants';
+import { SOURCE_COLORS, formatBasePackName } from '../../constants';
 import { mediaUrl } from '../../lib/mediaUrl';
 
 interface InstanceCardProps {
@@ -10,6 +10,7 @@ interface InstanceCardProps {
 export function InstanceCard({ instance, onClick }: InstanceCardProps) {
   const sc = SOURCE_COLORS[instance.source] || SOURCE_COLORS.local;
   const cover = mediaUrl(instance.bannerUrl || instance.iconUrl);
+  const baseLabel = formatBasePackName(instance.basePack);
   const isInstalling =
     ((instance.status !== 'Ready' && !instance.status.startsWith('Error')) ||
       instance.status === 'syncing') &&
@@ -19,6 +20,13 @@ export function InstanceCard({ instance, onClick }: InstanceCardProps) {
       ? Math.min(100, Math.round((instance.progress! / instance.total) * 100))
       : 0
     : 0;
+  const statusLabel = instance.status.startsWith('Error')
+    ? 'Error'
+    : instance.status === 'syncing'
+      ? 'Syncing...'
+      : instance.status === 'Ready'
+        ? 'Ready'
+        : instance.status || 'Starting…';
 
   return (
     <div
@@ -61,6 +69,14 @@ export function InstanceCard({ instance, onClick }: InstanceCardProps) {
           />
           {sc.label}
         </span>
+        {instance.hasUpdate ? (
+          <span
+            className="badge badge-mono"
+            style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
+          >
+            Update
+          </span>
+        ) : null}
       </div>
 
       {isInstalling ? (
@@ -79,11 +95,13 @@ export function InstanceCard({ instance, onClick }: InstanceCardProps) {
                 wordBreak: 'break-word',
                 fontFamily: 'var(--font-heading)',
               }}
+              title={instance.name}
             >
               {instance.name}
             </h3>
             <span
               className="text-[11px] font-medium shrink-0"
+              title={instance.status.startsWith('Error') ? instance.status : undefined}
               style={{
                 color: instance.status.startsWith('Error')
                   ? 'var(--danger)'
@@ -94,13 +112,7 @@ export function InstanceCard({ instance, onClick }: InstanceCardProps) {
                       : 'var(--text-muted)',
               }}
             >
-              {instance.status === 'syncing'
-                ? 'Syncing...'
-                : instance.status.startsWith('Error')
-                  ? 'Error'
-                  : instance.status === 'Ready'
-                    ? 'Ready'
-                    : instance.status || 'Starting…'}
+              {statusLabel}
             </span>
           </div>
 
@@ -108,6 +120,7 @@ export function InstanceCard({ instance, onClick }: InstanceCardProps) {
             <p
               className="text-[13px] leading-relaxed line-clamp-2"
               style={{ color: 'var(--text-secondary)' }}
+              title={instance.description}
             >
               {instance.description}
             </p>
@@ -119,8 +132,14 @@ export function InstanceCard({ instance, onClick }: InstanceCardProps) {
         </div>
 
         <div className="font-mono-meta flex items-center gap-2 flex-wrap">
-          {instance.loader ? <span>{instance.loader}</span> : null}
-          {instance.loader && <span aria-hidden>·</span>}
+          <span title={instance.basePack}>{baseLabel}</span>
+          {instance.loader ? (
+            <>
+              <span aria-hidden>·</span>
+              <span>{instance.loader}</span>
+            </>
+          ) : null}
+          <span aria-hidden>·</span>
           <span>{instance.totalModCount} mods</span>
           {instance.customModCount > 0 && (
             <>

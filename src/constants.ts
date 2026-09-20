@@ -81,3 +81,17 @@ export function formatBasePackName(basePack: string | undefined): string {
   }
   return basePack;
 }
+
+/** Human-readable export timestamp; empty/invalid → Not exported yet */
+export function formatExportedAt(raw: string | undefined | null): string {
+  if (!raw || !raw.trim()) return 'Not exported yet';
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return raw;
+  return d.toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}

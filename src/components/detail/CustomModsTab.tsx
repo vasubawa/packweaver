@@ -19,6 +19,7 @@ import {
   modMatchesQuery,
 } from './modListFormat';
 import { checkPackUpdates, loaderFacet } from '../../lib/packUpdates';
+import { applyOneCustomModUpdate } from '../../lib/applyPackUpdates';
 import type { PackVersionInfo } from '../../plugins';
 import { open } from '@tauri-apps/plugin-dialog';
 
@@ -106,44 +107,20 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
     if (updatingId) return;
     setUpdatingId(mod.id);
     try {
-      await invoke('update_custom_mod_versions', {
-        instanceId: instance.id,
-        updates: [
-          {
-            modId: mod.id,
-            version: latest.versionId,
-            versionNumber: latest.versionNumber,
-            fileName: latest.primaryFilename || undefined,
-          },
-        ],
+      const applied = await applyOneCustomModUpdate({
+        instance,
+        mod,
+        latest,
+        serverOn: serverPluginOn,
       });
-      onUpdate({
-        customMods: instance.customMods.map(m =>
-          m.id === mod.id
-            ? {
-                ...m,
-                version: latest.versionNumber,
-                versionId: latest.versionId,
-                fileName: latest.primaryFilename || m.fileName,
-              }
-            : m
-        ),
-      });
-      await invoke('layer_custom_mods', { instanceId: instance.id, forServer: false });
-      if (serverPluginOn) {
-        try {
-          await invoke('layer_custom_mods', { instanceId: instance.id, forServer: true });
-        } catch {
-          /* server workspace may not exist yet */
-        }
-      }
+      onUpdate({ customMods: applied.updatedMods });
       setModUpdates(prev => {
         const next = { ...prev };
         delete next[mod.id];
         return next;
       });
       addToast(
-        serverPluginOn
+        serverPluginOn && applied.serverLayered > 0
           ? `Updated ${mod.name} → ${latest.versionNumber} (client + server if present)`
           : `Updated ${mod.name} → ${latest.versionNumber}`,
         'success'
@@ -599,18 +576,9 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
           <div className="flex items-center justify-between gap-2">
             <p className="text-[12.5px] text-[var(--text-secondary)]">
               {Object.keys(modUpdates).length > 0
-                ? `${Object.keys(modUpdates).length} update${Object.keys(modUpdates).length === 1 ? '' : 's'} available`
-                : 'Modrinth customs can be updated without touching the base pack'}
+                ? `${Object.keys(modUpdates).length} update${Object.keys(modUpdates).length === 1 ? '' : 's'} available — use Update on a row, or Overview for base + customs`
+                : 'Row Update applies one custom. Base pack updates live on Overview.'}
             </p>
-            <button
-              className="btn-ghost text-[11px] px-2 py-0.5"
-              onClick={() => void refreshCustomUpdates()}
-              disabled={checkingUpdates}
-              title="Looks for newer versions of custom mods on Modrinth. Doesn't download until you click Update."
-            >
-              <Icon name="refresh" size={12} />
-              {checkingUpdates ? 'Checking…' : 'Check updates'}
-            </button>
           </div>
           <div
             className="loom-panel overflow-x-auto"
@@ -668,47 +636,71 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
                     return (
                       <tr key={mod.id} className="group">
                         <td className="px-3 py-2.5 text-center">
-                          <button
-                            role="switch"
-                            aria-checked={mod.enabled}
-                            aria-disabled={clientLocked}
-                            disabled={clientLocked}
-                            title={
-                              clientLocked
-                                ? 'Server-only mod — cannot enable on client'
-                                : 'Include in client workspace'
-                            }
-                            className={`theme-toggle-track ${mod.enabled && !clientLocked ? 'on' : ''}`}
-                            style={{
-                              ...(mod.enabled && !clientLocked ? { background: modSc.accent } : {}),
-                              ...(clientLocked ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
-                            }}
-                            onClick={() => toggleSide(mod.id, 'client', mod.enabled)}
-                          >
-                            <div className="theme-toggle-knob" />
-                          </button>
-                        </td>
-                        {serverPluginOn && (
-                          <td className="px-3 py-2.5 text-center">
+                          <div className="flex flex-col items-center gap-1">
                             <button
                               role="switch"
-                              aria-checked={serverOn}
-                              aria-disabled={serverLocked}
-                              disabled={serverLocked}
+                              aria-checked={mod.enabled}
+                              aria-disabled={clientLocked}
+                              disabled={clientLocked}
                               title={
-                                serverLocked
-                                  ? 'Client-only mod — cannot enable on server'
-                                  : 'Include in server workspace'
+                                clientLocked
+                                  ? 'Server-only mod — cannot enable on client'
+                                  : 'Include in client workspace'
                               }
-                              className={`theme-toggle-track ${serverOn && !serverLocked ? 'on' : ''}`}
+                              className={`theme-toggle-track ${mod.enabled && !clientLocked ? 'on' : ''}`}
                               style={{
-                                ...(serverOn && !serverLocked ? { background: modSc.accent } : {}),
-                                ...(serverLocked ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
+                                ...(mod.enabled && !clientLocked
+                                  ? { background: modSc.accent }
+                                  : {}),
+                                ...(clientLocked ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
                               }}
-                              onClick={() => toggleSide(mod.id, 'server', serverOn)}
+                              onClick={() => toggleSide(mod.id, 'client', mod.enabled)}
                             >
                               <div className="theme-toggle-knob" />
                             </button>
+                            {mod.enabled && !clientLocked && mod.onDiskClient === false ? (
+                              <span
+                                className="disk-pending"
+                                title="Not on disk yet. Layer from Overview."
+                              >
+                                Pending
+                              </span>
+                            ) : null}
+                          </div>
+                        </td>
+                        {serverPluginOn && (
+                          <td className="px-3 py-2.5 text-center">
+                            <div className="flex flex-col items-center gap-1">
+                              <button
+                                role="switch"
+                                aria-checked={serverOn}
+                                aria-disabled={serverLocked}
+                                disabled={serverLocked}
+                                title={
+                                  serverLocked
+                                    ? 'Client-only mod — cannot enable on server'
+                                    : 'Include in server workspace'
+                                }
+                                className={`theme-toggle-track ${serverOn && !serverLocked ? 'on' : ''}`}
+                                style={{
+                                  ...(serverOn && !serverLocked
+                                    ? { background: modSc.accent }
+                                    : {}),
+                                  ...(serverLocked ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
+                                }}
+                                onClick={() => toggleSide(mod.id, 'server', serverOn)}
+                              >
+                                <div className="theme-toggle-knob" />
+                              </button>
+                              {serverOn && !serverLocked && mod.onDiskServer === false ? (
+                                <span
+                                  className="disk-pending"
+                                  title="Not on disk yet. Rebuild/layer server from Overview."
+                                >
+                                  Pending
+                                </span>
+                              ) : null}
+                            </div>
                           </td>
                         )}
                         <td className="px-3 py-2.5 overflow-hidden">
