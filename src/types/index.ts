@@ -1,10 +1,12 @@
 export type ModSource = 'modrinth' | 'curseforge' | 'local';
-export type LoaderType = 'Fabric' | 'Forge' | 'NeoForge' | 'Quilt';
+export type LoaderType = 'Fabric' | 'Forge' | 'NeoForge' | 'Quilt' | 'Unknown';
 
 export interface InstanceMod {
   id: string;
   name: string;
   version: string;
+  /** Modrinth (or other provider) version GUID used for pinning downloads. */
+  versionId?: string;
   enabled: boolean;
   enabledServer?: boolean;
   side?: string;
@@ -42,6 +44,8 @@ export interface Instance {
   description: string;
   basePack: string;
   basePackVersion: string;
+  /** Human-readable base pack version label when basePackVersion is a provider GUID. */
+  basePackVersionLabel?: string;
   mcVersion: string;
   loader: LoaderType;
   customModCount: number;
@@ -59,4 +63,6 @@ export interface Instance {
   customMods: InstanceMod[];
   serverFiles: ServerFileItem[];
   exportSettings: ExportSettings;
+  /** Leaf name of a dedicated server pack under original/server/, if uploaded. */
+  serverOriginalFilename?: string;
 }

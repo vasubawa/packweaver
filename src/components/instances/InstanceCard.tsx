@@ -1,13 +1,14 @@
 import { Instance } from '../../types';
 import { SOURCE_COLORS } from '../../constants';
+import { mediaUrl } from '../../lib/mediaUrl';
 interface InstanceCardProps {
   instance: Instance;
   onClick: (instance: Instance) => void;
-  onDelete?: (id: string) => void;
 }
 
 export function InstanceCard({ instance, onClick }: InstanceCardProps) {
   const sc = SOURCE_COLORS[instance.source] || SOURCE_COLORS.local;
+  const cover = mediaUrl(instance.bannerUrl || instance.iconUrl);
 
   return (
     <div
@@ -39,10 +40,9 @@ export function InstanceCard({ instance, onClick }: InstanceCardProps) {
         className="relative overflow-hidden shrink-0 flex items-start justify-between p-3.5"
         style={{
           height: 86,
-          background:
-            instance.bannerUrl || instance.iconUrl
-              ? `url(${instance.bannerUrl || instance.iconUrl}) center/cover no-repeat`
-              : instance.bannerGradient || sc.gradient,
+          background: cover
+            ? `url(${cover}) center/cover no-repeat`
+            : instance.bannerGradient || sc.gradient,
         }}
       >
         <span className="card-banner-badge">
@@ -68,7 +68,7 @@ export function InstanceCard({ instance, onClick }: InstanceCardProps) {
               className="text-[11px] font-medium shrink-0"
               style={{
                 color: instance.status.startsWith('Error')
-                  ? '#ef4444'
+                  ? 'var(--danger)'
                   : instance.status !== 'Ready' && instance.status !== 'syncing'
                     ? sc.accent
                     : 'var(--text-muted)',
@@ -86,13 +86,13 @@ export function InstanceCard({ instance, onClick }: InstanceCardProps) {
 
           {instance.description ? (
             <p
-              className="text-[12px] leading-relaxed line-clamp-2"
+              className="text-[13px] leading-relaxed line-clamp-2"
               style={{ color: 'var(--text-secondary)' }}
             >
               {instance.description}
             </p>
           ) : (
-            <p className="text-[12px] italic" style={{ color: 'var(--text-muted)' }}>
+            <p className="text-[13px]" style={{ color: 'var(--text-muted)' }}>
               No description provided
             </p>
           )}
@@ -122,8 +122,12 @@ export function InstanceCard({ instance, onClick }: InstanceCardProps) {
 
         {/* Tags */}
         <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="badge text-[11px] px-2 py-0.5">{instance.mcVersion}</span>
-          <span className="badge text-[11px] px-2 py-0.5">{instance.loader}</span>
+          {instance.mcVersion ? (
+            <span className="badge text-[11px] px-2 py-0.5">{instance.mcVersion}</span>
+          ) : null}
+          {instance.loader ? (
+            <span className="badge text-[11px] px-2 py-0.5">{instance.loader}</span>
+          ) : null}
           <span className="badge text-[11px] px-2 py-0.5">{instance.totalModCount} mods</span>
           {instance.customModCount > 0 && (
             <span

@@ -22,12 +22,7 @@ pub trait BasePackFetcher: Send + Sync {
 fn emit_progress(app: &AppHandle, instance_id: &str, status: &str, p: u32, t: u32) {
     let _ = app.emit(
         "instance-progress",
-        crate::downloader::ProgressEvent {
-            instance_id: instance_id.to_string(),
-            status: status.to_string(),
-            progress: p,
-            total: t,
-        },
+        crate::downloader::ProgressEvent::emit_body(instance_id, status, p, t, "client"),
     );
 }
 

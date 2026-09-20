@@ -4,6 +4,7 @@ import { Instance } from '../../types';
 import { SOURCE_COLORS, formatBasePackName } from '../../constants';
 import { ConfirmDeleteModal } from '../ConfirmDeleteModal';
 import { useDeleteInstance } from '../../hooks/useDeleteInstance';
+import { mediaUrl } from '../../lib/mediaUrl';
 
 interface DetailHeaderProps {
   instance: Instance;
@@ -34,6 +35,8 @@ export function DetailHeader({
   const sc = SOURCE_COLORS[instance.source] || SOURCE_COLORS.local;
   const { showDeleteModal, isDeleting, requestDelete, cancelDelete, confirmDelete } =
     useDeleteInstance(instance.id, onDelete);
+  const cover = mediaUrl(instance.bannerUrl || instance.iconUrl);
+  const iconSrc = mediaUrl(instance.iconUrl);
 
   if (instance.name !== prevName) {
     setPrevName(instance.name);
@@ -56,11 +59,10 @@ export function DetailHeader({
       <div
         className="detail-banner relative overflow-hidden shrink-0"
         style={{
-          height: 'clamp(140px, 25vh, 360px)',
-          background:
-            instance.bannerUrl || instance.iconUrl
-              ? `url(${instance.bannerUrl || instance.iconUrl}) center/cover no-repeat`
-              : instance.bannerGradient || sc.gradient,
+          height: 'clamp(96px, 12vh, 160px)',
+          background: cover
+            ? `url(${cover}) center/cover no-repeat`
+            : instance.bannerGradient || sc.gradient,
         }}
       >
         <div
@@ -70,7 +72,7 @@ export function DetailHeader({
           }}
         />
         <button
-          className="absolute top-4 left-6 z-10 flex items-center gap-1.5 backdrop-blur-md"
+          className="absolute top-3 left-6 z-10 flex items-center gap-1.5 backdrop-blur-md"
           onClick={onBack}
           style={{
             background: 'var(--bg-surface)',
@@ -84,12 +86,27 @@ export function DetailHeader({
           <Icon name="arrowLeft" size={14} />
           <span className="text-xs font-medium">Back to Library</span>
         </button>
+        <button
+          className="absolute top-3 right-6 z-10 btn-ghost-danger backdrop-blur-md"
+          onClick={requestDelete}
+          title="Delete pack"
+          aria-label="Delete pack"
+          style={{
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-sm)',
+            padding: '6px 10px',
+            boxShadow: 'var(--shadow-sm)',
+          }}
+        >
+          <Icon name="trash" size={14} />
+        </button>
       </div>
 
-      <div className="px-8 -mt-8 relative z-10 shrink-0">
-        <div className="flex flex-row items-end justify-between gap-4">
+      <div className="px-8 content-pad -mt-8 relative z-10 shrink-0">
+        <div className="detail-heading-row flex flex-row items-end justify-between gap-4">
           <div className="min-w-0 flex-1 flex items-end gap-4">
-            {instance.iconUrl && (
+            {iconSrc && (
               <div
                 className="w-20 h-20 rounded-2xl shadow-lg shrink-0 overflow-hidden"
                 style={{
@@ -97,7 +114,7 @@ export function DetailHeader({
                   backgroundColor: 'var(--bg-surface)',
                 }}
               >
-                <img src={instance.iconUrl} alt="" className="w-full h-full object-cover" />
+                <img src={iconSrc} alt="" className="w-full h-full object-cover" />
               </div>
             )}
             <div className="min-w-0 flex-1">
@@ -115,6 +132,25 @@ export function DetailHeader({
                     style={{ background: sc.dot }}
                   />
                   {sc.label}
+                </span>
+                <span
+                  className="badge text-[11px] font-medium px-2.5 py-0.5 rounded-full"
+                  style={{
+                    color: instance.status.startsWith('Error')
+                      ? 'var(--danger)'
+                      : instance.status === 'Ready'
+                        ? 'var(--text-secondary)'
+                        : sc.accent,
+                  }}
+                >
+                  {instance.status === 'syncing'
+                    ? 'Syncing'
+                    : instance.total && instance.progress !== undefined
+                      ? `${instance.status} · ${Math.min(
+                          100,
+                          Math.round((instance.progress / instance.total) * 100)
+                        )}%`
+                      : instance.status || 'Ready'}
                 </span>
               </div>
 
@@ -148,9 +184,10 @@ export function DetailHeader({
                     {instance.name}
                   </h2>
                   <button
-                    className="btn-ghost opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                    className="btn-ghost shrink-0"
                     onClick={() => setIsEditingName(true)}
                     title="Edit Pack Name"
+                    aria-label="Edit pack name"
                   >
                     <Icon name="pencil" size={14} />
                   </button>
@@ -167,10 +204,18 @@ export function DetailHeader({
                 >
                   {displayBasePack}
                 </span>
-                <span>&middot;</span>
-                <span>{instance.mcVersion}</span>
-                <span>&middot;</span>
-                <span>{instance.loader}</span>
+                {instance.mcVersion ? (
+                  <>
+                    <span>&middot;</span>
+                    <span>{instance.mcVersion}</span>
+                  </>
+                ) : null}
+                {instance.loader ? (
+                  <>
+                    <span>&middot;</span>
+                    <span>{instance.loader}</span>
+                  </>
+                ) : null}
                 <span>&middot;</span>
                 <span>{instance.totalModCount} mods</span>
                 {instance.customModCount > 0 && (
@@ -183,7 +228,7 @@ export function DetailHeader({
             </div>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+          <div className="detail-actions flex items-center gap-2 shrink-0 flex-wrap">
             <button
               className="export-outline-btn text-xs px-3.5 py-2 font-medium rounded-md border bg-transparent transition-colors disabled:opacity-50 disabled:pointer-events-none"
               onClick={onExportClient}
@@ -222,13 +267,6 @@ export function DetailHeader({
                 </span>
               </button>
             )}
-            <button
-              className="btn-danger text-xs px-3.5 py-2 font-medium rounded-md"
-              onClick={requestDelete}
-              title="Delete pack"
-            >
-              <Icon name="trash" size={15} />
-            </button>
           </div>
         </div>
       </div>

@@ -35,6 +35,8 @@ export function ConfirmDeleteModal({
         onClick={e => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
+        aria-labelledby="delete-pack-title"
+        aria-describedby="delete-pack-description"
       >
         <div
           className="flex items-center justify-between px-6 py-4"
@@ -47,11 +49,15 @@ export function ConfirmDeleteModal({
             >
               <Icon name="trash" size={16} />
             </div>
-            <h3 className="text-[15px] font-semibold" style={{ color: 'var(--text-primary)' }}>
+            <h3
+              id="delete-pack-title"
+              className="text-[15px] font-semibold"
+              style={{ color: 'var(--text-primary)' }}
+            >
               Delete Pack
             </h3>
           </div>
-          <button className="btn-ghost" onClick={onCancel}>
+          <button className="btn-ghost" onClick={onCancel} aria-label="Close delete dialog">
             <Icon name="x" size={16} />
           </button>
         </div>
@@ -64,7 +70,11 @@ export function ConfirmDeleteModal({
             </span>
             ?
           </p>
-          <p className="text-[12px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+          <p
+            id="delete-pack-description"
+            className="text-[13px] leading-relaxed"
+            style={{ color: 'var(--text-secondary)' }}
+          >
             This action will remove all custom mods and workspace files for this instance. This
             cannot be undone.
           </p>

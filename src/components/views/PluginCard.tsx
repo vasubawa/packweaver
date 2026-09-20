@@ -45,13 +45,13 @@ export function PluginCard({
                   {plugin.name}
                 </span>
                 <span
-                  className="text-[10px] px-1.5 py-0.5 rounded font-mono"
+                  className="text-[11px] px-1.5 py-0.5 rounded font-mono"
                   style={{ background: 'var(--bg-muted)', color: 'var(--text-muted)' }}
                 >
                   v{plugin.version}
                 </span>
               </div>
-              <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+              <span className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>
                 {subtitle}
               </span>
             </div>
@@ -59,10 +59,17 @@ export function PluginCard({
 
           {plugin.isCore ? (
             <span
-              className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full"
+              className="text-[11.5px] font-semibold px-2 py-0.5 rounded-full"
               style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
             >
               Core
+            </span>
+          ) : plugin.comingSoon ? (
+            <span
+              className="text-[11.5px] font-semibold px-2 py-0.5 rounded-full"
+              style={{ background: 'var(--bg-muted)', color: 'var(--text-muted)' }}
+            >
+              Coming soon
             </span>
           ) : (
             <button
@@ -77,7 +84,7 @@ export function PluginCard({
           )}
         </div>
 
-        <p className="text-[12px] leading-relaxed mb-3" style={{ color: 'var(--text-muted)' }}>
+        <p className="text-[13px] leading-relaxed mb-3" style={{ color: 'var(--text-secondary)' }}>
           {plugin.description}
         </p>
       </div>
@@ -87,14 +94,16 @@ export function PluginCard({
         style={{ borderTop: '1px solid var(--border)' }}
       >
         <span
-          className="text-[11px] font-medium"
+          className="text-[12px] font-medium"
           style={{ color: plugin.enabled ? 'var(--accent)' : 'var(--text-muted)' }}
         >
           {plugin.isCore
             ? '● Always Active'
-            : plugin.enabled
-              ? `● ${statusEnabledLabel}`
-              : '○ Disabled'}
+            : plugin.comingSoon
+              ? '○ Coming soon'
+              : plugin.enabled
+                ? `● ${statusEnabledLabel}`
+                : '○ Disabled'}
         </span>
 
         {footerRight}

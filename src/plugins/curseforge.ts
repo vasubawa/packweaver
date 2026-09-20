@@ -3,12 +3,14 @@ import { SourcePlugin, SearchResult, SearchOptions } from './types';
 export const CurseForgePlugin: SourcePlugin = {
   id: 'curseforge',
   name: 'CurseForge',
-  description: 'Search and download modpacks and mods from CurseForge via API key.',
+  description:
+    'Coming soon. CurseForge search and download are not wired yet. This source cannot be turned on.',
   version: '1.0.0',
   author: 'Packweaver Core',
   category: 'source',
-  enabled: false, // Default disabled until user supplies an API key
+  enabled: false,
   builtIn: true,
+  comingSoon: true,
   requiresApiKey: true,
   colors: {
     primary: '#f16436',
@@ -19,7 +21,7 @@ export const CurseForgePlugin: SourcePlugin = {
   iconUrl: '/curseforge.png',
   fallbackEmoji: '⚒️',
 
-  canSearch: true,
+  canSearch: false,
   search: async (_query: string, _options?: SearchOptions): Promise<SearchResult[]> => {
     throw new Error('CurseForge API integration is not implemented yet');
   },

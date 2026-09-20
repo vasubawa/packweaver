@@ -19,10 +19,17 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   const addToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
     const id = crypto.randomUUID();
-    setToasts(prev => [...prev, { id, message, type }]);
-    setTimeout(() => {
-      setToasts(prev => prev.filter(t => t.id !== id));
-    }, 3000);
+    setToasts(prev =>
+      prev.some(toast => toast.message === message && toast.type === type)
+        ? prev
+        : [...prev, { id, message, type }]
+    );
+    setTimeout(
+      () => {
+        setToasts(prev => prev.filter(t => t.id !== id));
+      },
+      type === 'error' ? 6000 : 4000
+    );
   }, []);
 
   const value = useMemo(() => ({ addToast }), [addToast]);
@@ -30,15 +37,26 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={value}>
       {children}
-      <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
+      <div
+        className="fixed bottom-4 right-4 z-50 flex flex-col gap-2"
+        aria-live="polite"
+        aria-atomic="false"
+      >
         {toasts.map(toast => (
           <div
             key={toast.id}
+            role={toast.type === 'error' ? 'alert' : 'status'}
             className="flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg text-sm font-medium animate-slide-in"
             style={{
               background: 'var(--bg-surface)',
               color: 'var(--text-primary)',
-              border: `1px solid ${toast.type === 'error' ? 'var(--danger)' : toast.type === 'success' ? 'var(--modrinth)' : '#3b82f6'}`,
+              border: `1px solid ${
+                toast.type === 'error'
+                  ? 'var(--danger)'
+                  : toast.type === 'success'
+                    ? 'var(--modrinth)'
+                    : 'var(--accent)'
+              }`,
               borderLeftWidth: '4px',
             }}
           >
@@ -48,7 +66,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             {toast.type === 'error' && (
               <Icon name="x" size={16} style={{ color: 'var(--danger)' }} />
             )}
-            {toast.type === 'info' && <Icon name="info" size={16} style={{ color: '#3b82f6' }} />}
+            {toast.type === 'info' && (
+              <Icon name="info" size={16} style={{ color: 'var(--accent)' }} />
+            )}
             {toast.message}
           </div>
         ))}

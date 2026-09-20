@@ -4,7 +4,7 @@ import { Icon } from '../Icon';
 import { SOURCE_COLORS } from '../../constants';
 import { Instance } from '../../types';
 import { useToast } from '../../context/ToastContext';
-import { jarLeaf, formatBytes } from './modListFormat';
+import { jarLeaf, formatBytes, compareModName, modMatchesQuery } from './modListFormat';
 
 const BASE_MODS_PAGE_SIZE = 50;
 
@@ -60,8 +60,6 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
   const { addToast } = useToast();
   const [baseFilter, setBaseFilter] = useState('');
   const [baseShowCount, setBaseShowCount] = useState(BASE_MODS_PAGE_SIZE);
-  const [baseSortCol] = useState<'name' | 'author' | 'version' | 'source' | 'enabled'>('name');
-  const [baseSortDir] = useState<'asc' | 'desc'>('asc');
 
   const clientBaseMods = useMemo(
     () => instance.basePackMods.filter(m => isClientCapable(m.side)),
@@ -69,31 +67,10 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
   );
 
   const filteredBaseMods = useMemo(() => {
-    const q = baseFilter.trim().toLowerCase();
-    const mods = q
-      ? clientBaseMods.filter(m => m.name.toLowerCase().includes(q))
-      : [...clientBaseMods];
-    mods.sort((a, b) => {
-      let aVal = '';
-      let bVal = '';
-      if (baseSortCol === 'name') {
-        aVal = a.name || '';
-        bVal = b.name || '';
-      } else if (baseSortCol === 'author') {
-        aVal = a.author || '';
-        bVal = b.author || '';
-      } else if (baseSortCol === 'version') {
-        aVal = a.version || '';
-        bVal = b.version || '';
-      } else if (baseSortCol === 'enabled') {
-        aVal = a.enabled ? '1' : '0';
-        bVal = b.enabled ? '1' : '0';
-      }
-      const cmp = aVal.localeCompare(bVal, undefined, { sensitivity: 'base' });
-      return baseSortDir === 'asc' ? cmp : -cmp;
-    });
+    const mods = clientBaseMods.filter(m => modMatchesQuery(m, baseFilter));
+    mods.sort((a, b) => compareModName(a.name || '', b.name || ''));
     return mods;
-  }, [clientBaseMods, baseFilter, baseSortCol, baseSortDir]);
+  }, [clientBaseMods, baseFilter]);
 
   const visibleBaseMods = filteredBaseMods.slice(0, baseShowCount);
 
@@ -108,9 +85,22 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
       });
       onUpdate({
         basePackMods: instance.basePackMods.map(m =>
-          m.id === id ? { ...m, enabled: nextEnabled } : m
+          m.id === id
+            ? {
+                ...m,
+                enabled: nextEnabled,
+                // Disable removes the jar immediately; enable waits for Rebuild.
+                onDiskClient: nextEnabled ? m.onDiskClient : false,
+              }
+            : m
         ),
       });
+      if (nextEnabled) {
+        addToast(
+          'Enabled. Rebuild the client workspace from Overview to restore it on disk.',
+          'info'
+        );
+      }
     } catch (e) {
       addToast(`Failed to toggle: ${e}`, 'error');
     }
@@ -118,8 +108,8 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
 
   return (
     <div className="animate-slide-in flex flex-col gap-3">
-      <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
-        Base pack mods for the client workspace. Add extras under Custom Mods.
+      <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+        Choose which base-pack mods belong in the client workspace. Add extras under Custom Mods.
       </p>
       {clientBaseMods.length === 0 ? (
         <div
@@ -144,7 +134,8 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
             <input
               className="form-input text-xs"
               style={{ paddingLeft: 32 }}
-              placeholder={`Filter ${clientBaseMods.length} client base mods...`}
+              aria-label="Search client mods"
+              placeholder={`Search ${clientBaseMods.length} mods by name, author, or file…`}
               value={baseFilter}
               onChange={e => {
                 setBaseFilter(e.target.value);
@@ -163,7 +154,7 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
               </div>
             ) : (
               <>
-                <table className="w-full table-fixed text-left border-collapse">
+                <table className="data-table w-full table-fixed text-left border-collapse">
                   <thead>
                     <tr
                       className="text-[11px] uppercase tracking-wider"
@@ -180,12 +171,11 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
                       <th className="font-medium px-3 py-2.5 w-40">File</th>
                       <th className="font-medium px-3 py-2.5 w-28">MC / Loader</th>
                       <th className="font-medium px-3 py-2.5 w-24">Version</th>
-                      <th className="font-medium px-3 py-2.5 w-16 text-center">On disk</th>
                       <th className="font-medium px-3 py-2.5 w-16 text-right">Size</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[var(--border)]">
-                    {visibleBaseMods.map((mod, i) => {
+                    {visibleBaseMods.map(mod => {
                       const parsed = parseModJar(mod.name);
                       const isJarName = mod.name.endsWith('.jar') || mod.name.endsWith('.zip');
                       const displayName = isJarName ? parsed.name : mod.name;
@@ -198,7 +188,7 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
                       const modSide = (mod.side || 'both').toLowerCase();
                       return (
                         <tr
-                          key={`base-${i}`}
+                          key={mod.id}
                           style={{ opacity: mod.enabled ? 1 : 0.55 }}
                           title={mod.description || mod.name}
                         >
@@ -279,14 +269,6 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
                             title={displayVersion}
                           >
                             v{displayVersion}
-                          </td>
-                          <td
-                            className="px-3 py-2.5 text-[11px] text-center"
-                            style={{ color: 'var(--text-muted)' }}
-                          >
-                            {[mod.onDiskClient ? 'C' : null, mod.onDiskServer ? 'S' : null]
-                              .filter(Boolean)
-                              .join('+') || '—'}
                           </td>
                           <td
                             className="px-3 py-2.5 text-[11px] text-right tabular-nums"

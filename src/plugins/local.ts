@@ -3,7 +3,8 @@ import { SourcePlugin } from './types';
 export const LocalPlugin: SourcePlugin = {
   id: 'local',
   name: 'Local Upload',
-  description: 'Import existing .zip or .mrpack modpack archives from your machine.',
+  description:
+    'Import a Modrinth .mrpack, or a launcher instance zip that already contains a mods/ folder. CurseForge zip downloads are not supported yet.',
   version: '1.0.0',
   author: 'Packweaver Core',
   category: 'source',

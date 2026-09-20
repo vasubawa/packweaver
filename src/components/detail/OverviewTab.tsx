@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { Instance } from '../../types';
-import { formatBasePackName } from '../../constants';
+import { formatBasePackName, SOURCE_COLORS } from '../../constants';
 import { Icon } from '../Icon';
 import { UpdatesCard } from './UpdatesCard';
 
@@ -24,34 +24,22 @@ const PIPELINE_TITLES: Record<string, string> = {
     'Wipes and reinstalls the base pack, then re-applies enabled customs. Use to repair or after a base pack change.',
   layer:
     'Downloads enabled custom mods into the workspace. Use after adding or turning mods back on.',
-  package: 'Zips the current client workspace. Run Rebuild/Layer first if Disk looks empty.',
   serverRebuild:
     'Wipes and reinstalls the server workspace from the base pack, then re-layers server-enabled customs.',
-  serverPackage:
-    'Zips the current server workspace. Rebuild server first if it does not exist yet.',
 };
 
 const IDLE_STAGES: Record<string, StageState> = {
   rebuild: {
     status: 'idle',
-    message: 'Wipe workspace/client, install base pack under {stem}, re-layer enabled customs',
+    message: 'Reinstall base pack and re-apply enabled custom mods',
   },
   layer: {
     status: 'idle',
-    message:
-      'Download/copy enabled customs into workspace/client/{stem}/mods (toggles alone do not download)',
-  },
-  package: {
-    status: 'idle',
-    message: 'Zip workspace/client/{stem} as {stem}-MODIFIED.zip',
+    message: 'Download enabled customs into the client workspace (toggles alone do not download)',
   },
   serverRebuild: {
     status: 'idle',
-    message: 'Wipe workspace/server, install under {stem}, re-layer enabled_server customs',
-  },
-  serverPackage: {
-    status: 'idle',
-    message: 'Zip workspace/server/{stem} as {stem}-MODIFIED-server.zip',
+    message: 'Rebuild the server workspace and re-apply server-enabled customs',
   },
 };
 
@@ -80,7 +68,6 @@ export function OverviewTab({
       next.delete(key);
       return next;
     });
-  const isBusy = (key: string) => runningKeys.has(key);
   const anyBusy = runningKeys.size > 0;
   const unlistenRef = useRef<(() => void) | null>(null);
 
@@ -88,25 +75,29 @@ export function OverviewTab({
     let cancelled = false;
     const unlisteners: (() => void)[] = [];
 
-    listen<{ instance_id: string; status: string; progress: number; total: number }>(
-      'export-progress',
-      event => {
-        if (cancelled || event.payload.instance_id !== instance.id) return;
-        const { status, progress, total } = event.payload;
-        setStages(prev => ({
-          ...prev,
-          layer: {
-            status:
-              total > 0 && progress < total
-                ? 'running'
-                : progress === total && total > 0
-                  ? 'done'
-                  : prev.layer.status,
-            message: status,
-          },
-        }));
-      }
-    ).then(fn => {
+    listen<{
+      instance_id: string;
+      status: string;
+      progress: number;
+      total: number;
+      stage?: string;
+    }>('export-progress', event => {
+      if (cancelled || event.payload.instance_id !== instance.id) return;
+      const { status, progress, total, stage } = event.payload;
+      if (stage !== 'layer') return;
+      setStages(prev => ({
+        ...prev,
+        layer: {
+          status:
+            total > 0 && progress < total
+              ? 'running'
+              : progress === total && total > 0
+                ? 'done'
+                : prev.layer.status,
+          message: status,
+        },
+      }));
+    }).then(fn => {
       unlisteners.push(fn);
       unlistenRef.current = () => unlisteners.forEach(u => u());
     });
@@ -144,9 +135,14 @@ export function OverviewTab({
   if (instance.id !== prevInstanceId) {
     setPrevInstanceId(instance.id);
     setDescInput(instance.description || '');
+    setIsEditingDesc(false);
+    setStages({ ...IDLE_STAGES });
+    setRunningKeys(new Set());
   }
 
   const displayBasePack = formatBasePackName(instance.basePack);
+  const sourceLabel = (SOURCE_COLORS[instance.source] || SOURCE_COLORS.local).label;
+  const baseModCount = Math.max(0, instance.totalModCount - instance.customModCount);
 
   const handleDescSave = () => {
     onUpdate({ description: descInput.trim() });
@@ -157,7 +153,7 @@ export function OverviewTab({
     setStages(prev => ({ ...prev, [key]: { status, message } }));
 
   const runRebuild = async () => {
-    if (isBusy('rebuild')) return;
+    if (anyBusy) return;
     startRun('rebuild');
     setStage('rebuild', 'running', 'Rebuilding workspace…');
     onUpdate({ status: 'Installing...' });
@@ -174,7 +170,7 @@ export function OverviewTab({
   };
 
   const runLayer = async () => {
-    if (isBusy('layer')) return;
+    if (anyBusy) return;
     startRun('layer');
     setStage('layer', 'running', 'Layering custom mods…');
     try {
@@ -193,34 +189,8 @@ export function OverviewTab({
     }
   };
 
-  const runPackage = async () => {
-    if (isBusy('package')) return;
-    startRun('package');
-    setStage('package', 'running', 'Packaging…');
-    try {
-      const path = await invoke<string>('export_instance', {
-        instanceId: instance.id,
-        format: 'zip',
-      });
-      const exportedAt = new Date().toLocaleString();
-      onUpdate({
-        lastExported: exportedAt,
-      });
-      setStage('package', 'done', `Saved ${path}`);
-    } catch (e) {
-      const msg = String(e);
-      if (msg.toLowerCase().includes('cancelled')) {
-        setStage('package', 'idle', 'Export cancelled');
-      } else {
-        setStage('package', 'error', msg);
-      }
-    } finally {
-      endRun('package');
-    }
-  };
-
   const runServerRebuild = async () => {
-    if (isBusy('serverRebuild')) return;
+    if (anyBusy) return;
     startRun('serverRebuild');
     setStage('serverRebuild', 'running', 'Rebuilding server workspace…');
     try {
@@ -233,147 +203,65 @@ export function OverviewTab({
     }
   };
 
-  const runServerPackage = async () => {
-    if (isBusy('serverPackage')) return;
-    startRun('serverPackage');
-    setStage('serverPackage', 'running', 'Packaging server…');
-    try {
-      const path = await invoke<string>('export_instance', {
-        instanceId: instance.id,
-        format: 'server',
-      });
-      onUpdate({
-        lastExported: new Date().toLocaleString(),
-      });
-      setStage('serverPackage', 'done', `Saved ${path}`);
-    } catch (e) {
-      const msg = String(e);
-      if (msg.toLowerCase().includes('cancelled')) {
-        setStage('serverPackage', 'idle', 'Export cancelled');
-      } else {
-        setStage('serverPackage', 'error', msg);
-      }
-    } finally {
-      endRun('serverPackage');
-    }
-  };
-
   const resetPipeline = () => {
     if (anyBusy) return;
     setStages(IDLE_STAGES);
   };
 
-  const statCards = [
-    {
-      label: 'Base Pack',
-      value: displayBasePack,
-      sub: instance.basePackVersion ? `v${instance.basePackVersion}` : undefined,
-      fullText: instance.basePack,
-    },
-    { label: 'Mod Loader', value: instance.loader, sub: 'Runtime loader' },
-    {
-      label: 'Total Mods',
-      value: `${instance.totalModCount} mods`,
-      sub:
-        instance.customModCount > 0 ? `+${instance.customModCount} custom added` : 'From base pack',
-    },
-    { label: 'Minecraft', value: instance.mcVersion, sub: 'Game target' },
-    {
-      label: 'Last Exported',
-      value: instance.lastExported || 'Never',
-      sub: instance.lastExported ? 'Ready to share' : 'Unsaved export',
-    },
-    {
-      label: 'Exports',
-      value: serverExporterEnabled ? 'Client · Server' : 'Client ZIP',
-      sub: `Pack v${instance.exportSettings?.version || '1.0.0'}`,
-    },
-  ];
-
   return (
     <div className="animate-slide-in flex flex-col gap-6">
-      <div
-        className="p-4 rounded-xl relative group transition-colors"
-        style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
-      >
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
-            About this Pack
-          </span>
-          {!isEditingDesc && (
-            <button
-              className="btn-ghost text-xs py-0.5 px-2 opacity-0 group-hover:opacity-100 transition-opacity"
-              onClick={() => {
-                setDescInput(instance.description || '');
-                setIsEditingDesc(true);
-              }}
-            >
-              <Icon name="pencil" size={12} />
-              <span className="ml-1 text-[11px]">Edit</span>
-            </button>
-          )}
-        </div>
-
-        {isEditingDesc ? (
-          <div className="flex flex-col gap-2">
-            <textarea
-              className="form-input text-xs leading-relaxed"
-              rows={3}
-              placeholder="Add a description for this modpack..."
-              value={descInput}
-              onChange={e => setDescInput(e.target.value)}
-              autoFocus
-            />
-            <div className="flex justify-end gap-2">
-              <button
-                className="btn-ghost text-xs px-2.5 py-1"
-                onClick={() => setIsEditingDesc(false)}
-              >
-                Cancel
-              </button>
-              <button className="btn-primary text-xs px-3 py-1" onClick={handleDescSave}>
-                Save Description
-              </button>
+      <div>
+        <h3 className="section-label">Pack info</h3>
+        <div
+          className="grid gap-3"
+          style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}
+        >
+          <div className="info-card">
+            <div className="info-card-label">Base pack</div>
+            <div className="info-card-value" title={instance.basePack}>
+              {displayBasePack}
+            </div>
+            <div className="info-card-meta">
+              {instance.basePackVersionLabel ||
+              (instance.basePackVersion && !/^[A-Za-z0-9]{8}$/.test(instance.basePackVersion))
+                ? `Pinned version ${instance.basePackVersionLabel || instance.basePackVersion}`
+                : instance.basePackVersion
+                  ? `Pinned version id ${instance.basePackVersion}`
+                  : 'No version pin recorded'}
             </div>
           </div>
-        ) : (
-          <p className="text-[13px] leading-relaxed text-[var(--text-secondary)]">
-            {instance.description || (
-              <span className="italic text-[var(--text-muted)]">
-                No description provided. Click edit to add notes or pack instructions.
-              </span>
-            )}
-          </p>
-        )}
-      </div>
 
-      <div>
-        <h3 className="text-xs font-semibold uppercase tracking-wider mb-3 text-[var(--text-muted)]">
-          Pack Specifications
-        </h3>
-        <div className="grid grid-cols-3 gap-3">
-          {statCards.map(item => (
-            <div
-              key={item.label}
-              className="p-3.5 rounded-xl min-w-0 overflow-hidden flex flex-col justify-between"
-              style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
-            >
-              <span className="text-[11px] font-medium text-[var(--text-muted)] mb-1 block">
-                {item.label}
-              </span>
-              <div
-                className="text-[13.5px] font-semibold text-[var(--text-primary)] truncate"
-                title={item.fullText || item.value}
-              >
-                {item.value}
-              </div>
-              {item.sub && (
-                <span className="text-[11px] text-[var(--text-muted)] truncate mt-0.5 block">
-                  {item.sub}
-                </span>
-              )}
+          <div className="info-card">
+            <div className="info-card-label">Game</div>
+            <div className="info-card-value">{instance.mcVersion}</div>
+            <div className="info-card-meta">
+              {instance.loader} · {sourceLabel}
             </div>
-          ))}
+          </div>
+
+          <div className="info-card">
+            <div className="info-card-label">Mods</div>
+            <div className="info-card-value">{instance.totalModCount} total</div>
+            <div className="info-card-meta">
+              {baseModCount} from base
+              {instance.customModCount > 0
+                ? ` · ${instance.customModCount} custom`
+                : ' · no customs yet'}
+            </div>
+          </div>
+
+          <div className="info-card">
+            <div className="info-card-label">Export</div>
+            <div className="info-card-value">{instance.lastExported || 'Not exported yet'}</div>
+            <div className="info-card-meta">
+              {serverExporterEnabled ? 'Client and server ZIP' : 'Client ZIP'}
+              {' · '}
+              release{' '}
+              {instance.exportSettings?.version
+                ? `v${instance.exportSettings.version}`
+                : 'version not set'}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -383,50 +271,16 @@ export function OverviewTab({
         serverExporterEnabled={serverExporterEnabled}
       />
 
-      <div>
-        <h3 className="text-xs font-semibold uppercase tracking-wider mb-3 text-[var(--text-muted)]">
-          Export Configuration
-        </h3>
-        <div
-          className="p-4 rounded-xl flex flex-col gap-4"
-          style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
-        >
-          <div>
-            <label className="form-label mb-1.5 block text-xs font-medium">
-              Pack Release Version
-            </label>
-            <input
-              className="form-input text-xs max-w-xs"
-              placeholder="1.0.0"
-              value={instance.exportSettings.version}
-              onChange={e =>
-                onUpdate({
-                  exportSettings: { ...instance.exportSettings, version: e.target.value },
-                })
-              }
-            />
-            <p className="text-[11px] mt-1 text-[var(--text-muted)]">
-              Client and server exports are independent — run whichever this pack needs. Zip names
-              use the original pack stem + -MODIFIED / -MODIFIED-server.
-              {!serverExporterEnabled &&
-                ' Enable Server Pack Packager in Plugins to unlock server export.'}
-            </p>
-          </div>
-        </div>
-      </div>
-
       <div id="export-pipeline" className="flex flex-col gap-4">
         <div id="pipeline-client">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
-              Client pipeline
-            </h3>
+            <h3 className="section-label mb-0">Client workspace</h3>
             <button
-              className="btn-ghost text-[11px] px-2 py-0.5"
+              className="btn-ghost text-[13px] px-2 py-0.5"
               onClick={resetPipeline}
               disabled={anyBusy}
             >
-              Reset
+              Reset status
             </button>
           </div>
           <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--border)' }}>
@@ -439,13 +293,8 @@ export function OverviewTab({
                 },
                 {
                   key: 'layer' as const,
-                  label: '② Layer custom mods (client)',
+                  label: '② Layer custom mods',
                   onRun: runLayer,
-                },
-                {
-                  key: 'package' as const,
-                  label: '③ Export client ZIP',
-                  onRun: runPackage,
                 },
               ] as const
             ).map(({ key, label, onRun }, i, arr) => {
@@ -458,60 +307,123 @@ export function OverviewTab({
                   label={label}
                   stage={stage}
                   isLast={isLast}
-                  busy={isBusy(key)}
+                  busy={anyBusy}
                   title={PIPELINE_TITLES[key]}
                   onRun={onRun}
                 />
               );
             })}
           </div>
+          <p className="text-[13px] mt-2" style={{ color: 'var(--text-secondary)' }}>
+            When the workspace looks right, use <span className="font-medium">Export client</span>{' '}
+            in the header.
+          </p>
         </div>
 
         {serverExporterEnabled && (
           <div id="pipeline-server">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
-                Server pipeline
-              </h3>
-              <p className="text-[11px] text-[var(--text-muted)]">
-                Optional — skip for client-only packs
+              <h3 className="section-label mb-0">Server workspace</h3>
+              <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+                Optional — skip for client-only
               </p>
             </div>
             <div
               className="rounded-xl overflow-hidden"
               style={{ border: '1px solid var(--border)' }}
             >
-              {(
-                [
-                  {
-                    key: 'serverRebuild' as const,
-                    label: '① Rebuild server workspace',
-                    onRun: runServerRebuild,
-                  },
-                  {
-                    key: 'serverPackage' as const,
-                    label: '② Export server ZIP',
-                    onRun: runServerPackage,
-                  },
-                ] as const
-              ).map(({ key, label, onRun }, i, arr) => {
-                const stage = stages[key];
-                const isLast = i === arr.length - 1;
-                return (
-                  <PipelineRow
-                    key={key}
-                    stageKey={key}
-                    label={label}
-                    stage={stage}
-                    isLast={isLast}
-                    busy={isBusy(key)}
-                    title={PIPELINE_TITLES[key]}
-                    onRun={onRun}
-                  />
-                );
-              })}
+              <PipelineRow
+                stageKey="serverRebuild"
+                label="① Rebuild server workspace"
+                stage={stages.serverRebuild}
+                isLast
+                busy={anyBusy}
+                title={PIPELINE_TITLES.serverRebuild}
+                onRun={runServerRebuild}
+              />
+            </div>
+            <p className="text-[13px] mt-2" style={{ color: 'var(--text-secondary)' }}>
+              Then use <span className="font-medium">Export server</span> in the header.
+            </p>
+          </div>
+        )}
+
+        <div
+          className="p-4 rounded-xl flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"
+          style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+        >
+          <div className="min-w-0 flex-1">
+            <label className="form-label mb-1.5 block">Pack release version</label>
+            <input
+              className="form-input text-[13px] max-w-xs"
+              placeholder="1.0.0"
+              value={instance.exportSettings?.version ?? ''}
+              onChange={e => {
+                const prev = instance.exportSettings ?? {
+                  includeServer: false,
+                  version: '',
+                };
+                onUpdate({
+                  exportSettings: { ...prev, version: e.target.value },
+                });
+              }}
+            />
+            <p className="text-[13px] mt-1.5" style={{ color: 'var(--text-secondary)' }}>
+              Used in the zip filename when set (stem-version-MODIFIED.zip
+              {serverExporterEnabled ? ' / stem-version-MODIFIED-server.zip' : ''}).
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div
+        className="p-4 rounded-xl relative transition-colors"
+        style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+      >
+        <div className="flex items-center justify-between mb-2">
+          <span className="section-label mb-0">Description</span>
+          {!isEditingDesc && (
+            <button
+              className="btn-ghost text-[13px] py-0.5 px-2"
+              onClick={() => {
+                setDescInput(instance.description || '');
+                setIsEditingDesc(true);
+              }}
+            >
+              <Icon name="pencil" size={12} />
+              <span className="ml-1">Edit</span>
+            </button>
+          )}
+        </div>
+
+        {isEditingDesc ? (
+          <div className="flex flex-col gap-2">
+            <textarea
+              className="form-input text-[13px] leading-relaxed"
+              rows={3}
+              placeholder="Pack description…"
+              value={descInput}
+              onChange={e => setDescInput(e.target.value)}
+              autoFocus
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                className="btn-ghost text-[13px] px-2.5 py-1"
+                onClick={() => setIsEditingDesc(false)}
+              >
+                Cancel
+              </button>
+              <button className="btn-primary text-[13px] px-3 py-1" onClick={handleDescSave}>
+                Save
+              </button>
             </div>
           </div>
+        ) : (
+          <p className="text-[14px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+            {instance.description || (
+              <span style={{ color: 'var(--text-muted)' }}>No description yet.</span>
+            )}
+          </p>
         )}
       </div>
     </div>
@@ -545,11 +457,11 @@ function PipelineRow({
           : 'info';
   const iconColor =
     stage.status === 'running'
-      ? 'var(--color-accent)'
+      ? 'var(--accent)'
       : stage.status === 'done'
-        ? '#22c55e'
+        ? 'var(--modrinth)'
         : stage.status === 'error'
-          ? '#ef4444'
+          ? 'var(--danger)'
           : 'var(--text-muted)';
 
   return (
@@ -572,11 +484,11 @@ function PipelineRow({
           }}
         />
         <div className="min-w-0">
-          <div className="text-[12.5px] font-medium text-[var(--text-primary)]">{label}</div>
+          <div className="text-[13px] font-medium text-[var(--text-primary)]">{label}</div>
           <div
-            className="text-[11px] truncate"
+            className="text-[12.5px] truncate"
             style={{
-              color: stage.status === 'error' ? '#ef4444' : 'var(--text-muted)',
+              color: stage.status === 'error' ? 'var(--danger)' : 'var(--text-secondary)',
             }}
           >
             {stage.message}

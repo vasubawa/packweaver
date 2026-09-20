@@ -41,12 +41,88 @@ impl Drop for InstallGuard {
     }
 }
 
+fn cancel_flags() -> &'static Mutex<std::collections::HashSet<String>> {
+    static FLAGS: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
+    FLAGS.get_or_init(|| Mutex::new(std::collections::HashSet::new()))
+}
+
+pub fn request_cancel(instance_id: &str) {
+    if let Ok(mut g) = cancel_flags().lock() {
+        g.insert(instance_id.to_string());
+    }
+}
+
+pub fn is_cancelled(instance_id: &str) -> bool {
+    cancel_flags()
+        .lock()
+        .ok()
+        .map(|g| g.contains(instance_id))
+        .unwrap_or(false)
+}
+
+pub fn clear_cancel(instance_id: &str) {
+    if let Ok(mut g) = cancel_flags().lock() {
+        g.remove(instance_id);
+    }
+}
+
+pub fn is_install_running(instance_id: &str) -> bool {
+    install_locks()
+        .lock()
+        .ok()
+        .map(|g| g.contains(instance_id))
+        .unwrap_or(false)
+}
+
+pub async fn wait_until_idle(instance_id: &str, timeout_ms: u64) -> Result<(), String> {
+    let start = std::time::Instant::now();
+    loop {
+        if !is_install_running(instance_id) {
+            return Ok(());
+        }
+        if start.elapsed().as_millis() as u64 > timeout_ms {
+            return Err(
+                "This pack is still rebuilding. Wait for it to finish, then delete.".to_string(),
+            );
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+}
+
+fn check_cancel(instance_id: &str) -> Result<(), String> {
+    if is_cancelled(instance_id) {
+        Err("Cancelled".to_string())
+    } else {
+        Ok(())
+    }
+}
+
 #[derive(Serialize, Clone)]
 pub struct ProgressEvent {
     pub instance_id: String,
     pub status: String,
     pub progress: u32,
     pub total: u32,
+    #[serde(default)]
+    pub stage: String,
+}
+
+impl ProgressEvent {
+    pub fn emit_body(
+        instance_id: &str,
+        status: &str,
+        progress: u32,
+        total: u32,
+        stage: &str,
+    ) -> Self {
+        Self {
+            instance_id: instance_id.to_string(),
+            status: status.to_string(),
+            progress,
+            total,
+            stage: stage.to_string(),
+        }
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -190,24 +266,22 @@ pub async fn run_pipeline(
     let emit = |status: &str, p: u32, t: u32| {
         let _ = app.emit(
             "instance-progress",
-            ProgressEvent {
-                instance_id: instance_id.clone(),
-                status: status.to_string(),
-                progress: p,
-                total: t,
-            },
+            ProgressEvent::emit_body(&instance_id, status, p, t, "client"),
         );
     };
+    check_cancel(&instance_id)?;
 
-    let (base_pack_version_id, preserve_enabled): (
+    let (base_pack_version_id, existing_mc, existing_loader, preserve_enabled): (
+        String,
+        String,
         String,
         std::collections::HashMap<String, (bool, bool)>,
     ) = with_db(&app, |conn| {
-        let version = conn
+        let (version, mc, loader): (String, String, String) = conn
             .query_row(
-                "SELECT base_pack_version_id FROM instances WHERE id = ?1",
+                "SELECT base_pack_version_id, mc_version, loader FROM instances WHERE id = ?1",
                 params![&instance_id],
-                |row| row.get::<_, String>(0),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .map_err(|e| e.to_string())?;
 
@@ -228,8 +302,9 @@ pub async fn run_pipeline(
                 }
             }
         }
-        Ok((version, map))
+        Ok((version, mc, loader, map))
     })?;
+    crate::ids::assert_safe_instance_id(&instance_id)?;
 
     let app_dir = crate::db::get_portable_data_dir();
     let instance_dir = app_dir.join("instances").join(&instance_id);
@@ -286,13 +361,17 @@ pub async fn run_pipeline(
     let install_result =
         installer::install_mrpack_client(&client, &archive_path, &workspace_dir).await;
 
-    let (installed, mc_version, loader) = match install_result {
+    let install = match install_result {
         Ok(v) => v,
         Err(e) => {
             let _ = installer::wipe_dir(&workspace_dir);
             return Err(e);
         }
     };
+    let installed = install.files;
+    let pack_meta = install.meta;
+    let mc_version = pack_meta.mc_version.clone();
+    let loader = pack_meta.loader.clone();
 
     // Replace base mod rows; keep customs
     with_db(&app, |conn| {
@@ -371,7 +450,7 @@ pub async fn run_pipeline(
                     &name,
                     &version,
                     &file.file_path,
-                    "modrinth",
+                    &source,
                     ec,
                     ec,
                     es,
@@ -438,12 +517,66 @@ pub async fn run_pipeline(
     }
 
     emit("Layering custom mods...", 80, 100);
-    layer_custom_mods(&app, &client, &instance_id, &workspace_dir, false).await?;
+    check_cancel(&instance_id)?;
+    layer_custom_mods_inner(&app, &client, &instance_id, &workspace_dir, false).await?;
+
+    let (mc_final, loader_final) = if !mc_version.trim().is_empty() {
+        (mc_version, crate::ids::normalize_loader_label(&loader))
+    } else if !loader.trim().is_empty() {
+        (existing_mc, crate::ids::normalize_loader_label(&loader))
+    } else {
+        // No index metadata — keep whatever was stored at create time (may be empty).
+        (
+            existing_mc,
+            if existing_loader.trim().is_empty() {
+                String::new()
+            } else {
+                crate::ids::normalize_loader_label(&existing_loader)
+            },
+        )
+    };
+
+    // Copy pack art out of the workspace into durable media/ paths for the UI.
+    let (icon_url, banner_url) = persist_pack_media(&instance_id, &pack_meta)?;
 
     with_db(&app, |conn| {
         conn.execute(
-            "UPDATE instances SET mc_version = ?1, loader = ?2, status = 'Ready' WHERE id = ?3",
-            params![&mc_version, &loader, &instance_id],
+            "UPDATE instances SET mc_version = ?1, loader = ?2, status = 'Ready',
+                base_pack_version_label = CASE
+                    WHEN ?3 != '' THEN ?3
+                    ELSE base_pack_version_label
+                END,
+                base_pack_version_id = CASE
+                    WHEN ?3 != '' AND (base_pack_version_id = '' OR base_pack_version_id = 'local' OR base_pack_version_id = '1.0.0')
+                    THEN ?3
+                    ELSE base_pack_version_id
+                END,
+                description = CASE
+                    WHEN description = '' AND ?4 != '' THEN ?4
+                    ELSE description
+                END,
+                notes = CASE
+                    WHEN notes = '' AND ?9 != '' THEN ?9
+                    ELSE notes
+                END,
+                name = CASE
+                    WHEN ?5 != '' AND (name = '' OR name = original_filename) THEN ?5
+                    ELSE name
+                END,
+                icon_url = CASE WHEN icon_url = '' AND ?6 != '' THEN ?6 ELSE icon_url END,
+                banner_url = CASE WHEN banner_url = '' AND ?7 != '' THEN ?7 ELSE banner_url END
+             WHERE id = ?8",
+            params![
+                &mc_final,
+                &loader_final,
+                &pack_meta.pack_version,
+                &pack_meta.summary,
+                &pack_meta.pack_name,
+                &icon_url,
+                &banner_url,
+                &instance_id,
+                &pack_meta.notes,
+            ],
         )
         .map_err(|e| e.to_string())?;
         Ok(())
@@ -451,6 +584,46 @@ pub async fn run_pipeline(
 
     emit("Ready", 100, 100);
     Ok(())
+}
+
+/// Copy icon/banner discovered in the pack tree into `instances/{id}/media/`.
+fn persist_pack_media(
+    instance_id: &str,
+    meta: &installer::PackInstallMeta,
+) -> Result<(String, String), String> {
+    let media = instance_dir(instance_id).join("media");
+    fs::create_dir_all(&media).map_err(|e| e.to_string())?;
+
+    let mut icon_url = String::new();
+    let mut banner_url = String::new();
+
+    if !meta.icon_path.is_empty() {
+        let src = Path::new(&meta.icon_path);
+        if src.is_file() {
+            let ext = src
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("png")
+                .to_ascii_lowercase();
+            let dest = media.join(format!("icon.{ext}"));
+            fs::copy(src, &dest).map_err(|e| e.to_string())?;
+            icon_url = dest.to_string_lossy().to_string();
+        }
+    }
+    if !meta.banner_path.is_empty() {
+        let src = Path::new(&meta.banner_path);
+        if src.is_file() {
+            let ext = src
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("png")
+                .to_ascii_lowercase();
+            let dest = media.join(format!("banner.{ext}"));
+            fs::copy(src, &dest).map_err(|e| e.to_string())?;
+            banner_url = dest.to_string_lossy().to_string();
+        }
+    }
+    Ok((icon_url, banner_url))
 }
 
 /// Download/copy one custom mod into `workspace_dir/mods`.
@@ -465,45 +638,18 @@ async fn place_custom_mod(
     file_name: &str,
     mod_version_id: &str,
     source_path: &str,
+    provider_version_id: &str,
 ) -> Result<(), String> {
+    check_cancel(instance_id)?;
     let mods_dir = workspace_dir.join("mods");
     fs::create_dir_all(&mods_dir).map_err(|e| e.to_string())?;
     installer::remove_mod_file_from_workspace(workspace_dir, Some(file_name), mod_id);
 
     match source {
         "modrinth" => {
-            let version_json: serde_json::Value = if !mod_version_id.is_empty()
-                && mod_version_id != "latest"
-                && !mod_version_id.contains('.')
-            {
-                let url = format!("https://api.modrinth.com/v2/version/{}", mod_version_id);
-                client
-                    .get(&url)
-                    .send()
-                    .await
-                    .map_err(|e| e.to_string())?
-                    .error_for_status()
-                    .map_err(|e| e.to_string())?
-                    .json()
-                    .await
-                    .map_err(|e| e.to_string())?
-            } else {
-                let url = format!("https://api.modrinth.com/v2/project/{}/version", mod_id);
-                let versions: Vec<serde_json::Value> = client
-                    .get(&url)
-                    .send()
-                    .await
-                    .map_err(|e| e.to_string())?
-                    .error_for_status()
-                    .map_err(|e| e.to_string())?
-                    .json()
-                    .await
-                    .map_err(|e| e.to_string())?;
-                versions
-                    .into_iter()
-                    .next()
-                    .ok_or_else(|| format!("No versions for {}", mod_id))?
-            };
+            let version_json =
+                fetch_pinned_modrinth_version(client, mod_id, provider_version_id, mod_version_id)
+                    .await?;
 
             let files = version_json["files"]
                 .as_array()
@@ -516,25 +662,40 @@ async fn place_custom_mod(
             let url = file["url"]
                 .as_str()
                 .ok_or_else(|| format!("No URL for {}", mod_id))?;
-            let fname = file["filename"].as_str().unwrap_or("mod.jar").to_string();
-            let dest = mods_dir.join(&fname);
-
-            let mut resp = client
-                .get(url)
-                .send()
-                .await
-                .map_err(|e| e.to_string())?
-                .error_for_status()
-                .map_err(|e| e.to_string())?;
-            let mut out = fs::File::create(&dest).map_err(|e| e.to_string())?;
-            while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {
-                io::Write::write_all(&mut out, &chunk).map_err(|e| e.to_string())?;
+            let fname = crate::ids::jar_leaf(file["filename"].as_str().unwrap_or("mod.jar"));
+            if fname.is_empty() || fname.contains("..") {
+                return Err(format!("Invalid filename for {}", mod_id));
             }
+            let dest = mods_dir.join(&fname);
+            let mut expected: std::collections::HashMap<String, String> =
+                std::collections::HashMap::new();
+            if let Some(s) = file["hashes"]["sha1"].as_str() {
+                expected.insert("sha1".to_string(), s.to_string());
+            }
+            if let Some(s) = file["hashes"]["sha512"].as_str() {
+                expected.insert("sha512".to_string(), s.to_string());
+            }
+            installer::download_url_to_file(
+                client,
+                url,
+                &dest,
+                if expected.is_empty() {
+                    None
+                } else {
+                    Some(&expected)
+                },
+            )
+            .await?;
 
+            let vid = version_json["id"].as_str().unwrap_or(provider_version_id);
+            let vnum = version_json["version_number"]
+                .as_str()
+                .unwrap_or(mod_version_id);
             with_db(app, |conn| {
                 conn.execute(
-                    "UPDATE instance_mods SET file_name = ?1 WHERE instance_id = ?2 AND mod_id = ?3",
-                    params![&fname, instance_id, mod_id],
+                    "UPDATE instance_mods SET file_name = ?1, provider_version_id = ?2, mod_version_id = ?3
+                     WHERE instance_id = ?4 AND mod_id = ?5",
+                    params![&fname, vid, vnum, instance_id, mod_id],
                 )
                 .map_err(|e| e.to_string())?;
                 Ok(())
@@ -579,8 +740,59 @@ async fn place_custom_mod(
     Ok(())
 }
 
+async fn fetch_pinned_modrinth_version(
+    client: &Client,
+    mod_id: &str,
+    provider_version_id: &str,
+    display_version: &str,
+) -> Result<serde_json::Value, String> {
+    let pin = if crate::ids::looks_like_modrinth_version_id(provider_version_id) {
+        provider_version_id.trim()
+    } else if crate::ids::looks_like_modrinth_version_id(display_version) {
+        display_version.trim()
+    } else {
+        ""
+    };
+    if !pin.is_empty() {
+        let url = format!("https://api.modrinth.com/v2/version/{}", pin);
+        return client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?
+            .error_for_status()
+            .map_err(|e| e.to_string())?
+            .json()
+            .await
+            .map_err(|e| e.to_string());
+    }
+
+    let url = format!("https://api.modrinth.com/v2/project/{}/version", mod_id);
+    let versions: Vec<serde_json::Value> = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .error_for_status()
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !display_version.is_empty() && display_version != "latest" {
+        if let Some(hit) = versions.iter().find(|v| {
+            v["version_number"].as_str() == Some(display_version)
+                || v["id"].as_str() == Some(display_version)
+        }) {
+            return Ok(hit.clone());
+        }
+    }
+    versions
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("No versions for {}", mod_id))
+}
+
 /// Download/copy enabled custom mods into `{side}/{stem}/mods` (force refresh).
-/// `for_server` uses `enabled_server` and targets `workspace/server/{stem}/`.
 pub async fn layer_custom_mods(
     app: &AppHandle,
     client: &Client,
@@ -588,18 +800,31 @@ pub async fn layer_custom_mods(
     workspace_dir: &Path,
     for_server: bool,
 ) -> Result<u32, String> {
+    crate::ids::assert_safe_instance_id(instance_id)?;
+    let _guard = InstallGuard::acquire(instance_id)?;
+    layer_custom_mods_inner(app, client, instance_id, workspace_dir, for_server).await
+}
+
+async fn layer_custom_mods_inner(
+    app: &AppHandle,
+    client: &Client,
+    instance_id: &str,
+    workspace_dir: &Path,
+    for_server: bool,
+) -> Result<u32, String> {
+    check_cancel(instance_id)?;
     let enabled_col = if for_server {
         "enabled_server"
     } else {
         "enabled_client"
     };
     let sql = format!(
-        "SELECT mod_id, source, file_name, mod_version_id, COALESCE(source_path, '')
+        "SELECT mod_id, source, file_name, mod_version_id, COALESCE(source_path, ''), COALESCE(provider_version_id, '')
          FROM instance_mods
          WHERE instance_id = ?1 AND is_base = 0 AND {} = 1",
         enabled_col
     );
-    let customs: Vec<(String, String, String, String, String)> = with_db(app, |conn| {
+    let customs: Vec<(String, String, String, String, String, String)> = with_db(app, |conn| {
         let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map([instance_id], |row| {
@@ -609,6 +834,7 @@ pub async fn layer_custom_mods(
                     row.get::<_, Option<String>>(2)?.unwrap_or_default(),
                     row.get::<_, String>(3)?,
                     row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
                 ))
             })
             .map_err(|e| e.to_string())?;
@@ -616,7 +842,7 @@ pub async fn layer_custom_mods(
     })?;
 
     let mut count = 0u32;
-    for (mod_id, source, file_name, mod_version_id, source_path) in customs {
+    for (mod_id, source, file_name, mod_version_id, source_path, provider_version_id) in customs {
         place_custom_mod(
             app,
             client,
@@ -627,6 +853,7 @@ pub async fn layer_custom_mods(
             &file_name,
             &mod_version_id,
             &source_path,
+            &provider_version_id,
         )
         .await?;
         count += 1;
@@ -775,7 +1002,7 @@ fn original_archive_path(
             return Ok(p);
         }
     }
-    // Fallback: first file in original/
+    // Fallback: first file in original/ (skip the server/ subdirectory)
     if let Ok(entries) = fs::read_dir(&original_dir) {
         for entry in entries.flatten() {
             let p = entry.path();
@@ -785,6 +1012,39 @@ fn original_archive_path(
         }
     }
     Err("Original base pack archive not found — rebuild the pack".to_string())
+}
+
+fn server_archive_path(
+    instance_id: &str,
+    server_original_filename: &str,
+    client_original_filename: &str,
+) -> Result<std::path::PathBuf, String> {
+    let original_dir = crate::db::get_portable_data_dir()
+        .join("instances")
+        .join(instance_id)
+        .join("original");
+    if !server_original_filename.is_empty() {
+        let p = original_dir.join("server").join(server_original_filename);
+        if p.is_file() {
+            return Ok(p);
+        }
+        // Stale DB name — try any file under original/server/
+        let server_dir = original_dir.join("server");
+        if let Ok(entries) = fs::read_dir(&server_dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_file() {
+                    return Ok(p);
+                }
+            }
+        }
+        return Err(format!(
+            "Server pack \"{}\" not found under original/server/ — upload it again from the Server tab",
+            server_original_filename
+        ));
+    }
+    // No dedicated server pack: derive from the client archive (.mrpack env filter / same zip).
+    original_archive_path(instance_id, client_original_filename)
 }
 
 /// Re-download / re-extract a single base mod into the client workspace.
@@ -833,15 +1093,16 @@ pub async fn apply_mod_enabled(
     side: &str,
 ) -> Result<(), String> {
     let for_server = side == "server";
-    let (is_base, file_name, source, source_path, mod_version_id): (
+    let (is_base, file_name, source, source_path, mod_version_id, provider_version_id): (
         bool,
+        String,
         String,
         String,
         String,
         String,
     ) = with_db(app, |conn| {
         conn.query_row(
-            "SELECT is_base, COALESCE(file_name, ''), source, COALESCE(source_path, ''), COALESCE(mod_version_id, '')
+            "SELECT is_base, COALESCE(file_name, ''), source, COALESCE(source_path, ''), COALESCE(mod_version_id, ''), COALESCE(provider_version_id, '')
              FROM instance_mods WHERE instance_id = ?1 AND mod_id = ?2",
             params![instance_id, mod_id],
             |row| {
@@ -851,6 +1112,7 @@ pub async fn apply_mod_enabled(
                     row.get::<_, String>(2)?,
                     row.get::<_, String>(3)?,
                     row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
                 ))
             },
         )
@@ -923,6 +1185,7 @@ pub async fn apply_mod_enabled(
             &file_name,
             &mod_version_id,
             &source_path,
+            &provider_version_id,
         )
         .await?;
     }
@@ -937,14 +1200,10 @@ pub async fn run_server_pipeline(app: AppHandle, instance_id: String) -> Result<
     let emit = |status: &str, p: u32, t: u32| {
         let _ = app.emit(
             "instance-progress",
-            ProgressEvent {
-                instance_id: instance_id.clone(),
-                status: status.to_string(),
-                progress: p,
-                total: t,
-            },
+            ProgressEvent::emit_body(&instance_id, status, p, t, "server"),
         );
     };
+    check_cancel(&instance_id)?;
 
     let preserve_server: std::collections::HashMap<String, bool> = with_db(&app, |conn| {
         let mut map = std::collections::HashMap::new();
@@ -962,17 +1221,28 @@ pub async fn run_server_pipeline(app: AppHandle, instance_id: String) -> Result<
         Ok(map)
     })?;
 
-    let original_filename: String = with_db(&app, |conn| {
+    let (original_filename, server_original_filename): (String, String) = with_db(&app, |conn| {
         conn.query_row(
-            "SELECT COALESCE(original_filename, '') FROM instances WHERE id = ?1",
+            "SELECT COALESCE(original_filename, ''), COALESCE(server_original_filename, '') FROM instances WHERE id = ?1",
             [&instance_id],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .map_err(|e| e.to_string())
     })?;
 
-    let archive = original_archive_path(&instance_id, &original_filename)?;
-    let stem = stem_from_filename(&original_filename);
+    let archive = server_archive_path(&instance_id, &server_original_filename, &original_filename)?;
+    let stem = if !original_filename.is_empty() {
+        stem_from_filename(&original_filename)
+    } else if !server_original_filename.is_empty() {
+        stem_from_filename(&server_original_filename)
+    } else {
+        stem_from_filename(
+            archive
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("pack"),
+        )
+    };
     let server_root = server_workspace_root(&instance_id);
     let _ = installer::wipe_dir(&server_root);
     // Drop legacy sibling folder from pre-nested layout.
@@ -1031,8 +1301,79 @@ pub async fn run_server_pipeline(app: AppHandle, instance_id: String) -> Result<
         })?;
     }
 
+    // Dedicated / plain server zip: scan mods/ into DB when index produced no file list.
+    if installed.is_empty() {
+        let mods_dir = server_dir.join("mods");
+        if mods_dir.is_dir() {
+            if let Ok(entries) = fs::read_dir(&mods_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if !path.is_file() {
+                        continue;
+                    }
+                    let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else {
+                        continue;
+                    };
+                    let jar_meta = crate::jar_inspector::inspect_jar(&path);
+                    let name = jar_meta.name.unwrap_or_else(|| file_name.to_string());
+                    let version = jar_meta.version.unwrap_or_else(|| "local".to_string());
+                    let es = preserve_server.get(file_name).copied().unwrap_or(true);
+                    if !es {
+                        let _ = fs::remove_file(&path);
+                    }
+                    with_db(&app, |conn| {
+                        let exists: i64 = conn
+                            .query_row(
+                                "SELECT COUNT(*) FROM instance_mods WHERE instance_id = ?1 AND mod_id = ?2",
+                                params![&instance_id, file_name],
+                                |row| row.get(0),
+                            )
+                            .unwrap_or(0);
+                        if exists == 0 {
+                            let _ = conn.execute(
+                                "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, file_name, source, is_base, enabled, enabled_client, enabled_server, side, author, description)
+                                 VALUES (?1, ?2, ?3, ?4, ?5, 'local', 1, 0, 0, ?6, 'server', ?7, ?8)",
+                                params![
+                                    &instance_id,
+                                    file_name,
+                                    &name,
+                                    &version,
+                                    file_name,
+                                    es,
+                                    jar_meta.author.unwrap_or_default(),
+                                    jar_meta.description.unwrap_or_default(),
+                                ],
+                            );
+                        } else {
+                            let _ = conn.execute(
+                                "UPDATE instance_mods SET enabled_server = ?1,
+                                    name = CASE WHEN name = '' OR name = mod_id THEN ?2 ELSE name END,
+                                    mod_version_id = CASE WHEN mod_version_id IN ('', 'unknown', 'local', 'latest') THEN ?3 ELSE mod_version_id END,
+                                    file_name = COALESCE(NULLIF(file_name, ''), ?4),
+                                    author = CASE WHEN COALESCE(author, '') = '' THEN ?5 ELSE author END,
+                                    description = CASE WHEN COALESCE(description, '') = '' THEN ?6 ELSE description END
+                                 WHERE instance_id = ?7 AND mod_id = ?8",
+                                params![
+                                    es,
+                                    &name,
+                                    &version,
+                                    file_name,
+                                    jar_meta.author.unwrap_or_default(),
+                                    jar_meta.description.unwrap_or_default(),
+                                    &instance_id,
+                                    file_name,
+                                ],
+                            );
+                        }
+                        Ok(())
+                    })?;
+                }
+            }
+        }
+    }
+
     emit("Layering server custom mods...", 80, 100);
-    layer_custom_mods(&app, &client, &instance_id, &server_dir, true).await?;
+    layer_custom_mods_inner(&app, &client, &instance_id, &server_dir, true).await?;
 
     emit("Server Ready", 100, 100);
     Ok(())

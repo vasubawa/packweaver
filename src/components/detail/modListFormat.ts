@@ -1,5 +1,20 @@
 /** Shared formatting helpers for mod list columns. */
 
+export function compareModName(a: string, b: string): number {
+  return a.localeCompare(b, undefined, { sensitivity: 'base' });
+}
+
+export function modMatchesQuery(
+  mod: { name?: string; author?: string | null; fileName?: string | null; id?: string },
+  query: string
+): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return [mod.name, mod.author, mod.fileName, mod.id].some(v =>
+    (v || '').toLowerCase().includes(q)
+  );
+}
+
 export function jarLeaf(fileName?: string | null, fallbackId?: string): string {
   const raw = (fileName || fallbackId || '').replace(/\\/g, '/');
   if (!raw) return '—';

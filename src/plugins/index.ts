@@ -31,6 +31,9 @@ export function savePluginSetting(id: string, setting: { enabled?: boolean; apiK
   if (plugin?.isCore && setting.enabled === false) {
     return; // Core features cannot be disabled
   }
+  if (plugin?.comingSoon && setting.enabled) {
+    return;
+  }
   const current = getPluginSettings();
   current[id] = { ...current[id], ...setting };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
@@ -41,9 +44,17 @@ export function getAllPlugins(): AnyPlugin[] {
   const settings = getPluginSettings();
   return Object.values(INITIAL_PLUGINS).map(p => {
     const s = settings[p.id];
+    const comingSoon = !!p.comingSoon;
     return {
       ...p,
-      enabled: p.isCore ? true : s && typeof s.enabled === 'boolean' ? s.enabled : p.enabled,
+      comingSoon,
+      enabled: p.isCore
+        ? true
+        : comingSoon
+          ? false
+          : s && typeof s.enabled === 'boolean'
+            ? s.enabled
+            : p.enabled,
       apiKey: s && s.apiKey ? s.apiKey : p.apiKey,
     } as AnyPlugin;
   });

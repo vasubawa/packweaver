@@ -16,7 +16,7 @@ export function useDeleteInstance(id: string, onDeleted: (id: string) => void) {
       onDeleted(id);
     } catch (e) {
       console.error('Failed to delete instance:', e);
-      addToast('Failed to delete pack', 'error');
+      addToast(e instanceof Error ? e.message : String(e), 'error');
     } finally {
       setIsDeleting(false);
     }

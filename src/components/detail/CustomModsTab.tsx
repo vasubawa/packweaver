@@ -11,9 +11,16 @@ import {
   SearchResult,
 } from '../../plugins';
 import { usePluginSearch } from '../../hooks/usePluginSearch';
-import { jarLeaf, formatBytes, displayModVersion } from './modListFormat';
+import {
+  jarLeaf,
+  formatBytes,
+  displayModVersion,
+  compareModName,
+  modMatchesQuery,
+} from './modListFormat';
 import { checkPackUpdates } from '../../lib/packUpdates';
 import type { PackVersionInfo } from '../../plugins';
+import { open } from '@tauri-apps/plugin-dialog';
 
 interface CustomModsTabProps {
   instance: Instance;
@@ -45,11 +52,11 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
   const [modQuery, setModQuery] = useState('');
   const [showModResults, setShowModResults] = useState(false);
   const [isAddingMod, setIsAddingMod] = useState(false);
-  const [manualModName, setManualModName] = useState('');
   const [sortCol, setSortCol] = useState<'name' | 'author' | 'version' | 'source' | 'enabled'>(
     'name'
   );
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [listQuery, setListQuery] = useState('');
   const [modUpdates, setModUpdates] = useState<Record<string, PackVersionInfo>>({});
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [checkingUpdates, setCheckingUpdates] = useState(false);
@@ -105,6 +112,7 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
           {
             modId: mod.id,
             version: latest.versionId,
+            versionNumber: latest.versionNumber,
             fileName: latest.primaryFilename || undefined,
           },
         ],
@@ -115,6 +123,7 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
             ? {
                 ...m,
                 version: latest.versionNumber,
+                versionId: latest.versionId,
                 fileName: latest.primaryFilename || m.fileName,
               }
             : m
@@ -147,25 +156,34 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
   };
 
   const currentSourcePlugin = activeSources.find(s => s.id === addModSource);
+  const loaderFacet = instance.loader
+    ? [instance.loader.toLowerCase().replace('neoforge', 'neoforge')]
+    : undefined;
   const { results: modResults, isSearching: isSearchingMods } = usePluginSearch(
     currentSourcePlugin,
     modQuery,
-    'mod'
+    'mod',
+    {
+      loaders: loaderFacet,
+      gameVersions: instance.mcVersion ? [instance.mcVersion] : undefined,
+    }
   );
 
   const sorted = useMemo(() => {
-    const mods = [...instance.customMods];
+    const mods = instance.customMods.filter(m => modMatchesQuery(m, listQuery));
     mods.sort((a, b) => {
       let cmp = 0;
-      if (sortCol === 'name') cmp = (a.name || '').localeCompare(b.name || '');
-      else if (sortCol === 'author') cmp = (a.author || '').localeCompare(b.author || '');
-      else if (sortCol === 'version') cmp = (a.version || '').localeCompare(b.version || '');
-      else if (sortCol === 'source') cmp = (a.source || '').localeCompare(b.source || '');
+      if (sortCol === 'name') cmp = compareModName(a.name || '', b.name || '');
+      else if (sortCol === 'author') cmp = compareModName(a.author || '', b.author || '');
+      else if (sortCol === 'version')
+        cmp = (a.version || '').localeCompare(b.version || '', undefined, { sensitivity: 'base' });
+      else if (sortCol === 'source')
+        cmp = (a.source || '').localeCompare(b.source || '', undefined, { sensitivity: 'base' });
       else if (sortCol === 'enabled') cmp = (a.enabled ? 1 : 0) - (b.enabled ? 1 : 0);
       return sortDir === 'asc' ? cmp : -cmp;
     });
     return mods;
-  }, [instance.customMods, sortCol, sortDir]);
+  }, [instance.customMods, sortCol, sortDir, listQuery]);
 
   const addCustomMod = async (
     modId: string,
@@ -184,7 +202,8 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
     }
     setIsAddingMod(true);
     try {
-      let version = 'latest';
+      let version = '';
+      let versionId: string | undefined;
       let fileName: string | undefined;
       let side: 'client' | 'server' | 'both' = 'both';
       let enabledClient = true;
@@ -194,8 +213,13 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
         const info = await currentSourcePlugin.getLatestVersion(modId);
         if (info) {
           version = info.versionNumber;
+          versionId = info.versionId;
           fileName = info.primaryFilename;
         }
+      }
+      if (!version.trim()) {
+        addToast(`Could not resolve a version for "${name}" — try again later`, 'error');
+        return;
       }
       if (currentSourcePlugin?.getProjectDetails) {
         const details = await currentSourcePlugin.getProjectDetails(modId);
@@ -214,6 +238,7 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
         id: modId,
         name,
         version,
+        versionId,
         enabled: enabledClient,
         enabledServer,
         side,
@@ -222,13 +247,15 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
         iconUrl,
         author,
         description,
+        fileName,
       };
 
       await invoke('add_custom_mod', {
         instanceId: instance.id,
         modId: newMod.id,
         name: newMod.name,
-        version, // human-readable (e.g. 2.2.3), not provider version GUID
+        version,
+        versionId,
         source: newMod.source,
         iconUrl: newMod.iconUrl || undefined,
         author: newMod.author || undefined,
@@ -243,7 +270,6 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
         totalModCount: instance.totalModCount + 1,
       });
       setModQuery('');
-      setManualModName('');
       setShowModResults(false);
       addToast(`Added "${name}"`, 'success');
     } catch (e) {
@@ -254,9 +280,55 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
     }
   };
 
-  const handleAddManual = () => {
-    if (!manualModName.trim()) return;
-    addCustomMod(`custom-${Date.now()}`, manualModName.trim());
+  const handleAddManual = async () => {
+    try {
+      const file = await open({
+        multiple: false,
+        filters: [{ name: 'Minecraft mod', extensions: ['jar'] }],
+      });
+      if (!file || Array.isArray(file)) return;
+      const path = String(file);
+      const leaf = path.replace(/\\/g, '/').split('/').pop() || path;
+      const name = leaf.replace(/\.jar$/i, '') || leaf;
+      const modId = `local-${Date.now()}`;
+      setIsAddingMod(true);
+      try {
+        await invoke('add_custom_mod', {
+          instanceId: instance.id,
+          modId,
+          name,
+          version: 'local',
+          source: 'local',
+          fileName: path,
+          side: 'both',
+        });
+        onUpdate({
+          customMods: [
+            ...instance.customMods,
+            {
+              id: modId,
+              name,
+              version: 'local',
+              enabled: true,
+              enabledServer: true,
+              side: 'both',
+              isBase: false,
+              source: 'local',
+              fileName: leaf,
+            },
+          ],
+          customModCount: instance.customModCount + 1,
+          totalModCount: instance.totalModCount + 1,
+        });
+        addToast(`Added "${name}" — run Layer custom mods to place it on disk`, 'success');
+      } catch (e) {
+        addToast(`Failed to add jar: ${e}`, 'error');
+      } finally {
+        setIsAddingMod(false);
+      }
+    } catch (e) {
+      addToast(`Could not open file picker: ${e}`, 'error');
+    }
   };
 
   const toggleSide = async (id: string, side: 'client' | 'server', current: boolean) => {
@@ -276,11 +348,25 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
         customMods: instance.customMods.map(m =>
           m.id === id
             ? side === 'server'
-              ? { ...m, enabledServer: next }
-              : { ...m, enabled: next }
+              ? {
+                  ...m,
+                  enabledServer: next,
+                  onDiskServer: next ? m.onDiskServer : false,
+                }
+              : {
+                  ...m,
+                  enabled: next,
+                  onDiskClient: next ? m.onDiskClient : false,
+                }
             : m
         ),
       });
+      if (next) {
+        addToast(
+          `Enabled for ${side}. Run ${side === 'server' ? 'Rebuild server' : 'Layer custom mods'} from Overview to place it on disk.`,
+          'info'
+        );
+      }
     } catch (e) {
       addToast(`Failed to toggle: ${e}`, 'error');
     }
@@ -327,7 +413,6 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
                 onClick={() => {
                   setAddModSource(s.id as ModSource);
                   setModQuery('');
-                  setManualModName('');
                   setShowModResults(false);
                 }}
               >
@@ -462,14 +547,14 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
           </div>
         ) : (
           <>
-            <input
-              className="form-input text-xs flex-1"
-              placeholder="Mod name..."
-              value={manualModName}
+            <button
+              className="form-input text-xs flex-1 text-left"
               disabled={isAddingMod}
-              onChange={e => setManualModName(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleAddManual()}
-            />
+              onClick={() => void handleAddManual()}
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              Choose a .jar file…
+            </button>
             <button
               className="text-xs px-3.5 py-1.5 font-medium rounded-lg shrink-0 flex items-center gap-1.5"
               style={{
@@ -477,11 +562,11 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
                 color: (SOURCE_COLORS[addModSource] || SOURCE_COLORS.local).accent,
                 border: `1px solid ${(SOURCE_COLORS[addModSource] || SOURCE_COLORS.local).border}`,
               }}
-              onClick={handleAddManual}
-              disabled={isAddingMod || !manualModName.trim()}
+              onClick={() => void handleAddManual()}
+              disabled={isAddingMod}
             >
               <Icon name="plus" size={13} />
-              <span>Add</span>
+              <span>Add jar</span>
             </button>
           </>
         )}
@@ -492,14 +577,30 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
           className="p-10 text-center rounded-xl"
           style={{ background: 'var(--bg-surface)', border: '1px dashed var(--border)' }}
         >
-          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+          <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
             No custom mods yet. Search above to layer mods on the base pack (client and/or server).
           </p>
         </div>
       ) : (
         <div className="flex flex-col gap-2">
+          <div className="relative">
+            <div
+              className="absolute left-3 top-1/2 -translate-y-1/2"
+              style={{ color: 'var(--text-muted)' }}
+            >
+              <Icon name="search" size={13} />
+            </div>
+            <input
+              className="form-input text-xs"
+              style={{ paddingLeft: 32 }}
+              aria-label="Search custom mods"
+              placeholder={`Search ${instance.customMods.length} custom mods by name, author, or file…`}
+              value={listQuery}
+              onChange={e => setListQuery(e.target.value)}
+            />
+          </div>
           <div className="flex items-center justify-between gap-2">
-            <p className="text-[11px] text-[var(--text-muted)]">
+            <p className="text-[12.5px] text-[var(--text-secondary)]">
               {Object.keys(modUpdates).length > 0
                 ? `${Object.keys(modUpdates).length} update${Object.keys(modUpdates).length === 1 ? '' : 's'} available`
                 : 'Modrinth customs can be updated without touching the base pack'}
@@ -518,222 +619,218 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
             className="rounded-xl border overflow-x-auto"
             style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}
           >
-            <table className="w-full min-w-[960px] table-fixed text-left border-collapse">
-              <thead>
-                <tr
-                  className="text-[11px] uppercase tracking-wider"
-                  style={{
-                    background: 'var(--bg-muted)',
-                    color: 'var(--text-muted)',
-                    borderBottom: '1px solid var(--border)',
-                  }}
-                >
-                  <th className="font-medium px-3 py-2.5 w-14 text-center">Client</th>
-                  {serverPluginOn && (
-                    <th className="font-medium px-3 py-2.5 w-14 text-center">Server</th>
-                  )}
-                  <th
-                    className="font-medium px-3 py-2.5 cursor-pointer hover:text-[var(--text-primary)] select-none"
-                    onClick={() => {
-                      if (sortCol === 'name') setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
-                      else {
-                        setSortCol('name');
-                        setSortDir('asc');
-                      }
+            {sorted.length === 0 ? (
+              <div className="px-4 py-8 text-center text-xs" style={{ color: 'var(--text-muted)' }}>
+                No mods match &ldquo;{listQuery}&rdquo;
+              </div>
+            ) : (
+              <table className="data-table w-full min-w-[960px] table-fixed text-left border-collapse">
+                <thead>
+                  <tr
+                    className="text-[11px] uppercase tracking-wider"
+                    style={{
+                      background: 'var(--bg-muted)',
+                      color: 'var(--text-muted)',
+                      borderBottom: '1px solid var(--border)',
                     }}
                   >
-                    Mod {sortCol === 'name' && (sortDir === 'asc' ? '↑' : '↓')}
-                  </th>
-                  <th className="font-medium px-3 py-2.5 w-24">Author</th>
-                  <th className="font-medium px-3 py-2.5 w-16 text-center">Side</th>
-                  <th className="font-medium px-3 py-2.5 w-24 text-center">Source</th>
-                  <th className="font-medium px-3 py-2.5 w-44">File</th>
-                  <th className="font-medium px-3 py-2.5 w-24">Version</th>
-                  <th className="font-medium px-3 py-2.5 w-14 text-center">Disk</th>
-                  <th className="font-medium px-3 py-2.5 w-16 text-right">Size</th>
-                  <th className="font-medium px-3 py-2.5 w-24 text-center">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[var(--border)]">
-                {sorted.map(mod => {
-                  const initials = mod.name.match(/[A-Z]/g)?.join('').slice(0, 2) || '';
-                  const modSc = SOURCE_COLORS[mod.source] || SOURCE_COLORS.local;
-                  const hue = hashHue(mod.name);
-                  const serverOn = mod.enabledServer ?? true;
-                  const modSide = (mod.side || 'both').toLowerCase();
-                  const clientLocked = modSide === 'server';
-                  const serverLocked = modSide === 'client';
-                  return (
-                    <tr key={mod.id} className="group">
-                      <td className="px-3 py-2.5 text-center">
-                        <button
-                          role="switch"
-                          aria-checked={mod.enabled}
-                          aria-disabled={clientLocked}
-                          disabled={clientLocked}
-                          title={
-                            clientLocked
-                              ? 'Server-only mod — cannot enable on client'
-                              : 'Include in client workspace'
-                          }
-                          className={`theme-toggle-track ${mod.enabled && !clientLocked ? 'on' : ''}`}
-                          style={{
-                            ...(mod.enabled && !clientLocked ? { background: modSc.accent } : {}),
-                            ...(clientLocked ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
-                          }}
-                          onClick={() => toggleSide(mod.id, 'client', mod.enabled)}
-                        >
-                          <div className="theme-toggle-knob" />
-                        </button>
-                      </td>
-                      {serverPluginOn && (
+                    <th className="font-medium px-3 py-2.5 w-14 text-center">Client</th>
+                    {serverPluginOn && (
+                      <th className="font-medium px-3 py-2.5 w-14 text-center">Server</th>
+                    )}
+                    <th
+                      className="font-medium px-3 py-2.5 cursor-pointer hover:text-[var(--text-primary)] select-none"
+                      onClick={() => {
+                        if (sortCol === 'name') setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+                        else {
+                          setSortCol('name');
+                          setSortDir('asc');
+                        }
+                      }}
+                    >
+                      Mod {sortCol === 'name' && (sortDir === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th className="font-medium px-3 py-2.5 w-24">Author</th>
+                    <th className="font-medium px-3 py-2.5 w-16 text-center">Side</th>
+                    <th className="font-medium px-3 py-2.5 w-24 text-center">Source</th>
+                    <th className="font-medium px-3 py-2.5 w-44">File</th>
+                    <th className="font-medium px-3 py-2.5 w-24">Version</th>
+                    <th className="font-medium px-3 py-2.5 w-16 text-right">Size</th>
+                    <th className="font-medium px-3 py-2.5 w-24 text-center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--border)]">
+                  {sorted.map(mod => {
+                    const initials = mod.name.match(/[A-Z]/g)?.join('').slice(0, 2) || '';
+                    const modSc = SOURCE_COLORS[mod.source] || SOURCE_COLORS.local;
+                    const hue = hashHue(mod.name);
+                    const serverOn = mod.enabledServer ?? true;
+                    const modSide = (mod.side || 'both').toLowerCase();
+                    const clientLocked = modSide === 'server';
+                    const serverLocked = modSide === 'client';
+                    return (
+                      <tr key={mod.id} className="group">
                         <td className="px-3 py-2.5 text-center">
                           <button
                             role="switch"
-                            aria-checked={serverOn}
-                            aria-disabled={serverLocked}
-                            disabled={serverLocked}
+                            aria-checked={mod.enabled}
+                            aria-disabled={clientLocked}
+                            disabled={clientLocked}
                             title={
-                              serverLocked
-                                ? 'Client-only mod — cannot enable on server'
-                                : 'Include in server workspace'
+                              clientLocked
+                                ? 'Server-only mod — cannot enable on client'
+                                : 'Include in client workspace'
                             }
-                            className={`theme-toggle-track ${serverOn && !serverLocked ? 'on' : ''}`}
+                            className={`theme-toggle-track ${mod.enabled && !clientLocked ? 'on' : ''}`}
                             style={{
-                              ...(serverOn && !serverLocked ? { background: modSc.accent } : {}),
-                              ...(serverLocked ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
+                              ...(mod.enabled && !clientLocked ? { background: modSc.accent } : {}),
+                              ...(clientLocked ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
                             }}
-                            onClick={() => toggleSide(mod.id, 'server', serverOn)}
+                            onClick={() => toggleSide(mod.id, 'client', mod.enabled)}
                           >
                             <div className="theme-toggle-knob" />
                           </button>
                         </td>
-                      )}
-                      <td className="px-3 py-2.5 overflow-hidden">
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <div
-                            className="w-7 h-7 rounded-md flex items-center justify-center shrink-0 text-[10px] font-bold overflow-hidden"
-                            style={
-                              mod.iconUrl
-                                ? { background: 'transparent' }
-                                : {
-                                    background: `hsl(${hue} 55% 18%)`,
-                                    color: `hsl(${hue} 80% 72%)`,
-                                    border: `1px solid hsl(${hue} 55% 28%)`,
-                                  }
-                            }
-                          >
-                            {mod.iconUrl ? (
-                              <img
-                                src={mod.iconUrl}
-                                alt=""
-                                className="w-full h-full object-cover"
-                              />
-                            ) : (
-                              initials || mod.name.slice(0, 2).toUpperCase()
-                            )}
-                          </div>
-                          <div
-                            className="text-[13px] font-medium truncate min-w-0"
-                            style={{ color: 'var(--text-primary)' }}
-                            title={mod.name}
-                          >
-                            {mod.name}
-                          </div>
-                        </div>
-                      </td>
-                      <td
-                        className="px-3 py-2.5 text-[11px] truncate overflow-hidden"
-                        style={{ color: 'var(--text-muted)' }}
-                        title={mod.author || undefined}
-                      >
-                        {mod.author || '—'}
-                      </td>
-                      <td className="px-3 py-2.5 text-center overflow-hidden">
-                        <span
-                          className="px-1.5 py-0.5 text-[10px] rounded font-medium inline-block capitalize"
-                          style={{ background: 'var(--bg-muted)', color: 'var(--text-muted)' }}
-                        >
-                          {modSide}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2.5 text-center overflow-hidden">
-                        <span
-                          className="px-1.5 py-0.5 text-[10px] rounded font-medium inline-block"
-                          style={{ background: modSc.soft, color: modSc.accent }}
-                          title={`Downloaded from ${modSc.label}`}
-                        >
-                          {modSc.label}
-                        </span>
-                      </td>
-                      <td
-                        className="px-3 py-2.5 text-[11px] font-mono truncate overflow-hidden"
-                        style={{ color: 'var(--text-muted)' }}
-                        title={mod.fileName || undefined}
-                      >
-                        {jarLeaf(mod.fileName, mod.id)}
-                      </td>
-                      <td
-                        className="px-3 py-2.5 text-[11px] truncate overflow-hidden"
-                        style={{
-                          color: modUpdates[mod.id] ? modSc.accent : 'var(--text-muted)',
-                          cursor: modUpdates[mod.id] ? 'help' : undefined,
-                        }}
-                        title={
-                          modUpdates[mod.id]
-                            ? `Installed: v${displayModVersion(mod.version, mod.fileName)} · Available: v${modUpdates[mod.id].versionNumber}`
-                            : `v${displayModVersion(mod.version, mod.fileName)}`
-                        }
-                      >
-                        v{displayModVersion(mod.version, mod.fileName)}
-                        {modUpdates[mod.id] && (
-                          <span className="ml-1 opacity-70" aria-hidden>
-                            ↑
-                          </span>
-                        )}
-                      </td>
-                      <td
-                        className="px-3 py-2.5 text-[11px] text-center"
-                        style={{ color: 'var(--text-muted)' }}
-                        title="C = client workspace, S = server workspace"
-                      >
-                        {[mod.onDiskClient ? 'C' : null, mod.onDiskServer ? 'S' : null]
-                          .filter(Boolean)
-                          .join('+') || '—'}
-                      </td>
-                      <td
-                        className="px-3 py-2.5 text-[11px] text-right tabular-nums whitespace-nowrap"
-                        style={{ color: 'var(--text-muted)' }}
-                      >
-                        {formatBytes(mod.fileSize)}
-                      </td>
-                      <td className="px-2 py-2.5 text-center">
-                        <div className="inline-flex items-center gap-0.5">
-                          {modUpdates[mod.id] && (
+                        {serverPluginOn && (
+                          <td className="px-3 py-2.5 text-center">
                             <button
-                              className="btn-ghost text-[10px] px-1.5 py-1 rounded"
-                              style={{ color: modSc.accent }}
-                              disabled={updatingId === mod.id}
-                              onClick={() => void updateOneCustom(mod, modUpdates[mod.id])}
-                              title={`Update to ${modUpdates[mod.id].versionNumber} (custom only — base pack unchanged)`}
+                              role="switch"
+                              aria-checked={serverOn}
+                              aria-disabled={serverLocked}
+                              disabled={serverLocked}
+                              title={
+                                serverLocked
+                                  ? 'Client-only mod — cannot enable on server'
+                                  : 'Include in server workspace'
+                              }
+                              className={`theme-toggle-track ${serverOn && !serverLocked ? 'on' : ''}`}
+                              style={{
+                                ...(serverOn && !serverLocked ? { background: modSc.accent } : {}),
+                                ...(serverLocked ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
+                              }}
+                              onClick={() => toggleSide(mod.id, 'server', serverOn)}
                             >
-                              {updatingId === mod.id ? '…' : 'Update'}
+                              <div className="theme-toggle-knob" />
                             </button>
-                          )}
-                          <button
-                            className="btn-ghost-danger p-1.5 rounded"
-                            onClick={() => removeCustomMod(mod.id)}
-                            title="Remove mod"
+                          </td>
+                        )}
+                        <td className="px-3 py-2.5 overflow-hidden">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div
+                              className="w-7 h-7 rounded-md flex items-center justify-center shrink-0 text-[10px] font-bold overflow-hidden"
+                              style={
+                                mod.iconUrl
+                                  ? { background: 'transparent' }
+                                  : {
+                                      background: `hsl(${hue} 55% 18%)`,
+                                      color: `hsl(${hue} 80% 72%)`,
+                                      border: `1px solid hsl(${hue} 55% 28%)`,
+                                    }
+                              }
+                            >
+                              {mod.iconUrl ? (
+                                <img
+                                  src={mod.iconUrl}
+                                  alt=""
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                initials || mod.name.slice(0, 2).toUpperCase()
+                              )}
+                            </div>
+                            <div
+                              className="text-[13px] font-medium truncate min-w-0"
+                              style={{ color: 'var(--text-primary)' }}
+                              title={mod.name}
+                            >
+                              {mod.name}
+                            </div>
+                          </div>
+                        </td>
+                        <td
+                          className="px-3 py-2.5 text-[11px] truncate overflow-hidden"
+                          style={{ color: 'var(--text-muted)' }}
+                          title={mod.author || undefined}
+                        >
+                          {mod.author || '—'}
+                        </td>
+                        <td className="px-3 py-2.5 text-center overflow-hidden">
+                          <span
+                            className="px-1.5 py-0.5 text-[10px] rounded font-medium inline-block capitalize"
+                            style={{ background: 'var(--bg-muted)', color: 'var(--text-muted)' }}
                           >
-                            <Icon name="trash" size={13} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                            {modSide}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 text-center overflow-hidden">
+                          <span
+                            className="px-1.5 py-0.5 text-[10px] rounded font-medium inline-block"
+                            style={{ background: modSc.soft, color: modSc.accent }}
+                            title={`Downloaded from ${modSc.label}`}
+                          >
+                            {modSc.label}
+                          </span>
+                        </td>
+                        <td
+                          className="px-3 py-2.5 text-[11px] font-mono truncate overflow-hidden"
+                          style={{ color: 'var(--text-muted)' }}
+                          title={mod.fileName || undefined}
+                        >
+                          {jarLeaf(mod.fileName, mod.id)}
+                        </td>
+                        <td
+                          className="px-3 py-2.5 text-[11px] truncate overflow-hidden"
+                          style={{
+                            color: modUpdates[mod.id] ? modSc.accent : 'var(--text-muted)',
+                            cursor: modUpdates[mod.id] ? 'help' : undefined,
+                          }}
+                          title={
+                            modUpdates[mod.id]
+                              ? `Installed: v${displayModVersion(mod.version, mod.fileName)} · Available: v${modUpdates[mod.id].versionNumber}`
+                              : `v${displayModVersion(mod.version, mod.fileName)}`
+                          }
+                        >
+                          v{displayModVersion(mod.version, mod.fileName)}
+                          {modUpdates[mod.id] && (
+                            <span className="ml-1 opacity-70" aria-hidden>
+                              ↑
+                            </span>
+                          )}
+                        </td>
+                        <td
+                          className="px-3 py-2.5 text-[11px] text-right tabular-nums whitespace-nowrap"
+                          style={{ color: 'var(--text-muted)' }}
+                        >
+                          {formatBytes(mod.fileSize)}
+                        </td>
+                        <td className="px-2 py-2.5 text-center">
+                          <div className="inline-flex items-center gap-0.5">
+                            {modUpdates[mod.id] && (
+                              <button
+                                className="btn-ghost text-[10px] px-1.5 py-1 rounded"
+                                style={{ color: modSc.accent }}
+                                disabled={updatingId === mod.id}
+                                onClick={() => void updateOneCustom(mod, modUpdates[mod.id])}
+                                title={`Update to ${modUpdates[mod.id].versionNumber} (custom only — base pack unchanged)`}
+                              >
+                                {updatingId === mod.id ? '…' : 'Update'}
+                              </button>
+                            )}
+                            <button
+                              className="btn-ghost-danger p-1.5 rounded"
+                              onClick={() => removeCustomMod(mod.id)}
+                              title="Remove mod"
+                            >
+                              <Icon name="trash" size={13} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
       )}

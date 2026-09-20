@@ -19,7 +19,7 @@ export function Header({
 }: HeaderProps) {
   return (
     <header
-      className="theme-transition flex items-center justify-between px-6 gap-4"
+      className="app-header theme-transition flex items-center justify-between px-6 gap-4"
       style={{
         height: 'var(--header-h)',
         minHeight: 'var(--header-h)',
@@ -28,7 +28,11 @@ export function Header({
       }}
     >
       <div className="flex items-center gap-4 flex-1 min-w-0">
-        <div className="flex flex-col justify-center shrink-0">
+        <div
+          className={`header-title flex flex-col justify-center shrink-0 ${
+            showSearchAndActions ? 'header-title-library' : ''
+          }`}
+        >
           <h1
             className="text-[15px] font-semibold tracking-tight truncate"
             style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-heading)' }}
@@ -43,7 +47,7 @@ export function Header({
         </div>
 
         {showSearchAndActions && onSearchChange && (
-          <div className="relative flex-1 min-w-[160px] max-w-2xl">
+          <div className="header-search relative flex-1 min-w-[160px] max-w-2xl">
             <div
               className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
               style={{ color: 'var(--text-muted)' }}
@@ -68,7 +72,7 @@ export function Header({
           onClick={onNewInstance}
         >
           <Icon name="plus" size={14} />
-          <span>New Pack</span>
+          <span className="new-pack-label">New Pack</span>
         </button>
       )}
     </header>

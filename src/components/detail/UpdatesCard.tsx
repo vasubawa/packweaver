@@ -43,6 +43,16 @@ export function UpdatesCard({
   const [applyingCustoms, setApplyingCustoms] = useState(false);
   const [result, setResult] = useState<UpdateCheckResult | null>(null);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [prevId, setPrevId] = useState(instance.id);
+
+  if (instance.id !== prevId) {
+    setPrevId(instance.id);
+    setResult(null);
+    setSelected({});
+    setChecking(false);
+    setApplyingBase(false);
+    setApplyingCustoms(false);
+  }
 
   const runCheck = async () => {
     setChecking(true);
@@ -70,9 +80,11 @@ export function UpdatesCard({
       await invoke('set_base_pack_version', {
         instanceId: instance.id,
         versionId: result.base.latest.versionId,
+        versionLabel: result.base.latest.versionNumber,
       });
       onUpdate({
         basePackVersion: result.base.latest.versionId,
+        basePackVersionLabel: result.base.latest.versionNumber,
         status: 'Installing...',
       });
       await invoke('rebuild_workspace', { instanceId: instance.id });
@@ -125,6 +137,7 @@ export function UpdatesCard({
         updates: picks.map(c => ({
           modId: c.mod.id,
           version: c.latest.versionId,
+          versionNumber: c.latest.versionNumber,
           fileName: c.latest.primaryFilename || undefined,
         })),
       });
@@ -134,6 +147,7 @@ export function UpdatesCard({
         return {
           ...m,
           version: hit.latest.versionNumber,
+          versionId: hit.latest.versionId,
           fileName: hit.latest.primaryFilename || m.fileName,
         };
       });
@@ -169,11 +183,9 @@ export function UpdatesCard({
   return (
     <div id="updates-card">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
-          Updates
-        </h3>
+        <h3 className="section-label mb-0">Updates</h3>
         <button
-          className="btn-secondary text-[11px] px-3 py-1"
+          className="btn-secondary text-[12px] px-3 py-1"
           onClick={runCheck}
           disabled={checking || applyingBase || applyingCustoms}
           title="Looks for a newer base pack and newer custom mods. Doesn't download anything."
@@ -188,7 +200,7 @@ export function UpdatesCard({
         style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
       >
         {!result && (
-          <p className="text-[12px] text-[var(--text-muted)]">
+          <p className="text-[13px] text-[var(--text-secondary)]">
             Scan Modrinth for a newer base pack or custom mods. Checking never downloads — you
             choose what to apply.
             {serverOn &&
@@ -197,7 +209,7 @@ export function UpdatesCard({
         )}
 
         {result && !hasAny && (
-          <p className="text-[12px]" style={{ color: 'var(--text-primary)' }}>
+          <p className="text-[13px]" style={{ color: 'var(--text-primary)' }}>
             Up to date
             {result.skippedNonModrinth > 0 && (
               <span className="text-[var(--text-muted)]">
@@ -212,8 +224,8 @@ export function UpdatesCard({
         {result?.base && instance.source === 'modrinth' && (
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div className="min-w-0">
-              <div className="text-[12px] font-medium text-[var(--text-primary)]">Base pack</div>
-              <div className="text-[11px] text-[var(--text-muted)]">
+              <div className="text-[13px] font-medium text-[var(--text-primary)]">Base pack</div>
+              <div className="text-[12px] text-[var(--text-secondary)]">
                 {result.base.available && result.base.latest
                   ? `${result.base.currentLabel} → ${result.base.latest.versionNumber}`
                   : `Current ${result.base.currentLabel}`}
@@ -240,11 +252,11 @@ export function UpdatesCard({
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <div>
-                <div className="text-[12px] font-medium text-[var(--text-primary)]">
+                <div className="text-[13px] font-medium text-[var(--text-primary)]">
                   Custom mods · {result.customs.length} update
                   {result.customs.length === 1 ? '' : 's'}
                 </div>
-                <div className="text-[11px] text-[var(--text-muted)]">
+                <div className="text-[12px] text-[var(--text-secondary)]">
                   Doesn’t change the base pack
                   {serverOn ? ' · layers client + server when present' : ''}
                 </div>

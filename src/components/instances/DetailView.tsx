@@ -14,7 +14,6 @@ import { SOURCE_COLORS } from '../../constants';
 interface DetailViewProps {
   instance: Instance;
   onBack: () => void;
-  onExport: (instance: Instance) => void;
   onUpdateInstance: (updated: Instance) => void;
   onDeleteInstance: (id: string) => void;
 }
@@ -22,7 +21,6 @@ interface DetailViewProps {
 export function DetailView({
   instance,
   onBack,
-  onExport: _onExport,
   onUpdateInstance,
   onDeleteInstance,
 }: DetailViewProps) {
@@ -53,7 +51,7 @@ export function DetailView({
           instanceId: instance.id,
           format,
         });
-        const exportedAt = new Date().toLocaleString();
+        const exportedAt = new Date().toISOString();
         onUpdateInstance({ ...instance, lastExported: exportedAt });
         try {
           await invoke('update_instance_details', {
@@ -163,8 +161,10 @@ export function DetailView({
       />
 
       <div
-        className="px-8 mt-6 flex gap-6 flex-shrink-0"
+        className="px-8 content-pad mt-6 flex gap-6 flex-shrink-0 overflow-x-auto"
         style={{ borderBottom: '1px solid var(--border)' }}
+        role="tablist"
+        aria-label="Pack sections"
       >
         {[
           { key: 'overview', label: 'Overview' },
@@ -176,6 +176,10 @@ export function DetailView({
           return (
             <button
               key={tab.key}
+              id={`pack-tab-${tab.key}`}
+              role="tab"
+              aria-selected={isActive}
+              aria-controls={`pack-panel-${tab.key}`}
               className="pb-2.5 text-[13px] font-medium transition-colors relative"
               style={{
                 color: isActive ? 'var(--text-primary)' : 'var(--text-muted)',
@@ -190,7 +194,12 @@ export function DetailView({
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        <div className="px-8 py-5 w-full">
+        <div
+          id={`pack-panel-${visibleTab}`}
+          role="tabpanel"
+          aria-labelledby={`pack-tab-${visibleTab}`}
+          className="px-8 content-pad py-5 w-full"
+        >
           {visibleTab === 'overview' && (
             <OverviewTab
               instance={instance}

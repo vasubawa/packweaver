@@ -25,33 +25,48 @@ function App() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [instances, setInstances] = useState<Instance[]>([]);
+  const [isLoadingInstances, setIsLoadingInstances] = useState(true);
   const { addToast } = useToast();
 
-  const loadInstances = useCallback(async () => {
-    try {
-      const data = await invoke<any[]>('get_instances');
+  const loadInstances = useCallback(
+    async (opts?: { quiet?: boolean }) => {
+      if (!opts?.quiet) setIsLoadingInstances(true);
+      try {
+        const data = await invoke<any[]>('get_instances');
 
-      const augmented: Instance[] = data.map((inst: any) => ({
-        ...inst,
-        basePack: inst.basePack || 'Unknown',
-        basePackVersion: inst.basePackVersion || 'Unknown',
-        mcVersion: inst.mcVersion || '1.20.1',
-        loader: inst.loader || 'Fabric',
-        totalModCount: inst.totalModCount || 0,
-        source: inst.source || 'local',
-        description: inst.description ?? '',
-        serverFiles: (inst.serverFiles || []).map((f: any) => ({
-          ...f,
-          id: f.id || crypto.randomUUID(),
-        })),
-      }));
+        const augmented: Instance[] = data.map((inst: any) => ({
+          ...inst,
+          basePack: inst.basePack || '',
+          basePackVersion: inst.basePackVersion || '',
+          basePackVersionLabel: inst.basePackVersionLabel || '',
+          mcVersion: inst.mcVersion || '',
+          loader: (inst.loader || '') as Instance['loader'],
+          totalModCount: inst.totalModCount || 0,
+          source: inst.source || 'local',
+          description: inst.description ?? '',
+          status: inst.status || '',
+          customMods: (inst.customMods || []).map((m: any) => ({
+            ...m,
+            versionId: m.versionId || undefined,
+          })),
+          serverFiles: (inst.serverFiles || []).map((f: any) => ({
+            ...f,
+            id: f.id || crypto.randomUUID(),
+          })),
+        }));
 
-      setInstances(augmented);
-    } catch {
-      setInstances([]);
-      addToast('Failed to load instances. Is the backend running?', 'error');
-    }
-  }, [addToast]);
+        setInstances(augmented);
+      } catch {
+        if (!opts?.quiet) {
+          setInstances([]);
+          addToast('Failed to load instances. Is the backend running?', 'error');
+        }
+      } finally {
+        if (!opts?.quiet) setIsLoadingInstances(false);
+      }
+    },
+    [addToast]
+  );
 
   useEffect(() => {
     // eslint-disable-next-line
@@ -72,8 +87,8 @@ function App() {
         })
       );
 
-      if (event.payload.status === 'Ready') {
-        loadInstances();
+      if (event.payload.status === 'Ready' || event.payload.status.startsWith('Error:')) {
+        void loadInstances({ quiet: true });
       }
     });
 
@@ -96,10 +111,6 @@ function App() {
   const handleBack = useCallback(() => {
     setSelectedInstanceId(null);
     setScreen('library');
-  }, []);
-
-  const handleExport = useCallback((_instance: Instance) => {
-    // Export runs from Overview pipeline; header button only focuses that tab.
   }, []);
 
   const handleUpdateInstance = useCallback((updatedInstance: Instance) => {
@@ -153,11 +164,10 @@ function App() {
           {screen === 'library' && (
             <LibraryView
               instances={instances}
+              isLoading={isLoadingInstances}
               searchQuery={searchQuery}
               onSelectInstance={handleSelectInstance}
-              onExportInstance={handleExport}
               onNewInstance={() => setShowCreateModal(true)}
-              onDeleteInstance={handleDeleteInstance}
             />
           )}
 
@@ -165,7 +175,6 @@ function App() {
             <DetailView
               instance={selectedInstance}
               onBack={handleBack}
-              onExport={handleExport}
               onUpdateInstance={handleUpdateInstance}
               onDeleteInstance={handleDeleteInstance}
             />

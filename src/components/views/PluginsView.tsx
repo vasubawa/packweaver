@@ -31,13 +31,21 @@ export function PluginsView() {
       addToast(`${plugin.name} is a core feature and cannot be disabled.`, 'info');
       return;
     }
+    if (plugin.comingSoon) {
+      addToast(`${plugin.name} is not available yet.`, 'info');
+      return;
+    }
     const nextState = !plugin.enabled;
     savePluginSetting(plugin.id, { enabled: nextState });
     addToast(`${plugin.name} ${nextState ? 'enabled' : 'disabled'}`, 'info');
   };
 
   const handleSaveApiKey = (pluginId: string) => {
-    savePluginSetting(pluginId, { apiKey: apiKeyInput, enabled: !!apiKeyInput.trim() });
+    const plugin = plugins.find(p => p.id === pluginId);
+    savePluginSetting(pluginId, {
+      apiKey: apiKeyInput,
+      enabled: plugin?.comingSoon ? false : !!apiKeyInput.trim(),
+    });
     setEditingApiKeyId(null);
     setApiKeyInput('');
     addToast('API Key saved successfully', 'success');
@@ -61,8 +69,8 @@ export function PluginsView() {
   );
 
   return (
-    <div className="p-8 max-w-[var(--content-max)] animate-slide-in">
-      <div className="flex flex-row items-center justify-between gap-4 mb-6">
+    <div className="p-8 content-pad max-w-[var(--content-max)] animate-slide-in">
+      <div className="flex flex-row items-start justify-between gap-4 mb-6 flex-wrap">
         <div>
           <h2
             className="text-xl font-semibold tracking-tight mb-1"
@@ -70,7 +78,7 @@ export function PluginsView() {
           >
             Plugins & Integrations
           </h2>
-          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+          <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
             Manage platform sources, downloaders, and export packagers
           </p>
         </div>
@@ -88,7 +96,8 @@ export function PluginsView() {
           ).map(tab => (
             <button
               key={tab.id}
-              className={`px-3 py-1.5 text-[11px] font-medium rounded-md transition-all ${
+              aria-pressed={selectedCategory === tab.id}
+              className={`px-3 py-1.5 text-[12px] font-medium rounded-md transition-all ${
                 selectedCategory === tab.id
                   ? 'bg-[var(--bg-surface)] shadow-sm text-[var(--text-primary)]'
                   : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
@@ -113,7 +122,7 @@ export function PluginsView() {
             </h3>
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="responsive-card-grid">
             {sources.map(plugin => (
               <PluginCard
                 key={plugin.id}
@@ -121,7 +130,7 @@ export function PluginsView() {
                 onToggle={handleToggle}
                 subtitle={`by ${plugin.author}`}
                 footerRight={
-                  plugin.requiresApiKey ? (
+                  plugin.requiresApiKey && !plugin.comingSoon ? (
                     <button
                       className="btn-secondary text-[11px] px-2.5 py-1 flex items-center gap-1"
                       onClick={() => {
@@ -187,7 +196,7 @@ export function PluginsView() {
             </h3>
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="responsive-card-grid">
             {exporters.map(plugin => (
               <PluginCard
                 key={plugin.id}

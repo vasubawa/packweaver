@@ -35,6 +35,7 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
   const [showResults, setShowResults] = useState(false);
   const [localFile, setLocalFile] = useState<any>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
 
   const [resolvedVersion, setResolvedVersion] = useState<PackVersionInfo | null>(null);
   const [isResolvingVersion, setIsResolvingVersion] = useState(false);
@@ -170,13 +171,22 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
         ],
       });
       if (file && typeof file === 'string') {
-        const fileName = file.split('\\').pop()?.split('/').pop() || 'Unknown';
-        setLocalFile({ path: file, name: fileName, size: 'Unknown size' });
-        setName(fileName.replace(/\.(zip|mrpack)$/i, ''));
+        applyLocalPath(file);
       }
     } catch (e) {
       console.error('File dialog failed', e);
+      addToast(String(e), 'error');
     }
+  };
+
+  const applyLocalPath = (file: string) => {
+    const fileName = file.split('\\').pop()?.split('/').pop() || 'pack';
+    if (!/\.(zip|mrpack)$/i.test(fileName)) {
+      addToast('Choose a .mrpack or .zip file', 'error');
+      return;
+    }
+    setLocalFile({ path: file, name: fileName });
+    setName(fileName.replace(/\.(zip|mrpack)$/i, ''));
   };
 
   const handleCreate = async () => {
@@ -222,10 +232,17 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
         }
       }
 
-      await invoke('create_instance', {
+      const localLabel = localFile?.name.replace(/\.(zip|mrpack)$/i, '') || name.trim() || 'local';
+      const releaseVersion =
+        source === 'local' ? version.trim() : (resolvedVersion?.versionNumber ?? version).trim();
+      await invoke<string>('create_instance', {
         name,
         basePackId,
-        basePackVersionId: resolvedVersion?.versionId ?? version,
+        basePackVersionId: source === 'local' ? 'local' : (resolvedVersion?.versionId ?? version),
+        basePackVersionLabel:
+          source === 'local'
+            ? releaseVersion || localLabel
+            : (resolvedVersion?.versionNumber ?? version),
         mcVersion,
         loader,
         source,
@@ -233,6 +250,7 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
         bannerUrl: bannerUrl || undefined,
         iconUrl: iconUrl || undefined,
         basePackMods: basePackMods.length > 0 ? basePackMods : undefined,
+        exportVersion: releaseVersion || undefined,
       });
       onCreated();
       handleClose();
@@ -250,11 +268,17 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
     curseforge: 'var(--curseforge-soft)',
   };
 
+  const hasSelectedBase = currentPlugin?.canSearch ? Boolean(selectedPack) : Boolean(localFile);
   const canCreate =
     name.trim() &&
     activeSources.length > 0 &&
+    hasSelectedBase &&
     !isResolvingVersion &&
-    (canAutoDetect ? !!resolvedVersion : SEMVER_PATTERN.test(version.trim()));
+    (source === 'local'
+      ? Boolean(localFile)
+      : canAutoDetect
+        ? !!resolvedVersion
+        : SEMVER_PATTERN.test(version.trim()));
 
   return (
     <div className="modal-backdrop" onClick={handleClose}>
@@ -323,9 +347,33 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
                   <label className="form-label mb-2">Base Pack</label>
                   {!currentPlugin?.canSearch ? (
                     <div
-                      className="dropzone cursor-pointer"
+                      className={`dropzone cursor-pointer${dragOver ? ' drag-over' : ''}`}
                       style={{ padding: '24px 16px' }}
                       onClick={() => handleLocalUpload()}
+                      onDragEnter={e => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setDragOver(true);
+                      }}
+                      onDragOver={e => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setDragOver(true);
+                      }}
+                      onDragLeave={e => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setDragOver(false);
+                      }}
+                      onDrop={e => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setDragOver(false);
+                        const f = e.dataTransfer.files?.[0] as File & { path?: string };
+                        if (f?.path) applyLocalPath(f.path);
+                        else
+                          addToast('Drop a .mrpack or .zip from disk, or click to browse', 'info');
+                      }}
                     >
                       {localFile ? (
                         <div className="flex items-center justify-center gap-3">
@@ -338,7 +386,7 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
                               {localFile.name}
                             </div>
                             <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
-                              {localFile.size} &middot; Click to change
+                              Click or drop to change
                             </div>
                           </div>
                           <button
@@ -360,13 +408,13 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
                               className="text-[13px] font-medium"
                               style={{ color: 'var(--text-primary)' }}
                             >
-                              Drop a .zip file or click to browse
+                              Drop a .zip / .mrpack or click to browse
                             </div>
                             <div
                               className="text-[11px] mt-0.5"
                               style={{ color: 'var(--text-muted)' }}
                             >
-                              Supports CurseForge, Modrinth, or raw modpack zips
+                              Modrinth .mrpack or a launcher instance zip with a mods/ folder
                             </div>
                           </div>
                         </div>
@@ -374,115 +422,141 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
                     </div>
                   ) : (
                     <div className="relative">
-                      <div
-                        className="absolute left-3 top-1/2 -translate-y-1/2"
-                        style={{ color: 'var(--text-muted)' }}
-                      >
-                        <Icon name="search" size={14} />
-                      </div>
-                      <input
-                        className="form-input"
-                        style={{ paddingLeft: 32 }}
-                        placeholder={`Search ${sc.label} packs...`}
-                        value={selectedPack ? selectedPack.name : searchQuery}
-                        onChange={e => {
-                          setSearchQuery(e.target.value);
-                          setSelectedPack(null);
-                          setShowResults(true);
-                        }}
-                        onFocus={() => {
-                          if (!selectedPack) setShowResults(true);
-                        }}
-                        onBlur={() => setShowResults(false)}
-                      />
-                      {showResults && isSearching && (
-                        <div className="search-results">
-                          <div
-                            className="px-3 py-2.5 text-[12px]"
-                            style={{ color: 'var(--text-muted)' }}
-                          >
-                            Searching...
-                          </div>
-                        </div>
-                      )}
-                      {showResults && !isSearching && filteredCatalog.length > 0 && (
-                        <div className="search-results">
-                          {filteredCatalog.map((pack: any) => (
-                            <div
-                              key={pack.id}
-                              className="search-result-item"
-                              style={{ '--hover-bg': sc.soft } as React.CSSProperties}
-                              onMouseDown={e => {
-                                e.preventDefault();
-                                handleSelectPack(pack);
-                              }}
-                            >
-                              <div className="flex items-center gap-2.5">
-                                {pack.iconUrl ? (
-                                  <img
-                                    src={pack.iconUrl}
-                                    alt={pack.name}
-                                    className="w-8 h-8 rounded-md bg-black/20 object-cover"
-                                  />
-                                ) : (
-                                  <div className="w-8 h-8 rounded-md bg-black/10 flex items-center justify-center text-black/40 dark:bg-white/10 dark:text-white/40">
-                                    <Icon name="package" size={16} />
-                                  </div>
-                                )}
-                                <div>
-                                  <div
-                                    className="font-medium"
-                                    style={{ color: 'var(--text-primary)' }}
-                                  >
-                                    {pack.name}
-                                  </div>
-                                  {pack.author && (
-                                    <div
-                                      className="text-[11px]"
-                                      style={{ color: 'var(--text-muted)' }}
-                                    >
-                                      by {pack.author}
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      {selectedPack && (
+                      {selectedPack ? (
                         <div
-                          className="flex items-center justify-between mt-2 px-3 py-2 rounded-md"
-                          style={{ background: sc.soft, border: `1px solid ${sc.accent}20` }}
+                          className="form-input flex items-center justify-between gap-2"
+                          style={{
+                            paddingLeft: 12,
+                            paddingRight: 8,
+                            background: sc.soft,
+                            borderColor: sc.accent,
+                          }}
                         >
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2.5 min-w-0">
                             {selectedPack.iconUrl ? (
                               <img
                                 src={selectedPack.iconUrl}
-                                alt={selectedPack.name}
-                                className="w-6 h-6 rounded-md bg-black/20 object-cover"
+                                alt=""
+                                className="w-7 h-7 rounded-md bg-black/20 object-cover shrink-0"
                               />
                             ) : (
-                              <span className="seg-dot" style={{ background: sc.dot }} />
+                              <div
+                                className="w-7 h-7 rounded-md flex items-center justify-center shrink-0"
+                                style={{ background: `${sc.accent}22`, color: sc.accent }}
+                              >
+                                <Icon name="package" size={14} />
+                              </div>
                             )}
-                            <span className="text-[12px] font-medium" style={{ color: sc.accent }}>
-                              {selectedPack.name}
-                            </span>
+                            <div className="min-w-0">
+                              <div
+                                className="text-[13px] font-medium truncate"
+                                style={{ color: 'var(--text-primary)' }}
+                              >
+                                {selectedPack.name}
+                              </div>
+                              {selectedPack.author && (
+                                <div
+                                  className="text-[11px] truncate"
+                                  style={{ color: 'var(--text-muted)' }}
+                                >
+                                  by {selectedPack.author}
+                                </div>
+                              )}
+                            </div>
                           </div>
                           <button
-                            className="btn-ghost"
+                            type="button"
+                            className="btn-ghost shrink-0"
+                            aria-label="Clear selected pack"
                             onClick={() => {
                               setSelectedPack(null);
                               setSearchQuery('');
                               setName('');
                               setResolvedVersion(null);
                               setVersionResolutionFailed(false);
+                              setShowResults(false);
                             }}
-                            style={{ padding: 2 }}
+                            style={{ padding: 4 }}
                           >
-                            <Icon name="x" size={12} />
+                            <Icon name="x" size={14} />
                           </button>
                         </div>
+                      ) : (
+                        <>
+                          <div
+                            className="absolute left-3 top-1/2 -translate-y-1/2"
+                            style={{ color: 'var(--text-muted)' }}
+                          >
+                            <Icon name="search" size={14} />
+                          </div>
+                          <input
+                            className="form-input"
+                            style={{ paddingLeft: 32 }}
+                            placeholder={`Search ${sc.label} packs...`}
+                            value={searchQuery}
+                            onChange={e => {
+                              setSearchQuery(e.target.value);
+                              setShowResults(true);
+                            }}
+                            onFocus={() => setShowResults(true)}
+                            onBlur={() => setShowResults(false)}
+                          />
+                          {showResults && isSearching && (
+                            <div className="search-results">
+                              <div
+                                className="px-3 py-2.5 text-[12px]"
+                                style={{ color: 'var(--text-muted)' }}
+                              >
+                                Searching...
+                              </div>
+                            </div>
+                          )}
+                          {showResults && !isSearching && filteredCatalog.length > 0 && (
+                            <div className="search-results">
+                              {filteredCatalog.map((pack: any) => (
+                                <div
+                                  key={pack.id}
+                                  className="search-result-item"
+                                  style={{ '--hover-bg': sc.soft } as React.CSSProperties}
+                                  onMouseDown={e => {
+                                    e.preventDefault();
+                                    handleSelectPack(pack);
+                                  }}
+                                >
+                                  <div className="flex items-center gap-2.5">
+                                    {pack.iconUrl ? (
+                                      <img
+                                        src={pack.iconUrl}
+                                        alt={pack.name}
+                                        className="w-8 h-8 rounded-md bg-black/20 object-cover"
+                                      />
+                                    ) : (
+                                      <div className="w-8 h-8 rounded-md bg-black/10 flex items-center justify-center text-black/40 dark:bg-white/10 dark:text-white/40">
+                                        <Icon name="package" size={16} />
+                                      </div>
+                                    )}
+                                    <div>
+                                      <div
+                                        className="font-medium"
+                                        style={{ color: 'var(--text-primary)' }}
+                                      >
+                                        {pack.name}
+                                      </div>
+                                      {pack.author && (
+                                        <div
+                                          className="text-[11px]"
+                                          style={{ color: 'var(--text-muted)' }}
+                                        >
+                                          by {pack.author}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
                   )}
@@ -507,7 +581,7 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
                   </div>
                   <div>
                     <label className="form-label">
-                      Pack Version
+                      {source === 'local' ? 'Pack release version' : 'Pack Version'}
                       {canAutoDetect && (
                         <span
                           className="font-normal ml-1"
@@ -539,22 +613,43 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
                           className="form-input"
                           value={version}
                           onChange={e => setVersion(e.target.value)}
+                          placeholder="1.0.0"
                           style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12.5 }}
                         />
-                        {version.trim() && !SEMVER_PATTERN.test(version.trim()) && (
-                          <p className="text-[11px] mt-1" style={{ color: 'var(--danger)' }}>
-                            Use a version like 1.0.0
+                        {source === 'local' ? (
+                          <p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>
+                            Seeds Overview → Pack release version (zip filenames). Editable later.
                           </p>
+                        ) : (
+                          version.trim() &&
+                          !SEMVER_PATTERN.test(version.trim()) && (
+                            <p className="text-[11px] mt-1" style={{ color: 'var(--danger)' }}>
+                              Use a version like 1.0.0
+                            </p>
+                          )
                         )}
                       </>
+                    )}
+                    {canAutoDetect && resolvedVersion && (
+                      <p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>
+                        Also used as the initial Pack release version for zip names.
+                      </p>
                     )}
                   </div>
                 </div>
 
                 {canAutoDetect && versionResolutionFailed && (
                   <p className="text-[11px] mb-3" style={{ color: 'var(--danger)' }}>
-                    Couldn&apos;t detect this pack&apos;s exact version from {sc.label}. It will
-                    still download the latest available release.
+                    Couldn&apos;t detect this pack&apos;s exact version from {sc.label}. Fix the
+                    connection or pick a pack again — Create stays disabled until a version is
+                    resolved.
+                  </p>
+                )}
+
+                {source === 'local' && (
+                  <p className="text-[11px] mb-3" style={{ color: 'var(--text-muted)' }}>
+                    Minecraft version and loader below are starting values — the archive overwrites
+                    them when it includes that metadata (Prism / .mrpack).
                   </p>
                 )}
 

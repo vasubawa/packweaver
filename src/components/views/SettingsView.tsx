@@ -31,14 +31,14 @@ export function SettingsView() {
   };
 
   return (
-    <div className="p-8 max-w-4xl animate-slide-in flex flex-col min-h-full">
+    <div className="p-8 content-pad max-w-4xl animate-slide-in flex flex-col min-h-full">
       <h2
         className="text-xl font-semibold tracking-tight mb-1"
         style={{ color: 'var(--text-primary)', fontFamily: "'Newsreader', Georgia, serif" }}
       >
-        Settings
+        Preferences
       </h2>
-      <p className="text-xs mb-6" style={{ color: 'var(--text-muted)' }}>
+      <p className="text-[13px] mb-6" style={{ color: 'var(--text-secondary)' }}>
         Configure your Packweaver preferences and storage
       </p>
 
@@ -58,7 +58,7 @@ export function SettingsView() {
               <div className="text-[13px] font-medium" style={{ color: 'var(--text-primary)' }}>
                 Dark Mode
               </div>
-              <div className="text-[11.5px]" style={{ color: 'var(--text-muted)' }}>
+              <div className="text-[12.5px]" style={{ color: 'var(--text-secondary)' }}>
                 Switch between light and dark theme
               </div>
             </div>
@@ -76,10 +76,10 @@ export function SettingsView() {
           <div className="setting-row pt-4" style={{ borderTop: '1px solid var(--border)' }}>
             <div>
               <div className="text-[13px] font-medium" style={{ color: 'var(--text-primary)' }}>
-                Accent Color
+                App Accent
               </div>
-              <div className="text-[11.5px]" style={{ color: 'var(--text-muted)' }}>
-                Choose your preferred highlight color
+              <div className="text-[12.5px]" style={{ color: 'var(--text-secondary)' }}>
+                Used for navigation and controls; pack sources keep their own colors
               </div>
             </div>
             <div className="flex gap-2">
@@ -125,8 +125,8 @@ export function SettingsView() {
                 Portable Data Directory
               </div>
               <div
-                className="text-[11.5px] truncate font-mono mt-0.5"
-                style={{ color: 'var(--text-muted)' }}
+                className="text-[12px] truncate font-mono mt-0.5"
+                style={{ color: 'var(--text-secondary)' }}
                 title={dataDir}
               >
                 {dataDir}
