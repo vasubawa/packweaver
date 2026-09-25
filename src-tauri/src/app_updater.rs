@@ -108,7 +108,7 @@ mod desktop {
     use tauri::AppHandle;
     use tauri_plugin_updater::UpdaterExt;
 
-    fn pubkey_configured(app: &AppHandle) -> bool {
+    fn pubkey_missing(app: &AppHandle) -> bool {
         // Prefer runtime config; fall back to treating placeholder as unset.
         let from_conf = app
             .config()
@@ -119,12 +119,12 @@ mod desktop {
             .and_then(|v| v.as_str())
             .unwrap_or("");
         let t = from_conf.trim();
-        !t.is_empty() && !t.contains("REPLACE_WITH_TAURI_UPDATER_PUBKEY")
+        t.is_empty() || t.contains("REPLACE_WITH_TAURI_UPDATER_PUBKEY")
     }
 
     pub async fn check(app: &AppHandle, channel: UpdateChannel) -> Result<AppUpdateStatus, String> {
         let current = app.package_info().version.to_string();
-        if !pubkey_configured(app) {
+        if pubkey_missing(app) {
             return Ok(AppUpdateStatus {
                 available: false,
                 channel: channel.as_str().into(),
@@ -194,7 +194,7 @@ mod desktop {
     }
 
     pub async fn install(app: &AppHandle, channel: UpdateChannel) -> Result<(), String> {
-        if !pubkey_configured(app) {
+        if pubkey_missing(app) {
             return Err("Updater signing key not configured".into());
         }
         let url = channel
