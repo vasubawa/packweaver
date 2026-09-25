@@ -2,9 +2,15 @@ name: Release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
       - 'unstable'
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   release:
@@ -46,6 +52,22 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
         
+      - name: Set dynamic application version
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -like "refs/tags/v*") {
+            $ver = $env:GITHUB_REF_NAME.TrimStart('v')
+          } else {
+            $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+            $parts = $pkg.version.Split('.')
+            $ver = "$($parts[0]).$($parts[1]).$env:GITHUB_RUN_NUMBER"
+          }
+          Write-Host "Setting application version to: $ver"
+          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+          $pkg.version = $ver
+          $pkg | ConvertTo-Json -Depth 10 | Set-Content package.json -NoNewline
+          node scripts/sync-version.mjs
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v1
         env:
@@ -53,11 +75,11 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: ${{ github.ref_name == 'unstable' && 'Packweaver Unstable (Preview)' || 'Packweaver v__VERSION__' }}
-          releaseBody: 'See the assets to download this version and install.'
+          tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'unstable' }}
+          releaseName: ${{ startsWith(github.ref, 'refs/tags/v') && 'Packweaver v__VERSION__' || 'Packweaver (Unstable Preview)' }}
+          releaseBody: ${{ startsWith(github.ref, 'refs/tags/v') && 'See the assets to download this version and install.' || 'Automated preview build from the main branch.' }}
           releaseDraft: false
-          prerelease: ${{ contains(github.ref_name, '-') || github.ref_name == 'unstable' }}
+          prerelease: ${{ !startsWith(github.ref, 'refs/tags/v') || contains(github.ref_name, '-') }}
 
       - name: Zip Artifacts (Windows)
         if: matrix.platform == 'windows-latest'
@@ -77,8 +99,8 @@ jobs:
 
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v3
-        if: startsWith(github.ref, 'refs/tags/')
         with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'unstable' }}
           files: |
             Packweaver-Windows.zip
           fail_on_unmatched_files: true
