@@ -6,6 +6,11 @@ import { useToast } from '../../context/ToastContext';
 import { isServerExporterEnabled } from '../../plugins';
 import { checkPackUpdates, CustomUpdateInfo, UpdateCheckResult } from '../../lib/packUpdates';
 import { applyBasePackUpdate, applyCustomModUpdates } from '../../lib/applyPackUpdates';
+import {
+  installedModIds,
+  missingRequiredDependencies,
+  conflictingMods,
+} from '../../lib/modDependencies';
 
 interface UpdatesCardProps {
   instance: Instance;
@@ -154,6 +159,32 @@ export function UpdatesCard({
           : `Updated ${picks.length} custom mod${picks.length === 1 ? '' : 's'} (${layered} layered)`,
         'success'
       );
+
+      const installed = installedModIds({
+        basePackMods: instance.basePackMods,
+        customMods: applied.updatedMods,
+      });
+      const missingList: string[] = [];
+      const conflictList: string[] = [];
+      for (const pick of picks) {
+        const missing = missingRequiredDependencies(pick.latest, installed);
+        if (missing.length > 0) {
+          missingList.push(`${pick.mod.name} (${missing.map(m => m.projectId).join(', ')})`);
+        }
+        const conflicts = conflictingMods(pick.latest, [
+          ...instance.basePackMods,
+          ...applied.updatedMods,
+        ]);
+        if (conflicts.length > 0) {
+          conflictList.push(`${pick.mod.name} with ${conflicts.map(m => m.name).join(', ')}`);
+        }
+      }
+      if (conflictList.length > 0) {
+        addToast(`Incompatibilities detected: ${conflictList.join('; ')}`, 'error');
+      }
+      if (missingList.length > 0) {
+        addToast(`Missing required dependencies: ${missingList.join('; ')}`, 'error');
+      }
     } catch (e) {
       addToast(`Custom update failed: ${e}`, 'error');
     } finally {
@@ -199,13 +230,6 @@ export function UpdatesCard({
           {result && !hasAny && (
             <p className="text-[13px]" style={{ color: 'var(--text-primary)' }}>
               Up to date
-              {result.skippedNonModrinth > 0 && (
-                <span className="text-[var(--text-muted)]">
-                  {' '}
-                  · {result.skippedNonModrinth} non-Modrinth custom
-                  {result.skippedNonModrinth === 1 ? '' : 's'} skipped
-                </span>
-              )}
             </p>
           )}
 
@@ -327,6 +351,14 @@ export function UpdatesCard({
             <p className="text-[11px] text-[var(--text-muted)]">
               Tip: update the base pack first if you want both — rebuild re-layers customs
               afterward.
+            </p>
+          )}
+
+          {result && result.skippedNonModrinth > 0 && (
+            <p className="text-[11.5px] text-[var(--text-muted)]">
+              {result.skippedNonModrinth} non-Modrinth custom mod
+              {result.skippedNonModrinth === 1 ? '' : 's'} skipped (local jars cannot be checked
+              automatically).
             </p>
           )}
         </div>

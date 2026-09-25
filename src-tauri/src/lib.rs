@@ -983,6 +983,91 @@ fn open_logs_dir() -> Result<(), String> {
     open_path_in_os(&logs_dir())
 }
 
+fn reveal_path_in_os(path: &std::path::Path) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let mut cmd = std::process::Command::new("explorer");
+        if path.is_file() {
+            cmd.arg(format!("/select,{}", path.display()));
+        } else {
+            cmd.arg(path);
+        }
+        cmd.spawn().map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut cmd = std::process::Command::new("open");
+        if path.is_file() {
+            cmd.arg("-R");
+        }
+        cmd.arg(path).spawn().map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let target = if path.is_file() {
+            path.parent().unwrap_or(path)
+        } else {
+            path
+        };
+        std::process::Command::new("xdg-open")
+            .arg(target)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn reveal_instance_mod(
+    app: tauri::AppHandle,
+    instance_id: String,
+    mod_id: String,
+) -> Result<(), String> {
+    let (file_name, source_path): (Option<String>, Option<String>) = {
+        let state = app.state::<AppState>();
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        conn.query_row(
+            "SELECT file_name, source_path FROM instance_mods WHERE instance_id = ?1 AND mod_id = ?2",
+            [&instance_id, &mod_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|e| e.to_string())?
+    };
+
+    if let Some(ref sp) = source_path {
+        let sp_path = std::path::Path::new(sp);
+        if !sp.is_empty() && sp_path.exists() {
+            return reveal_path_in_os(sp_path);
+        }
+    }
+
+    let stem = downloader::original_stem(&app, &instance_id).unwrap_or_default();
+    let client_ws = downloader::client_workspace_root(&instance_id).join(&stem);
+    let server_ws = downloader::server_workspace_root(&instance_id).join(&stem);
+
+    let clean_id = mod_id.replace('\\', "/");
+    let fn_str = file_name.as_deref().unwrap_or(&clean_id);
+    let leaf = fn_str.split('/').next_back().unwrap_or(fn_str);
+
+    let candidates = [
+        client_ws.join("mods").join(leaf),
+        server_ws.join("mods").join(leaf),
+        client_ws.join(&clean_id),
+        server_ws.join(&clean_id),
+        client_ws.join("mods"),
+        server_ws.join("mods"),
+        downloader::instance_dir(&instance_id),
+    ];
+
+    for path in &candidates {
+        if path.exists() {
+            return reveal_path_in_os(path);
+        }
+    }
+
+    Err(format!("Could not find mod file or workspace for {mod_id}"))
+}
+
 /// Tail the newest `packweaver*.log` under the logs folder (last ~max_bytes).
 #[tauri::command]
 fn read_log_tail(max_bytes: Option<u64>) -> Result<String, String> {
@@ -1494,7 +1579,7 @@ async fn export_instance(
             let _ = std::fs::remove_file(&temp_zip);
             format!("Invalid save path: {}", e)
         })?,
-        None => {
+        _ => {
             let _ = std::fs::remove_file(&temp_zip);
             return Err("Export cancelled".to_string());
         }
@@ -1664,7 +1749,8 @@ pub fn run() {
             get_update_channel,
             set_update_channel,
             check_app_update,
-            install_app_update
+            install_app_update,
+            reveal_instance_mod
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

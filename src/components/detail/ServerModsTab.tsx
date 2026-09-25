@@ -35,6 +35,11 @@ export function ServerModsTab({ instance, onUpdate }: ServerModsTabProps) {
   const [query, setQuery] = useState('');
   const [showCount, setShowCount] = useState(PAGE_SIZE);
   const [uploading, setUploading] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [sortCol, setSortCol] = useState<
+    'name' | 'author' | 'version' | 'side' | 'file' | 'size' | 'enabled'
+  >('name');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
   const serverBaseMods = useMemo(
     () => instance.basePackMods.filter(isServerCapable),
@@ -43,9 +48,34 @@ export function ServerModsTab({ instance, onUpdate }: ServerModsTabProps) {
 
   const filteredMods = useMemo(() => {
     const mods = serverBaseMods.filter(m => modMatchesQuery(m, query));
-    mods.sort((a, b) => compareModName(a.name || '', b.name || ''));
+    mods.sort((a, b) => {
+      let cmp = 0;
+      if (sortCol === 'name') cmp = compareModName(a.name || '', b.name || '');
+      else if (sortCol === 'author') cmp = compareModName(a.author || '', b.author || '');
+      else if (sortCol === 'version')
+        cmp = displayModVersion(a.version, a.fileName).localeCompare(
+          displayModVersion(b.version, b.fileName),
+          undefined,
+          { sensitivity: 'base' }
+        );
+      else if (sortCol === 'side') cmp = (a.side || 'both').localeCompare(b.side || 'both');
+      else if (sortCol === 'file')
+        cmp = (jarLeaf(a.fileName, a.id) || '').localeCompare(jarLeaf(b.fileName, b.id) || '');
+      else if (sortCol === 'size') cmp = (a.fileSize ?? 0) - (b.fileSize ?? 0);
+      else if (sortCol === 'enabled')
+        cmp = ((a.enabledServer ?? true) ? 1 : 0) - ((b.enabledServer ?? true) ? 1 : 0);
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
     return mods;
-  }, [serverBaseMods, query]);
+  }, [serverBaseMods, query, sortCol, sortDir]);
+
+  const handleSort = (col: typeof sortCol) => {
+    if (sortCol === col) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+    else {
+      setSortCol(col);
+      setSortDir('asc');
+    }
+  };
 
   const visibleMods = filteredMods.slice(0, showCount);
 
@@ -59,6 +89,48 @@ export function ServerModsTab({ instance, onUpdate }: ServerModsTabProps) {
     } catch (e) {
       appLog('error', 'mods', `Clipboard write failed: ${String(e)}`);
       addToast('Could not copy to clipboard', 'error');
+    }
+  };
+
+  const setAllFiltered = async (enabled: boolean) => {
+    const targets = filteredMods.filter(m => (m.enabledServer ?? true) !== enabled);
+    if (targets.length === 0 || bulkBusy) return;
+    setBulkBusy(true);
+    const changed = new Set<string>();
+    const failures: string[] = [];
+    try {
+      for (const mod of targets) {
+        try {
+          await invoke('toggle_mod_state', {
+            instanceId: instance.id,
+            modId: mod.id,
+            enabled,
+            side: 'server',
+          });
+          changed.add(mod.id);
+        } catch (e) {
+          failures.push(`${mod.name}: ${e}`);
+        }
+      }
+      if (changed.size > 0) {
+        onUpdate({
+          basePackMods: instance.basePackMods.map(m =>
+            changed.has(m.id)
+              ? { ...m, enabledServer: enabled, onDiskServer: enabled ? m.onDiskServer : false }
+              : m
+          ),
+        });
+      }
+      if (failures.length > 0) {
+        addToast(`Could not toggle ${failures.length} server mod(s)`, 'error');
+      } else {
+        addToast(
+          `${enabled ? 'Enabled' : 'Disabled'} ${changed.size} server mod${changed.size === 1 ? '' : 's'}`,
+          'success'
+        );
+      }
+    } finally {
+      setBulkBusy(false);
     }
   };
 
@@ -167,7 +239,12 @@ export function ServerModsTab({ instance, onUpdate }: ServerModsTabProps) {
           </div>
         </td>
         <td className="px-3 py-2.5 overflow-hidden">
-          <ModNameLink mod={mod} label={mod.name} className="text-[13px] font-medium truncate" />
+          <ModNameLink
+            mod={mod}
+            label={mod.name}
+            className="text-[13px] font-medium truncate"
+            instanceId={instance.id}
+          />
         </td>
         <td
           className="px-3 py-2.5 text-[11px] truncate overflow-hidden"
@@ -281,7 +358,25 @@ export function ServerModsTab({ instance, onUpdate }: ServerModsTabProps) {
             />
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              className="btn-ghost text-[11px] px-2 py-0.5"
+              onClick={() => void setAllFiltered(true)}
+              disabled={bulkBusy}
+              title="Enable all mods matching the current filter on the server"
+            >
+              Enable {query ? 'matching' : 'all'}
+            </button>
+            <button
+              type="button"
+              className="btn-ghost text-[11px] px-2 py-0.5"
+              onClick={() => void setAllFiltered(false)}
+              disabled={bulkBusy}
+              title="Disable all mods matching the current filter on the server"
+            >
+              Disable {query ? 'matching' : 'all'}
+            </button>
             <button
               type="button"
               className="btn-ghost text-[11px] px-2 py-0.5"
@@ -290,6 +385,11 @@ export function ServerModsTab({ instance, onUpdate }: ServerModsTabProps) {
             >
               Copy list
             </button>
+            {bulkBusy ? (
+              <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                Applying…
+              </span>
+            ) : null}
           </div>
 
           <div
@@ -312,13 +412,48 @@ export function ServerModsTab({ instance, onUpdate }: ServerModsTabProps) {
                         borderBottom: '1px solid var(--border)',
                       }}
                     >
-                      <th className="font-medium px-3 py-2.5 w-12 text-center">On</th>
-                      <th className="font-medium px-3 py-2.5">Mod</th>
-                      <th className="font-medium px-3 py-2.5 w-28">Author</th>
-                      <th className="font-medium px-3 py-2.5 w-16 text-center">Side</th>
-                      <th className="font-medium px-3 py-2.5 w-40">File</th>
-                      <th className="font-medium px-3 py-2.5 w-28">Version</th>
-                      <th className="font-medium px-3 py-2.5 w-16 text-right">Size</th>
+                      <th
+                        className="font-medium px-3 py-2.5 w-12 text-center cursor-pointer hover:text-[var(--text-primary)] select-none"
+                        onClick={() => handleSort('enabled')}
+                      >
+                        On {sortCol === 'enabled' && (sortDir === 'asc' ? '↑' : '↓')}
+                      </th>
+                      <th
+                        className="font-medium px-3 py-2.5 cursor-pointer hover:text-[var(--text-primary)] select-none"
+                        onClick={() => handleSort('name')}
+                      >
+                        Mod {sortCol === 'name' && (sortDir === 'asc' ? '↑' : '↓')}
+                      </th>
+                      <th
+                        className="font-medium px-3 py-2.5 w-28 cursor-pointer hover:text-[var(--text-primary)] select-none"
+                        onClick={() => handleSort('author')}
+                      >
+                        Author {sortCol === 'author' && (sortDir === 'asc' ? '↑' : '↓')}
+                      </th>
+                      <th
+                        className="font-medium px-3 py-2.5 w-16 text-center cursor-pointer hover:text-[var(--text-primary)] select-none"
+                        onClick={() => handleSort('side')}
+                      >
+                        Side {sortCol === 'side' && (sortDir === 'asc' ? '↑' : '↓')}
+                      </th>
+                      <th
+                        className="font-medium px-3 py-2.5 w-40 cursor-pointer hover:text-[var(--text-primary)] select-none"
+                        onClick={() => handleSort('file')}
+                      >
+                        File {sortCol === 'file' && (sortDir === 'asc' ? '↑' : '↓')}
+                      </th>
+                      <th
+                        className="font-medium px-3 py-2.5 w-28 cursor-pointer hover:text-[var(--text-primary)] select-none"
+                        onClick={() => handleSort('version')}
+                      >
+                        Version {sortCol === 'version' && (sortDir === 'asc' ? '↑' : '↓')}
+                      </th>
+                      <th
+                        className="font-medium px-3 py-2.5 w-16 text-right cursor-pointer hover:text-[var(--text-primary)] select-none"
+                        onClick={() => handleSort('size')}
+                      >
+                        Size {sortCol === 'size' && (sortDir === 'asc' ? '↑' : '↓')}
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[var(--border)]">

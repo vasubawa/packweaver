@@ -9,6 +9,7 @@ import { appLog } from '../../lib/appLog';
 import {
   jarLeaf,
   formatBytes,
+  displayModVersion,
   compareModName,
   modMatchesQuery,
   modListToText,
@@ -68,6 +69,10 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
   const { addToast } = useToast();
   const [baseFilter, setBaseFilter] = useState('');
   const [baseShowCount, setBaseShowCount] = useState(BASE_MODS_PAGE_SIZE);
+  const [sortCol, setSortCol] = useState<
+    'name' | 'author' | 'version' | 'side' | 'file' | 'size' | 'enabled'
+  >('name');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
   const clientBaseMods = useMemo(
     () => instance.basePackMods.filter(m => isClientCapable(m.side)),
@@ -76,9 +81,35 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
 
   const filteredBaseMods = useMemo(() => {
     const mods = clientBaseMods.filter(m => modMatchesQuery(m, baseFilter));
-    mods.sort((a, b) => compareModName(a.name || '', b.name || ''));
+    mods.sort((a, b) => {
+      let cmp = 0;
+      if (sortCol === 'name') cmp = compareModName(a.name || '', b.name || '');
+      else if (sortCol === 'author') cmp = compareModName(a.author || '', b.author || '');
+      else if (sortCol === 'version')
+        cmp = displayModVersion(a.version, a.fileName).localeCompare(
+          displayModVersion(b.version, b.fileName),
+          undefined,
+          {
+            sensitivity: 'base',
+          }
+        );
+      else if (sortCol === 'side') cmp = (a.side || 'both').localeCompare(b.side || 'both');
+      else if (sortCol === 'file')
+        cmp = (jarLeaf(a.fileName, a.id) || '').localeCompare(jarLeaf(b.fileName, b.id) || '');
+      else if (sortCol === 'size') cmp = (a.fileSize ?? 0) - (b.fileSize ?? 0);
+      else if (sortCol === 'enabled') cmp = (a.enabled ? 1 : 0) - (b.enabled ? 1 : 0);
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
     return mods;
-  }, [clientBaseMods, baseFilter]);
+  }, [clientBaseMods, baseFilter, sortCol, sortDir]);
+
+  const handleSort = (col: typeof sortCol) => {
+    if (sortCol === col) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+    else {
+      setSortCol(col);
+      setSortDir('asc');
+    }
+  };
 
   const visibleBaseMods = filteredBaseMods.slice(0, baseShowCount);
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -296,13 +327,48 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
                         borderBottom: '1px solid var(--border)',
                       }}
                     >
-                      <th className="font-medium px-3 py-2.5 w-12 text-center">On</th>
-                      <th className="font-medium px-3 py-2.5">Mod</th>
-                      <th className="font-medium px-3 py-2.5 w-28">Author</th>
-                      <th className="font-medium px-3 py-2.5 w-16 text-center">Side</th>
-                      <th className="font-medium px-3 py-2.5 w-40">File</th>
-                      <th className="font-medium px-3 py-2.5 w-28">Version</th>
-                      <th className="font-medium px-3 py-2.5 w-16 text-right">Size</th>
+                      <th
+                        className="font-medium px-3 py-2.5 w-12 text-center cursor-pointer hover:text-[var(--text-primary)] select-none"
+                        onClick={() => handleSort('enabled')}
+                      >
+                        On {sortCol === 'enabled' && (sortDir === 'asc' ? '↑' : '↓')}
+                      </th>
+                      <th
+                        className="font-medium px-3 py-2.5 cursor-pointer hover:text-[var(--text-primary)] select-none"
+                        onClick={() => handleSort('name')}
+                      >
+                        Mod {sortCol === 'name' && (sortDir === 'asc' ? '↑' : '↓')}
+                      </th>
+                      <th
+                        className="font-medium px-3 py-2.5 w-28 cursor-pointer hover:text-[var(--text-primary)] select-none"
+                        onClick={() => handleSort('author')}
+                      >
+                        Author {sortCol === 'author' && (sortDir === 'asc' ? '↑' : '↓')}
+                      </th>
+                      <th
+                        className="font-medium px-3 py-2.5 w-16 text-center cursor-pointer hover:text-[var(--text-primary)] select-none"
+                        onClick={() => handleSort('side')}
+                      >
+                        Side {sortCol === 'side' && (sortDir === 'asc' ? '↑' : '↓')}
+                      </th>
+                      <th
+                        className="font-medium px-3 py-2.5 w-40 cursor-pointer hover:text-[var(--text-primary)] select-none"
+                        onClick={() => handleSort('file')}
+                      >
+                        File {sortCol === 'file' && (sortDir === 'asc' ? '↑' : '↓')}
+                      </th>
+                      <th
+                        className="font-medium px-3 py-2.5 w-28 cursor-pointer hover:text-[var(--text-primary)] select-none"
+                        onClick={() => handleSort('version')}
+                      >
+                        Version {sortCol === 'version' && (sortDir === 'asc' ? '↑' : '↓')}
+                      </th>
+                      <th
+                        className="font-medium px-3 py-2.5 w-16 text-right cursor-pointer hover:text-[var(--text-primary)] select-none"
+                        onClick={() => handleSort('size')}
+                      >
+                        Size {sortCol === 'size' && (sortDir === 'asc' ? '↑' : '↓')}
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[var(--border)]">
@@ -373,6 +439,7 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
                                 mod={mod}
                                 label={displayName}
                                 className="text-[12.5px] font-medium truncate min-w-0"
+                                instanceId={instance.id}
                               />
                             </div>
                           </td>

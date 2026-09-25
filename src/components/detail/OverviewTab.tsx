@@ -6,6 +6,7 @@ import { formatBasePackName, SOURCE_COLORS, formatExportedAt } from '../../const
 import { Icon } from '../Icon';
 import { UpdatesCard } from './UpdatesCard';
 import { getClientExportFormats } from '../../plugins';
+import { formatBytes } from './modListFormat';
 
 interface OverviewTabProps {
   instance: Instance;
@@ -198,6 +199,26 @@ export function OverviewTab({
   const sourceLabel = (SOURCE_COLORS[instance.source] || SOURCE_COLORS.local).label;
   const baseModCount = Math.max(0, instance.totalModCount - instance.customModCount);
 
+  const clientModSize = useMemo(() => {
+    const baseSize = (instance.basePackMods || [])
+      .filter(m => m.enabled && (m.side || 'both').toLowerCase() !== 'server')
+      .reduce((acc, m) => acc + (m.fileSize || 0), 0);
+    const customSize = (instance.customMods || [])
+      .filter(m => m.enabled && (m.side || 'both').toLowerCase() !== 'server')
+      .reduce((acc, m) => acc + (m.fileSize || 0), 0);
+    return baseSize + customSize;
+  }, [instance.basePackMods, instance.customMods]);
+
+  const serverModSize = useMemo(() => {
+    const baseSize = (instance.basePackMods || [])
+      .filter(m => (m.enabledServer ?? true) && (m.side || 'both').toLowerCase() !== 'client')
+      .reduce((acc, m) => acc + (m.fileSize || 0), 0);
+    const customSize = (instance.customMods || [])
+      .filter(m => (m.enabledServer ?? true) && (m.side || 'both').toLowerCase() !== 'client')
+      .reduce((acc, m) => acc + (m.fileSize || 0), 0);
+    return baseSize + customSize;
+  }, [instance.basePackMods, instance.customMods]);
+
   const handleDescSave = () => {
     onUpdate({ description: descInput.trim() });
     setIsEditingDesc(false);
@@ -295,7 +316,14 @@ export function OverviewTab({
 
           <div className="info-card">
             <div className="info-card-label">Mods</div>
-            <div className="info-card-value">{instance.totalModCount} total</div>
+            <div className="info-card-value">
+              {instance.totalModCount} total
+              {clientModSize > 0 && (
+                <span className="text-[12px] font-normal text-[var(--text-muted)] ml-1.5">
+                  (~{formatBytes(clientModSize)})
+                </span>
+              )}
+            </div>
             <div className="info-card-meta">
               {baseModCount} from base
               {instance.customModCount > 0
@@ -421,10 +449,14 @@ export function OverviewTab({
                 className="btn-accent text-[12px] px-3 py-1.5"
                 onClick={onExportClient}
                 disabled={exportingClient || anyBusy}
-                title="Package client workspace, then choose where to save"
+                title={`Package client workspace (~${formatBytes(clientModSize)} in mods), then choose where to save`}
               >
                 <Icon name="package" size={13} />
-                {exportingClient ? 'Exporting…' : 'Export client'}
+                {exportingClient
+                  ? 'Exporting…'
+                  : clientModSize > 0
+                    ? `Export client (~${formatBytes(clientModSize)})`
+                    : 'Export client'}
               </button>
             )}
             {serverExporterEnabled && onExportServer && (
@@ -432,10 +464,14 @@ export function OverviewTab({
                 className="btn-secondary text-[12px] px-3 py-1.5"
                 onClick={onExportServer}
                 disabled={exportingServer || anyBusy}
-                title="Package server workspace, then choose where to save"
+                title={`Package server workspace (~${formatBytes(serverModSize)} in mods), then choose where to save`}
               >
                 <Icon name="package" size={13} />
-                {exportingServer ? 'Exporting…' : 'Export server'}
+                {exportingServer
+                  ? 'Exporting…'
+                  : serverModSize > 0
+                    ? `Export server (~${formatBytes(serverModSize)})`
+                    : 'Export server'}
               </button>
             )}
             <button

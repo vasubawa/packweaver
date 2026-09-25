@@ -149,20 +149,27 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
       // Ids alone are useless in a toast; ask the provider for titles, but do
       // not let a failed lookup swallow the warning itself.
       const plugin = getActiveSourcePlugins().find(p => p.id === 'modrinth');
-      const named = await Promise.all(
+      const missingDetails = await Promise.all(
         missing.map(async dep => {
-          if (!plugin?.getProjectDetails) return dep.projectId;
+          if (!plugin?.getProjectDetails) return { id: dep.projectId, title: dep.projectId };
           try {
             const details = await plugin.getProjectDetails(dep.projectId);
-            return details?.title || dep.projectId;
+            return { id: dep.projectId, title: details?.title || dep.projectId };
           } catch {
-            return dep.projectId;
+            return { id: dep.projectId, title: dep.projectId };
           }
         })
       );
+      const named = missingDetails.map(d => d.title);
       addToast(
         `"${modName}" requires ${named.join(', ')} — add ${named.length === 1 ? 'it' : 'them'} or the pack will not launch`,
-        'error'
+        'error',
+        missingDetails.length === 1
+          ? {
+              label: `Add ${named[0]}`,
+              onClick: () => void addCustomMod(missingDetails[0].id, named[0]),
+            }
+          : undefined
       );
     } catch (e) {
       appLog('warn', 'mods', `Dependency check failed for ${modName}: ${String(e)}`);
@@ -191,6 +198,7 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
           : `Updated ${mod.name} → ${latest.versionNumber}`,
         'success'
       );
+      void reportDependencyIssues(latest, mod.name, applied.updatedMods);
     } catch (e) {
       addToast(`Update failed: ${e}`, 'error');
     } finally {
@@ -820,6 +828,7 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
                               mod={mod}
                               label={mod.name}
                               className="text-[13px] font-medium truncate min-w-0"
+                              instanceId={instance.id}
                             />
                           </div>
                         </td>

@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { modrinthProjectUrl } from '../../components/detail/modListFormat';
+import {
+  modrinthProjectUrl,
+  formatBytes,
+  displayModVersion,
+  jarLeaf,
+} from '../../components/detail/modListFormat';
 
 describe('modrinthProjectUrl', () => {
   it('links a Modrinth-sourced mod by slug', () => {
@@ -43,5 +48,33 @@ describe('modrinthProjectUrl', () => {
     expect(modrinthProjectUrl({ id: '../../etc/passwd', source: 'modrinth' })).toBeUndefined();
     expect(modrinthProjectUrl({ id: 'a b', source: 'modrinth' })).toBeUndefined();
     expect(modrinthProjectUrl({ id: 'x', source: 'modrinth' })).toBeUndefined();
+  });
+});
+
+describe('formatBytes', () => {
+  it('formats byte sizes correctly', () => {
+    expect(formatBytes(null)).toBe('—');
+    expect(formatBytes(0)).toBe('—');
+    expect(formatBytes(500)).toBe('500 B');
+    expect(formatBytes(1024)).toBe('1.0 KB');
+    expect(formatBytes(1500000)).toBe('1.4 MB');
+  });
+});
+
+describe('displayModVersion', () => {
+  it('returns clean version or extracts from filename', () => {
+    expect(displayModVersion('1.2.3')).toBe('1.2.3');
+    expect(displayModVersion('2XUIKIAa', 'fabric-api-0.92.0.jar')).toBe('0.92.0');
+    expect(displayModVersion('latest', 'mod-1.0.0.jar')).toBe('1.0.0');
+    expect(displayModVersion('', 'mod.jar')).toBe('—');
+  });
+});
+
+describe('jarLeaf', () => {
+  it('extracts leaf from unix and windows paths', () => {
+    expect(jarLeaf('mods/sodium.jar')).toBe('sodium.jar');
+    expect(jarLeaf('mods\\sodium.jar')).toBe('sodium.jar');
+    expect(jarLeaf('', 'fallback-mod')).toBe('fallback-mod');
+    expect(jarLeaf(null, '')).toBe('—');
   });
 });

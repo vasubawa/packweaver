@@ -30,7 +30,7 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
-    "createUpdaterArtifacts": false,
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -41,8 +41,7 @@
   },
   "plugins": {
     "updater": {
-      "//": "Self-update is NOT wired up: release.yml builds --no-bundle, so no NSIS installer and no latest.json are published, and no signing keypair exists. The plugin stays registered (removing the key breaks startup) but the empty pubkey makes app_updater::check refuse, and updater:default is withheld in capabilities/default.json so the webview cannot reach plugin:updater directly. To enable: generate a keypair, set pubkey, flip createUpdaterArtifacts to true, re-add updater:default, and publish latest.json.",
-      "pubkey": "",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDlBMTRBOTAyNDJFMzVCQUIKUldTclcrTkNBcWtVbW1sMzFITk9JYjJiZ0twai9SU2VKemovNUt6cERvbWpVZkVuN2QyWmkxVGQK",
       "endpoints": [
         "https://github.com/vasubawa/packweaver/releases/latest/download/latest.json"
       ],

@@ -142,8 +142,8 @@ pub async fn download_url_to_file(
     }
     drop(out);
 
-    let sha1_got = hex_encode(&hasher1.finalize());
-    let sha512_got = hex_encode(&hasher512.finalize());
+    let sha1_got = hex_encode(hasher1.finalize().as_slice());
+    let sha512_got = hex_encode(hasher512.finalize().as_slice());
     if let Err(e) = verify_download(
         &integrity,
         &sha1_got,
@@ -1336,9 +1336,38 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn swap_dir_fails_cleanly_when_target_file_is_locked() {
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("client");
+        let staging = with_suffix(&target, ".new");
+        fs::create_dir_all(&target).unwrap();
+        let locked_file = target.join("locked.jar");
+        fs::write(&locked_file, b"original content").unwrap();
+
+        fs::create_dir_all(&staging).unwrap();
+        fs::write(staging.join("new.jar"), b"new content").unwrap();
+
+        use std::fs::OpenOptions;
+        let _lock = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&locked_file)
+            .unwrap();
+
+        let res = swap_dir(&staging, &target);
+        assert!(res.is_err());
+        let err = res.unwrap_err();
+        assert!(err.contains(&target.display().to_string()));
+
+        assert!(target.exists());
+        assert_eq!(fs::read(&locked_file).unwrap(), b"original content");
+    }
+
     /// Inputs that must never resolve inside the workspace, shared by every
     /// caller that turns a pack-supplied name into a path.
-    const TRAVERSAL_INPUTS: &[&str] = &[
+    const TRAVERSAL_INPUTS: &[&str; 10] = &[
         "../evil.jar",
         "..\\..\\Users\\x\\a.txt",
         "/abs/evil.jar",

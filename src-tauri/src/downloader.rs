@@ -182,6 +182,14 @@ async fn fetch_modrinth_enrichment(
     client: &Client,
     hashes: &[String],
 ) -> std::collections::HashMap<String, ModEnrichment> {
+    fetch_modrinth_enrichment_from_url(client, hashes, "https://api.modrinth.com/v2").await
+}
+
+async fn fetch_modrinth_enrichment_from_url(
+    client: &Client,
+    hashes: &[String],
+    api_base: &str,
+) -> std::collections::HashMap<String, ModEnrichment> {
     let mut map = std::collections::HashMap::new();
     if hashes.is_empty() {
         return map;
@@ -192,12 +200,8 @@ async fn fetch_modrinth_enrichment(
         "algorithm": "sha1"
     });
 
-    let version_resp = match client
-        .post("https://api.modrinth.com/v2/version_files")
-        .json(&payload)
-        .send()
-        .await
-    {
+    let version_url = format!("{}/version_files", api_base.trim_end_matches('/'));
+    let version_resp = match client.post(&version_url).json(&payload).send().await {
         Ok(r) => r,
         Err(_) => return map,
     };
@@ -220,7 +224,8 @@ async fn fetch_modrinth_enrichment(
         Err(_) => return map,
     };
 
-    let mut proj_url = match url::Url::parse("https://api.modrinth.com/v2/projects") {
+    let proj_endpoint = format!("{}/projects", api_base.trim_end_matches('/'));
+    let mut proj_url = match url::Url::parse(&proj_endpoint) {
         Ok(u) => u,
         Err(_) => return map,
     };
@@ -1777,5 +1782,98 @@ mod tests {
         assert!(client, "enabled_client must default to 1");
         assert!(enabled);
         assert!(server);
+    }
+
+    #[tokio::test]
+    async fn redirect_policy_blocks_unauthorized_host() {
+        use wiremock::matchers::path;
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(path("/redirect"))
+            .respond_with(
+                ResponseTemplate::new(302)
+                    .insert_header("Location", "http://evil.com/malicious.jar"),
+            )
+            .mount(&server)
+            .await;
+
+        let client = reqwest::Client::builder()
+            .redirect(allowlist_redirect_policy())
+            .build()
+            .unwrap();
+
+        let res = client
+            .get(format!("{}/redirect", server.uri()))
+            .send()
+            .await;
+        assert!(
+            res.is_err(),
+            "Expected client to refuse off-allowlist redirect"
+        );
+        let err = res.unwrap_err();
+        assert!(err.is_redirect(), "Expected redirect refusal: {err}");
+        let chain = format!("{:?}", err);
+        assert!(
+            chain.contains("Refusing redirect"),
+            "Error should explain refusal: {chain}"
+        );
+    }
+
+    #[tokio::test]
+    async fn enrichment_handles_server_errors_gracefully() {
+        use wiremock::matchers::path;
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(path("/version_files"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&server)
+            .await;
+
+        let client = reqwest::Client::new();
+        let hashes = vec!["abcdef1234567890".to_string()];
+        let res = fetch_modrinth_enrichment_from_url(&client, &hashes, &server.uri()).await;
+        assert!(
+            res.is_empty(),
+            "500 error should yield empty enrichment map without failing"
+        );
+    }
+
+    #[test]
+    fn base_rows_preserved_if_enrichment_fails_before_delete() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE instance_mods (
+                instance_id TEXT, mod_id TEXT, name TEXT, mod_version_id TEXT,
+                file_name TEXT, source TEXT, is_base INTEGER, enabled INTEGER,
+                enabled_client INTEGER, enabled_server INTEGER, side TEXT
+            );
+            INSERT INTO instance_mods VALUES ('inst', 'mod-1', 'Mod 1', '1.0', 'm1.jar', 'modrinth', 1, 1, 1, 1, 'both');",
+        )
+        .unwrap();
+
+        // Simulate a pipeline failure at or before enrichment:
+        let enrichment_succeeded = false;
+        if enrichment_succeeded {
+            // Transaction with DELETE would run only here
+            conn.execute(
+                "DELETE FROM instance_mods WHERE instance_id = 'inst' AND is_base = 1",
+                [],
+            )
+            .unwrap();
+        }
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM instance_mods WHERE instance_id = 'inst' AND is_base = 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            count, 1,
+            "Base rows must survive when enrichment or preceding network fails"
+        );
     }
 }

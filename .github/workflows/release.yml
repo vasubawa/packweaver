@@ -47,8 +47,16 @@ jobs:
         
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          args: --no-bundle
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Packweaver v__VERSION__'
+          releaseBody: 'See the assets to download this version and install.'
+          releaseDraft: false
+          prerelease: false
 
       - name: Zip Artifacts (Windows)
         if: matrix.platform == 'windows-latest'

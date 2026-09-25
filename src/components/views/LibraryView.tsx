@@ -10,6 +10,8 @@ interface LibraryViewProps {
   searchQuery: string;
   onSelectInstance: (instance: Instance) => void;
   onNewInstance: () => void;
+  onRefreshUpdates?: () => void;
+  isRefreshingUpdates?: boolean;
 }
 
 export function LibraryView({
@@ -18,6 +20,8 @@ export function LibraryView({
   searchQuery,
   onSelectInstance,
   onNewInstance,
+  onRefreshUpdates,
+  isRefreshingUpdates,
 }: LibraryViewProps) {
   const filteredInstances = instances.filter(
     i =>
@@ -31,8 +35,24 @@ export function LibraryView({
   return (
     <div className="p-8 content-pad animate-slide-in">
       {!isLoading && filteredInstances.length > 0 && (
-        <div className="flex justify-end mb-4">
-          <span className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+        <div className="flex items-center justify-between mb-4">
+          {onRefreshUpdates && (
+            <button
+              type="button"
+              className="btn-ghost text-[12px] px-2.5 py-1 flex items-center gap-1.5"
+              onClick={onRefreshUpdates}
+              disabled={isRefreshingUpdates}
+              title="Bypass 24h cache and check all packs for updates"
+            >
+              <Icon
+                name="refresh"
+                size={12}
+                className={isRefreshingUpdates ? 'animate-spin' : ''}
+              />
+              <span>{isRefreshingUpdates ? 'Checking updates…' : 'Check updates'}</span>
+            </button>
+          )}
+          <span className="text-[13px] ml-auto" style={{ color: 'var(--text-secondary)' }}>
             {filteredInstances.length} pack{filteredInstances.length !== 1 ? 's' : ''}
           </span>
         </div>

@@ -216,10 +216,8 @@ mod tests {
     /// would otherwise be enough to exhaust memory.
     #[test]
     fn oversized_descriptor_is_capped() {
-        let dir = std::env::temp_dir().join(format!("pw-jar-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let jar_path = dir.join("bomb.jar");
+        let temp = tempfile::tempdir().unwrap();
+        let jar_path = temp.path().join("bomb.jar");
 
         let mut zip = zip::ZipWriter::new(std::fs::File::create(&jar_path).unwrap());
         zip.start_file::<_, ()>("fabric.mod.json", zip::write::SimpleFileOptions::default())
@@ -233,15 +231,12 @@ mod tests {
         let meta = inspect_jar(&jar_path);
 
         assert!(meta.name.is_none(), "truncated JSON must not parse");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn normal_descriptor_still_parses() {
-        let dir = std::env::temp_dir().join(format!("pw-jar-ok-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let jar_path = dir.join("mod.jar");
+        let temp = tempfile::tempdir().unwrap();
+        let jar_path = temp.path().join("mod.jar");
 
         let mut zip = zip::ZipWriter::new(std::fs::File::create(&jar_path).unwrap());
         zip.start_file::<_, ()>("fabric.mod.json", zip::write::SimpleFileOptions::default())
@@ -257,6 +252,5 @@ mod tests {
 
         assert_eq!(meta.name.as_deref(), Some("Sodium"));
         assert_eq!(meta.version.as_deref(), Some("0.5.8"));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }

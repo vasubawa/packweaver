@@ -178,6 +178,33 @@ function App() {
     setInstances(prev => prev.map(i => (i.id === id ? { ...i, ...updates } : i)));
   }, []);
 
+  const [isRefreshingUpdates, setIsRefreshingUpdates] = useState(false);
+
+  const handleRefreshUpdates = useCallback(async () => {
+    if (isRefreshingUpdates || instances.length === 0) return;
+    setIsRefreshingUpdates(true);
+    let updatedCount = 0;
+    try {
+      await scanForUpdates(instances, (id, entry) => {
+        saveScanCache({ ...loadScanCache(), [id]: entry });
+        if (entry.hasUpdate) updatedCount++;
+        setInstances(prev =>
+          prev.map(i => (i.id === id ? { ...i, hasUpdate: entry.hasUpdate } : i))
+        );
+      });
+      addToast(
+        updatedCount > 0
+          ? `Update check complete: ${updatedCount} pack${updatedCount === 1 ? '' : 's'} have updates`
+          : 'Update check complete: all packs are up to date',
+        'success'
+      );
+    } catch (e) {
+      addToast(`Update check failed: ${e}`, 'error');
+    } finally {
+      setIsRefreshingUpdates(false);
+    }
+  }, [instances, isRefreshingUpdates, addToast]);
+
   const handleDeleteInstance = useCallback(
     (id: string) => {
       setInstances(prev => prev.filter(i => i.id !== id));
@@ -229,6 +256,8 @@ function App() {
               searchQuery={searchQuery}
               onSelectInstance={handleSelectInstance}
               onNewInstance={() => setShowCreateModal(true)}
+              onRefreshUpdates={handleRefreshUpdates}
+              isRefreshingUpdates={isRefreshingUpdates}
             />
           )}
 
