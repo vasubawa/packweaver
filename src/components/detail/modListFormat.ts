@@ -40,3 +40,46 @@ export function displayModVersion(version?: string | null, fileName?: string | n
   if (fromFile) return fromFile[1];
   return v || '—';
 }
+
+/**
+ * Modrinth project page for a mod, or `undefined` when there is nothing to link.
+ *
+ * Base mods imported from a local `.mrpack` carry the instance's `source`
+ * ('local'), but their id is the real project id parsed out of the
+ * `cdn.modrinth.com/data/{id}/...` download URL, so the 8-char shape is
+ * accepted too. File-path ids (plain-zip scans) and `local-<uuid>` customs are
+ * not project references and stay plain text.
+ */
+export function modrinthProjectUrl(mod: { id?: string; source?: string }): string | undefined {
+  const id = (mod.id || '').trim();
+  if (!id || id.startsWith('local-')) return undefined;
+  if (/[\\/]/.test(id) || /\.(jar|zip|mrpack)$/i.test(id)) return undefined;
+
+  const isProjectId = /^[A-Za-z0-9]{8}$/.test(id);
+  if (mod.source !== 'modrinth' && !isProjectId) return undefined;
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{1,63}$/.test(id)) return undefined;
+
+  return `https://modrinth.com/mod/${encodeURIComponent(id)}`;
+}
+
+/** A mod list as shareable plain text: `Name  version  (author)  file.jar`. */
+export function modListToText(
+  mods: {
+    name?: string;
+    version?: string | null;
+    author?: string | null;
+    fileName?: string | null;
+    id?: string;
+    enabled?: boolean;
+  }[],
+  opts: { includeDisabled?: boolean } = {}
+): string {
+  const rows = mods.filter(m => opts.includeDisabled || m.enabled !== false);
+  return rows
+    .map(m => {
+      const version = displayModVersion(m.version, m.fileName);
+      const author = m.author ? ` by ${m.author}` : '';
+      return `${m.name || m.id || 'unknown'} ${version}${author}`;
+    })
+    .join('\n');
+}

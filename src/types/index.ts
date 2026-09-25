@@ -30,8 +30,9 @@ export interface ServerFileItem {
 }
 
 export interface ExportSettings {
-  includeServer: boolean;
-  version: string;
+  /** Both optional: Rust falls back to `json!({})` for an instance never exported. */
+  includeServer?: boolean;
+  version?: string;
   /** Client export format — must match an enabled exporter plugin. */
   clientFormat?: 'zip' | 'mrpack';
   format?: 'zip' | 'server' | 'mrpack';
@@ -56,8 +57,9 @@ export interface Instance {
   progress?: number;
   total?: number;
   lastExported: string;
-  fileSize: string;
-  hasUpdate: boolean;
+  /** Set by the UI only — the backend does not report these. */
+  fileSize?: string;
+  hasUpdate?: boolean;
   bannerGradient?: string;
   bannerUrl?: string;
   iconUrl?: string;

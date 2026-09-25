@@ -7,6 +7,7 @@ import { ModSource, LoaderType } from '../types';
 import { getActiveSourcePlugins, SourcePlugin, PackVersionInfo } from '../plugins';
 import { usePluginSearch } from '../hooks/usePluginSearch';
 import { useToast } from '../context/ToastContext';
+import { appLog } from '../lib/appLog';
 import { open } from '@tauri-apps/plugin-dialog';
 
 const MC_VERSIONS = ['1.21.4', '1.21.1', '1.20.4', '1.20.1', '1.18.2', '1.16.5', '1.12.2'];
@@ -228,7 +229,13 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
       let description = '';
       let bannerUrl = '';
       let iconUrl = '';
-      let basePackMods: { id: string; name: string; iconUrl?: string }[] = [];
+      let basePackMods: {
+        id: string;
+        name: string;
+        version?: string;
+        author?: string;
+        iconUrl?: string;
+      }[] = [];
 
       if (source === 'modrinth' && currentPlugin?.getProjectDetails) {
         try {
@@ -252,11 +259,12 @@ export function CreateInstanceModal({ isOpen, onClose, onCreated }: CreateModalP
                 name: d.name || (d.projectId as string),
                 version: d.version || 'latest',
                 author: d.author || undefined,
-                icon_url: d.iconUrl || undefined, // matching the rust struct's snake_case for basePackMods
+                iconUrl: d.iconUrl || undefined,
               }));
           }
         } catch (e) {
-          console.error('Failed to pre-fetch modrinth details:', e);
+          appLog('warn', 'create', `Modrinth pre-fetch failed: ${String(e)}`);
+          addToast('Could not pre-load the mod list; it will be filled in after install', 'info');
         }
       }
 

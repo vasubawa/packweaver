@@ -22,21 +22,99 @@ pub fn is_allowed_download_host(host: &str) -> bool {
         || host.ends_with(".modrinth.com")
 }
 
+/// The single gate every download URL passes, including each redirect hop.
+/// Plain http is rejected: the host allowlist is worthless over a channel an
+/// on-path attacker can rewrite.
+pub fn is_allowed_download_url(url: &url::Url) -> bool {
+    url.scheme() == "https" && is_allowed_download_host(url.host_str().unwrap_or(""))
+}
+
+fn check_download_url(raw: &str) -> Result<url::Url, String> {
+    let parsed = url::Url::parse(raw).map_err(|e| e.to_string())?;
+    if !is_allowed_download_url(&parsed) {
+        return Err(format!(
+            "Refusing download from {raw}: host or scheme not allowed"
+        ));
+    }
+    Ok(parsed)
+}
+
+/// What a download must match to be accepted.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Integrity<'a> {
+    pub hashes: Option<&'a std::collections::HashMap<String, String>>,
+    pub size: Option<u64>,
+    /// Refuse the download outright when no usable hash was published.
+    pub required: bool,
+}
+
+impl<'a> Integrity<'a> {
+    /// For files named by a pack index or the Modrinth API, both of which
+    /// always publish hashes. A missing hash means the index is untrustworthy.
+    pub fn required(
+        hashes: Option<&'a std::collections::HashMap<String, String>>,
+        size: Option<u64>,
+    ) -> Self {
+        Self {
+            hashes,
+            size,
+            required: true,
+        }
+    }
+
+    fn usable(&self) -> bool {
+        self.hashes
+            .is_some_and(|h| h.contains_key("sha1") || h.contains_key("sha512"))
+    }
+}
+
+/// Compare what was written against what was promised.
+fn verify_download(
+    integrity: &Integrity<'_>,
+    sha1: &str,
+    sha512: &str,
+    written: u64,
+    what: &str,
+) -> Result<(), String> {
+    if let Some(expected) = integrity.size {
+        if written != expected {
+            return Err(format!(
+                "Size mismatch for {what}: expected {expected} bytes, got {written}"
+            ));
+        }
+    }
+    let Some(hashes) = integrity.hashes else {
+        return Ok(());
+    };
+    if let Some(expected) = hashes.get("sha1") {
+        if !sha1.eq_ignore_ascii_case(expected) {
+            return Err(format!("SHA-1 mismatch for {what}"));
+        }
+    }
+    if let Some(expected) = hashes.get("sha512") {
+        if !sha512.eq_ignore_ascii_case(expected) {
+            return Err(format!("SHA-512 mismatch for {what}"));
+        }
+    }
+    Ok(())
+}
+
 fn hex_encode(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
-/// Stream `url` to `dest`, optionally verifying sha1/sha512 from a hashes map.
+/// Stream `url` to `dest`, verifying it against `integrity` before keeping it.
 pub async fn download_url_to_file(
     client: &Client,
     url: &str,
     dest: &Path,
-    expected_hashes: Option<&std::collections::HashMap<String, String>>,
+    integrity: Integrity<'_>,
 ) -> Result<(), String> {
-    let parsed = url::Url::parse(url).map_err(|e| e.to_string())?;
-    let host = parsed.host_str().unwrap_or("");
-    if !is_allowed_download_host(host) {
-        return Err(format!("Invalid download host: {}", url));
+    check_download_url(url)?;
+    if integrity.required && !integrity.usable() {
+        return Err(format!(
+            "No sha1/sha512 published for {url}; refusing to install an unverified file"
+        ));
     }
     if let Some(parent) = dest.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -54,28 +132,27 @@ pub async fn download_url_to_file(
     use sha2::Sha512;
     let mut hasher1 = Sha1::new();
     let mut hasher512 = Sha512::new();
+    let mut written: u64 = 0;
     let mut out = fs::File::create(dest).map_err(|e| e.to_string())?;
     while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {
         io::Write::write_all(&mut out, &chunk).map_err(|e| e.to_string())?;
         hasher1.update(&chunk);
         hasher512.update(&chunk);
+        written += chunk.len() as u64;
     }
+    drop(out);
 
-    if let Some(hashes) = expected_hashes {
-        let sha1_got = hex_encode(&hasher1.finalize());
-        let sha512_got = hex_encode(&hasher512.finalize());
-        if let Some(expected) = hashes.get("sha1") {
-            if &sha1_got != expected {
-                let _ = fs::remove_file(dest);
-                return Err(format!("SHA-1 mismatch for {}", dest.display()));
-            }
-        }
-        if let Some(expected) = hashes.get("sha512") {
-            if &sha512_got != expected {
-                let _ = fs::remove_file(dest);
-                return Err(format!("SHA-512 mismatch for {}", dest.display()));
-            }
-        }
+    let sha1_got = hex_encode(&hasher1.finalize());
+    let sha512_got = hex_encode(&hasher512.finalize());
+    if let Err(e) = verify_download(
+        &integrity,
+        &sha1_got,
+        &sha512_got,
+        written,
+        &dest.display().to_string(),
+    ) {
+        let _ = fs::remove_file(dest);
+        return Err(e);
     }
     Ok(())
 }
@@ -86,6 +163,40 @@ pub fn wipe_dir(path: &Path) -> Result<(), String> {
     }
     fs::create_dir_all(path).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// `path` with `suffix` appended to its final component (`foo` -> `foo.new`).
+pub fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
+    let mut raw = path.as_os_str().to_os_string();
+    raw.push(suffix);
+    PathBuf::from(raw)
+}
+
+/// Replace `target` with the freshly built `staging` tree. The old tree is moved
+/// aside first, so a locked handle cannot leave the caller with neither directory.
+pub fn swap_dir(staging: &Path, target: &Path) -> Result<(), String> {
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let backup = with_suffix(target, ".old");
+    let _ = fs::remove_dir_all(&backup);
+    let had_existing = target.exists();
+    if had_existing {
+        fs::rename(target, &backup)
+            .map_err(|e| format!("Failed to replace {}: {e}", target.display()))?;
+    }
+    match fs::rename(staging, target) {
+        Ok(()) => {
+            let _ = fs::remove_dir_all(&backup);
+            Ok(())
+        }
+        Err(e) => {
+            if had_existing {
+                let _ = fs::rename(&backup, target);
+            }
+            Err(format!("Failed to install {}: {e}", target.display()))
+        }
+    }
 }
 
 pub fn safe_join(base: &Path, relative: &str) -> Result<PathBuf, String> {
@@ -365,7 +476,13 @@ pub async fn download_index_files_client(
         }
 
         let dest_path = safe_join(workspace, &file.path)?;
-        download_url_to_file(client, &dl_url, &dest_path, file.hashes.as_ref()).await?;
+        download_url_to_file(
+            client,
+            &dl_url,
+            &dest_path,
+            Integrity::required(file.hashes.as_ref(), file.file_size),
+        )
+        .await?;
 
         let sha1 = file.hashes.as_ref().and_then(|h| h.get("sha1").cloned());
 
@@ -840,7 +957,13 @@ pub async fn download_index_files_server(
         }
 
         let dest_path = safe_join(workspace, &file.path)?;
-        download_url_to_file(client, &dl_url, &dest_path, file.hashes.as_ref()).await?;
+        download_url_to_file(
+            client,
+            &dl_url,
+            &dest_path,
+            Integrity::required(file.hashes.as_ref(), file.file_size),
+        )
+        .await?;
 
         let sha1 = file.hashes.as_ref().and_then(|h| h.get("sha1").cloned());
 
@@ -895,20 +1018,18 @@ pub async fn install_mrpack_server(
 
 pub fn remove_mod_file_from_workspace(workspace: &Path, file_name: Option<&str>, mod_id: &str) {
     let mods_dir = workspace.join("mods");
+    // Every candidate goes through safe_join: a "leaf" carrying a drive letter or
+    // a parent-dir hop would otherwise escape the workspace and be deleted.
     let mut candidates = Vec::new();
     if let Some(name) = file_name.filter(|s| !s.is_empty()) {
-        let leaf = name.split('/').next_back().unwrap_or(name);
-        candidates.push(mods_dir.join(leaf));
+        candidates.push(safe_join(&mods_dir, &crate::ids::jar_leaf(name)));
         if name.contains('/') || name.contains('\\') {
-            if let Ok(p) = safe_join(workspace, name) {
-                candidates.push(p);
-            }
+            candidates.push(safe_join(workspace, name));
         }
     }
-    candidates.push(mods_dir.join(format!("{}.jar", mod_id)));
-    let leaf = mod_id.split('/').next_back().unwrap_or(mod_id);
-    candidates.push(mods_dir.join(leaf));
-    for p in candidates {
+    candidates.push(safe_join(&mods_dir, &format!("{}.jar", mod_id)));
+    candidates.push(safe_join(&mods_dir, &crate::ids::jar_leaf(mod_id)));
+    for p in candidates.into_iter().flatten() {
         let _ = fs::remove_file(p);
     }
 }
@@ -952,14 +1073,14 @@ pub async fn redownload_index_file(
         .downloads
         .first()
         .ok_or_else(|| format!("No download URL for {}", file.path))?;
-    let parsed = url::Url::parse(dl_url).map_err(|e| e.to_string())?;
-    let host = parsed.host_str().unwrap_or("");
-    if !is_allowed_download_host(host) {
-        return Err(format!("Invalid download host: {}", dl_url));
-    }
-
     let dest = safe_join(workspace, &file.path)?;
-    download_url_to_file(client, dl_url, &dest, file.hashes.as_ref()).await?;
+    download_url_to_file(
+        client,
+        dl_url,
+        &dest,
+        Integrity::required(file.hashes.as_ref(), file.file_size),
+    )
+    .await?;
     Ok(true)
 }
 
@@ -984,7 +1105,7 @@ pub fn extract_named_jar_from_zip(
         {
             let mods = workspace.join("mods");
             fs::create_dir_all(&mods).map_err(|e| e.to_string())?;
-            let dest = mods.join(entry_leaf);
+            let dest = safe_join(&mods, entry_leaf)?;
             let mut out = fs::File::create(&dest).map_err(|e| e.to_string())?;
             io::copy(&mut entry, &mut out).map_err(|e| e.to_string())?;
             return Ok(true);
@@ -1175,6 +1296,159 @@ pub fn pack_workspace_as_mrpack(
 mod tests {
     use super::*;
     use std::path::Path;
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("pw-swap-{}-{}", std::process::id(), name));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn swap_dir_replaces_target_and_cleans_up() {
+        let root = scratch("replace");
+        let target = root.join("client");
+        let staging = with_suffix(&target, ".new");
+        fs::create_dir_all(&target).unwrap();
+        fs::write(target.join("old.jar"), b"old").unwrap();
+        fs::create_dir_all(&staging).unwrap();
+        fs::write(staging.join("new.jar"), b"new").unwrap();
+
+        swap_dir(&staging, &target).unwrap();
+
+        assert!(target.join("new.jar").exists());
+        assert!(!target.join("old.jar").exists());
+        assert!(!staging.exists());
+        assert!(!with_suffix(&target, ".old").exists());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn swap_dir_keeps_the_old_tree_when_staging_is_missing() {
+        let root = scratch("rollback");
+        let target = root.join("client");
+        fs::create_dir_all(&target).unwrap();
+        fs::write(target.join("old.jar"), b"old").unwrap();
+
+        assert!(swap_dir(&with_suffix(&target, ".new"), &target).is_err());
+
+        assert_eq!(fs::read(target.join("old.jar")).unwrap(), b"old");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// Inputs that must never resolve inside the workspace, shared by every
+    /// caller that turns a pack-supplied name into a path.
+    const TRAVERSAL_INPUTS: &[&str] = &[
+        "../evil.jar",
+        "..\\..\\Users\\x\\a.txt",
+        "/abs/evil.jar",
+        "\\abs\\evil.jar",
+        "C:evil.jar",
+        "C:\\Windows\\evil.jar",
+        "mods\\..\\..\\evil.jar",
+        "evil\0.jar",
+        "   ",
+        "",
+    ];
+
+    #[test]
+    fn safe_join_rejects_every_traversal_input() {
+        let base = Path::new("/tmp/ws/mods");
+        for input in TRAVERSAL_INPUTS {
+            assert!(
+                safe_join(base, input).is_err(),
+                "safe_join accepted {input:?}"
+            );
+        }
+        assert!(safe_join(base, "foo.jar").is_ok());
+        assert!(safe_join(base, "nested/foo.jar").is_ok());
+    }
+
+    #[test]
+    fn remove_mod_file_stays_inside_the_workspace() {
+        let root = scratch("remove");
+        let workspace = root.join("ws");
+        fs::create_dir_all(workspace.join("mods")).unwrap();
+        let outside = root.join("secret.txt");
+        fs::write(&outside, b"keep me").unwrap();
+
+        remove_mod_file_from_workspace(&workspace, Some("..\\..\\secret.txt"), "mod-a");
+        remove_mod_file_from_workspace(&workspace, Some("../../secret.txt"), "mod-a");
+        remove_mod_file_from_workspace(&workspace, Some("x.jar"), "..\\..\\secret.txt");
+
+        assert!(outside.exists(), "escaped the workspace and deleted a file");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn remove_mod_file_still_removes_a_normal_jar() {
+        let root = scratch("remove-ok");
+        let mods = root.join("mods");
+        fs::create_dir_all(&mods).unwrap();
+        let jar = mods.join("foo.jar");
+        fs::write(&jar, b"jar").unwrap();
+
+        remove_mod_file_from_workspace(&root, Some("mods/foo.jar"), "foo");
+
+        assert!(!jar.exists());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn download_url_gate_requires_https_and_an_allowed_host() {
+        let allowed = [
+            "https://cdn.modrinth.com/data/x/a.jar",
+            "https://github.com/o/r/releases/download/v1/a.jar",
+        ];
+        let rejected = [
+            "http://cdn.modrinth.com/data/x/a.jar",
+            "https://evil.tld/a.jar",
+            "https://cdn.modrinth.com.evil.tld/a.jar",
+            "ftp://cdn.modrinth.com/a.jar",
+        ];
+        for u in allowed {
+            assert!(
+                is_allowed_download_url(&url::Url::parse(u).unwrap()),
+                "rejected {u}"
+            );
+        }
+        for u in rejected {
+            assert!(
+                !is_allowed_download_url(&url::Url::parse(u).unwrap()),
+                "accepted {u}"
+            );
+        }
+    }
+
+    #[test]
+    fn integrity_requires_a_published_hash() {
+        let empty = std::collections::HashMap::new();
+        assert!(!Integrity::required(None, None).usable());
+        assert!(!Integrity::required(Some(&empty), None).usable());
+
+        let mut hashes = std::collections::HashMap::new();
+        hashes.insert("sha1".to_string(), "abc".to_string());
+        assert!(Integrity::required(Some(&hashes), None).usable());
+    }
+
+    #[test]
+    fn verify_download_catches_size_and_hash_mismatches() {
+        let mut hashes = std::collections::HashMap::new();
+        hashes.insert("sha1".to_string(), "aabb".to_string());
+        let integrity = Integrity::required(Some(&hashes), Some(10));
+
+        assert!(verify_download(&integrity, "aabb", "", 10, "x").is_ok());
+        assert!(
+            verify_download(&integrity, "aabb", "", 9, "x").is_err(),
+            "short body must be rejected"
+        );
+        assert!(
+            verify_download(&integrity, "ffff", "", 10, "x").is_err(),
+            "wrong sha1 must be rejected"
+        );
+        // Hashes are hex; case must not decide whether a file is trusted.
+        assert!(verify_download(&integrity, "AABB", "", 10, "x").is_ok());
+    }
 
     #[test]
     fn safe_join_blocks_parent_and_absolute() {

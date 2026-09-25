@@ -1,6 +1,6 @@
 import { Instance } from '../../types';
 import { SOURCE_COLORS, formatBasePackName } from '../../constants';
-import { mediaUrl } from '../../lib/mediaUrl';
+import { cssUrl } from '../../lib/mediaUrl';
 
 interface InstanceCardProps {
   instance: Instance;
@@ -9,7 +9,7 @@ interface InstanceCardProps {
 
 export function InstanceCard({ instance, onClick }: InstanceCardProps) {
   const sc = SOURCE_COLORS[instance.source] || SOURCE_COLORS.local;
-  const cover = mediaUrl(instance.bannerUrl || instance.iconUrl);
+  const cover = cssUrl(instance.bannerUrl || instance.iconUrl);
   const baseLabel = formatBasePackName(instance.basePack);
   const isInstalling =
     ((instance.status !== 'Ready' && !instance.status.startsWith('Error')) ||
@@ -58,7 +58,7 @@ export function InstanceCard({ instance, onClick }: InstanceCardProps) {
         style={{
           height: 86,
           background: cover
-            ? `url(${cover}) center/cover no-repeat`
+            ? `${cover} center/cover no-repeat`
             : instance.bannerGradient || sc.gradient,
         }}
       >

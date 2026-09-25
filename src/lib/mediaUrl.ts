@@ -13,3 +13,16 @@ export function mediaUrl(url?: string | null): string | undefined {
     return u;
   }
 }
+
+/**
+ * Wrap a resolved media URL for use inside a CSS `url(...)` token.
+ * A third-party banner URL containing `)` or a quote would otherwise close the
+ * token early and inject arbitrary CSS into the shorthand.
+ */
+export function cssUrl(url?: string | null): string | undefined {
+  const resolved = mediaUrl(url);
+  if (!resolved) return undefined;
+  if (/[\n\r]/.test(resolved)) return undefined;
+  const escaped = resolved.replace(/["\\]/g, m => `\\${m}`);
+  return `url("${escaped}")`;
+}

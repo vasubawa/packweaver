@@ -2,15 +2,18 @@ import { useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { Icon } from '../Icon';
+import { ModNameLink } from './ModNameLink';
 import { SOURCE_COLORS } from '../../constants';
 import { Instance, InstanceMod } from '../../types';
 import { useToast } from '../../context/ToastContext';
+import { appLog } from '../../lib/appLog';
 import {
   jarLeaf,
   formatBytes,
   compareModName,
   modMatchesQuery,
   displayModVersion,
+  modListToText,
 } from './modListFormat';
 import { ServerFilesTab } from './ServerFilesTab';
 
@@ -45,6 +48,20 @@ export function ServerModsTab({ instance, onUpdate }: ServerModsTabProps) {
   }, [serverBaseMods, query]);
 
   const visibleMods = filteredMods.slice(0, showCount);
+
+  const copyModList = async (mods: { enabled?: boolean }[], label: string) => {
+    const text = modListToText(mods as Parameters<typeof modListToText>[0], {
+      includeDisabled: false,
+    });
+    try {
+      await navigator.clipboard.writeText(text || '(no enabled mods)');
+      addToast(`Copied ${mods.filter(m => m.enabled !== false).length} ${label}`, 'success');
+    } catch (e) {
+      appLog('error', 'mods', `Clipboard write failed: ${String(e)}`);
+      addToast('Could not copy to clipboard', 'error');
+    }
+  };
+
   const serverPackName = instance.serverOriginalFilename?.trim() || '';
   const isLocal = instance.source === 'local';
 
@@ -149,12 +166,8 @@ export function ServerModsTab({ instance, onUpdate }: ServerModsTabProps) {
             ) : null}
           </div>
         </td>
-        <td
-          className="px-3 py-2.5 text-[13px] font-medium truncate overflow-hidden"
-          style={{ color: 'var(--text-primary)' }}
-          title={mod.name}
-        >
-          {mod.name}
+        <td className="px-3 py-2.5 overflow-hidden">
+          <ModNameLink mod={mod} label={mod.name} className="text-[13px] font-medium truncate" />
         </td>
         <td
           className="px-3 py-2.5 text-[11px] truncate overflow-hidden"
@@ -266,6 +279,17 @@ export function ServerModsTab({ instance, onUpdate }: ServerModsTabProps) {
                 setShowCount(PAGE_SIZE);
               }}
             />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="btn-ghost text-[11px] px-2 py-0.5"
+              onClick={() => void copyModList(filteredMods, 'server mods')}
+              title="Copy the enabled mods in this view as plain text"
+            >
+              Copy list
+            </button>
           </div>
 
           <div

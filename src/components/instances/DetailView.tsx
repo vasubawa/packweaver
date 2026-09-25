@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Instance } from '../../types';
 import { DetailHeader } from '../detail/DetailHeader';
@@ -14,7 +14,7 @@ import { appLog } from '../../lib/appLog';
 interface DetailViewProps {
   instance: Instance;
   onBack: () => void;
-  onUpdateInstance: (updated: Instance) => void;
+  onUpdateInstance: (id: string, updates: Partial<Instance>) => void;
   onDeleteInstance: (id: string) => void;
 }
 
@@ -52,7 +52,7 @@ export function DetailView({
           format,
         });
         const exportedAt = new Date().toISOString();
-        onUpdateInstance({ ...instance, lastExported: exportedAt });
+        onUpdateInstance(instance.id, { lastExported: exportedAt });
         try {
           await invoke('update_instance_details', {
             id: instance.id,
@@ -88,12 +88,21 @@ export function DetailView({
     void runExport('server');
   }, [runExport]);
 
+  // The latest instance, read at call time. Merging into a captured `instance`
+  // meant two toggles inside one IPC round-trip and the second overwrote the first.
+  const instanceRef = useRef(instance);
+  useEffect(() => {
+    instanceRef.current = instance;
+  }, [instance]);
+  const instanceId = instance.id;
+
   const handleUpdate = useCallback(
     async (updates: Partial<Instance>) => {
-      const nextInstance = { ...instance, ...updates };
+      const next: Partial<Instance> = { ...updates };
       if (updates.customMods) {
-        nextInstance.totalModCount =
-          nextInstance.basePackMods.length + nextInstance.customMods.filter(m => m.enabled).length;
+        next.totalModCount =
+          instanceRef.current.basePackMods.length +
+          updates.customMods.filter(m => m.enabled).length;
       }
 
       // If core details changed, persist to backend
@@ -106,7 +115,7 @@ export function DetailView({
       ) {
         try {
           await invoke('update_instance_details', {
-            id: instance.id,
+            id: instanceId,
             name: updates.name,
             description: updates.description,
             bannerUrl: updates.bannerUrl,
@@ -116,39 +125,55 @@ export function DetailView({
             lastExported: updates.lastExported,
           });
         } catch (e) {
-          console.error('Failed to update instance details in DB', e);
+          appLog('error', 'instance', `Failed to save details for ${instanceId}: ${String(e)}`);
+          addToast(`Could not save changes: ${String(e)}`, 'error');
         }
       }
 
-      onUpdateInstance(nextInstance);
+      onUpdateInstance(instanceId, next);
     },
-    [instance, onUpdateInstance]
+    [addToast, instanceId, onUpdateInstance]
   );
 
+  // Backfill Modrinth art once per pack. Keying on description/bannerUrl re-fired
+  // this on every progress tick for any pack with an empty gallery.
+  const backfilledRef = useRef<string | null>(null);
   useEffect(() => {
-    if (instance.source === 'modrinth' && (!instance.description || !instance.bannerUrl)) {
-      const sourcePlugins = getActiveSourcePlugins();
-      const modrinthPlugin = sourcePlugins.find(p => p.id === 'modrinth');
-      if (modrinthPlugin?.getProjectDetails) {
-        modrinthPlugin
-          .getProjectDetails(instance.basePack)
-          .then(details => {
-            if (details) {
-              const updates: Partial<Instance> = {};
-              if (!instance.description) updates.description = details.description;
-              if (!instance.bannerUrl && details.gallery?.length > 0) {
-                const featured = details.gallery.find(g => g.featured) || details.gallery[0];
-                updates.bannerUrl = featured.url;
-              }
-              if (Object.keys(updates).length > 0) {
-                handleUpdate(updates);
-              }
-            }
-          })
-          .catch(console.error);
-      }
-    }
-  }, [instance.source, instance.basePack, instance.description, instance.bannerUrl, handleUpdate]);
+    if (instance.source !== 'modrinth') return;
+    if (instance.description && instance.bannerUrl) return;
+    if (backfilledRef.current === instanceId) return;
+    backfilledRef.current = instanceId;
+
+    const plugin = getActiveSourcePlugins().find(p => p.id === 'modrinth');
+    if (!plugin?.getProjectDetails) return;
+
+    let cancelled = false;
+    plugin
+      .getProjectDetails(instance.basePack)
+      .then(details => {
+        if (cancelled || !details) return;
+        const current = instanceRef.current;
+        const updates: Partial<Instance> = {};
+        if (!current.description) updates.description = details.description;
+        if (!current.bannerUrl && details.gallery?.length > 0) {
+          const featured = details.gallery.find(g => g.featured) || details.gallery[0];
+          updates.bannerUrl = featured.url;
+        }
+        if (Object.keys(updates).length > 0) void handleUpdate(updates);
+      })
+      .catch(e => appLog('error', 'instance', `Modrinth backfill failed: ${String(e)}`));
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    instanceId,
+    instance.source,
+    instance.basePack,
+    instance.description,
+    instance.bannerUrl,
+    handleUpdate,
+  ]);
 
   return (
     <div

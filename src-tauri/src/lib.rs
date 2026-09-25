@@ -110,7 +110,7 @@ fn enrich_mods_on_disk(instance_id: &str, pack_label: &str, mods: &mut [Instance
 }
 
 #[tauri::command]
-fn get_instances(state: tauri::State<AppState>) -> Result<Vec<Instance>, String> {
+async fn get_instances(state: tauri::State<'_, AppState>) -> Result<Vec<Instance>, String> {
     // Phase 1: read SQLite only (release lock before disk IO).
     let pending: Vec<(Instance, String)> = {
         let conn = state
@@ -187,7 +187,9 @@ fn get_instances(state: tauri::State<AppState>) -> Result<Vec<Instance>, String>
             base_pack_version_label,
             server_original_filename,
             pack_label,
-        ) in rows.flatten()
+        ) in rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?
         {
             let export_settings =
                 serde_json::from_str(&export_settings_str).unwrap_or(serde_json::json!({}));
@@ -197,13 +199,16 @@ fn get_instances(state: tauri::State<AppState>) -> Result<Vec<Instance>, String>
             let mut total_mod_count = 0u32;
             let mut custom_mod_count = 0u32;
 
-            if let Ok(mut m_stmt) = conn.prepare(
-                "SELECT mod_id, name, mod_version_id, source, is_base, enabled_client, enabled_server,
+            let mut m_stmt = conn
+                .prepare(
+                    "SELECT mod_id, name, mod_version_id, source, is_base, enabled_client, enabled_server,
                         COALESCE(side, 'both'), icon_url, author, description, file_name,
                         COALESCE(provider_version_id, '')
                  FROM instance_mods WHERE instance_id = ?",
-            ) {
-                if let Ok(m_iter) = m_stmt.query_map([&id], |mr| {
+                )
+                .map_err(|e| e.to_string())?;
+            let m_iter = m_stmt
+                .query_map([&id], |mr| {
                     let mod_id: String = mr.get(0)?;
                     let name: String = mr.get(1)?;
                     let provider_vid: String = mr.get(12)?;
@@ -229,24 +234,27 @@ fn get_instances(state: tauri::State<AppState>) -> Result<Vec<Instance>, String>
                         on_disk_server: false,
                         file_size: None,
                     })
-                }) {
-                    for m in m_iter.flatten() {
-                        total_mod_count += 1;
-                        if m.is_base {
-                            base_pack_mods.push(m);
-                        } else {
-                            custom_mod_count += 1;
-                            custom_mods.push(m);
-                        }
-                    }
-                };
+                })
+                .map_err(|e| e.to_string())?;
+            for m in m_iter {
+                let m = m.map_err(|e| e.to_string())?;
+                total_mod_count += 1;
+                if m.is_base {
+                    base_pack_mods.push(m);
+                } else {
+                    custom_mod_count += 1;
+                    custom_mods.push(m);
+                }
             }
 
             let mut server_files = Vec::new();
-            if let Ok(mut sf_stmt) = conn.prepare(
-                "SELECT COALESCE(NULLIF(file_id, ''), CAST(id AS TEXT)), name, type, source, enabled FROM server_files WHERE instance_id = ?",
-            ) {
-                if let Ok(sf_iter) = sf_stmt.query_map([&id], |sr| {
+            let mut sf_stmt = conn
+                .prepare(
+                    "SELECT COALESCE(NULLIF(file_id, ''), CAST(id AS TEXT)), name, type, source, enabled FROM server_files WHERE instance_id = ?",
+                )
+                .map_err(|e| e.to_string())?;
+            let sf_iter = sf_stmt
+                .query_map([&id], |sr| {
                     Ok(ServerFile {
                         id: sr.get(0)?,
                         name: sr.get(1)?,
@@ -255,11 +263,10 @@ fn get_instances(state: tauri::State<AppState>) -> Result<Vec<Instance>, String>
                         enabled: sr.get(4)?,
                         source_path: String::new(),
                     })
-                }) {
-                    for sf in sf_iter.flatten() {
-                        server_files.push(sf);
-                    }
-                };
+                })
+                .map_err(|e| e.to_string())?;
+            for sf in sf_iter {
+                server_files.push(sf.map_err(|e| e.to_string())?);
             }
 
             pending.push((
@@ -292,18 +299,23 @@ fn get_instances(state: tauri::State<AppState>) -> Result<Vec<Instance>, String>
         pending
     };
 
-    // Phase 2: disk exists / jar inspect without holding the DB lock.
-    let mut instances = Vec::with_capacity(pending.len());
-    for (mut inst, pack_label) in pending {
-        enrich_mods_on_disk(&inst.id, &pack_label, &mut inst.base_pack_mods);
-        enrich_mods_on_disk(&inst.id, &pack_label, &mut inst.custom_mods);
-        instances.push(inst);
-    }
-
-    Ok(instances)
+    // Phase 2: stat + full zip parse per mod — roughly 1200 zip opens for three
+    // 400-mod packs, so it runs off the UI thread.
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut instances = Vec::with_capacity(pending.len());
+        for (mut inst, pack_label) in pending {
+            enrich_mods_on_disk(&inst.id, &pack_label, &mut inst.base_pack_mods);
+            enrich_mods_on_disk(&inst.id, &pack_label, &mut inst.custom_mods);
+            instances.push(inst);
+        }
+        instances
+    })
+    .await
+    .map_err(|e| format!("Instance scan failed: {e}"))
 }
 
 #[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct BasePackMod {
     id: String,
     name: String,
@@ -342,15 +354,16 @@ fn create_instance(
 
         let mut counter = 1;
         loop {
-            if let Ok(mut stmt) = conn.prepare("SELECT COUNT(*) FROM instances WHERE name = ?1") {
+            {
+                let mut stmt = conn
+                    .prepare("SELECT COUNT(*) FROM instances WHERE name = ?1")
+                    .map_err(|e| e.to_string())?;
                 let count: i64 = stmt
                     .query_row([&unique_name], |row| row.get(0))
-                    .unwrap_or(0);
+                    .map_err(|e| e.to_string())?;
                 if count == 0 {
                     break;
                 }
-            } else {
-                break;
             }
             unique_name = format!("{} ({})", name, counter);
             counter += 1;
@@ -372,15 +385,16 @@ fn create_instance(
         let mut candidate_id = base_id.clone();
         let mut id_counter = 1;
         loop {
-            if let Ok(mut stmt) = conn.prepare("SELECT COUNT(*) FROM instances WHERE id = ?1") {
+            {
+                let mut stmt = conn
+                    .prepare("SELECT COUNT(*) FROM instances WHERE id = ?1")
+                    .map_err(|e| e.to_string())?;
                 let count: i64 = stmt
                     .query_row([&candidate_id], |row| row.get(0))
-                    .unwrap_or(0);
+                    .map_err(|e| e.to_string())?;
                 if count == 0 {
                     break;
                 }
-            } else {
-                break;
             }
             candidate_id = format!("{}-{}", base_id, id_counter);
             id_counter += 1;
@@ -407,7 +421,9 @@ fn create_instance(
             }
         };
 
-        conn.execute(
+        // The instance row and its base mods land together or not at all.
+        let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+        tx.execute(
             "INSERT INTO instances (id, name, base_pack_id, base_pack_version_id, base_pack_version_label, mc_version, loader, source, status, description, banner_url, icon_url, export_settings) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             rusqlite::params![
                 &final_id,
@@ -429,7 +445,7 @@ fn create_instance(
 
         if let Some(mods) = base_pack_mods {
             for mod_info in mods {
-                let _ = conn.execute(
+                tx.execute(
                     "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, author, source, is_base, enabled, icon_url)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, 1, ?7)",
                     rusqlite::params![
@@ -441,9 +457,11 @@ fn create_instance(
                         &source,
                         &mod_info.icon_url.unwrap_or_default()
                     ],
-                );
+                )
+                .map_err(|e| e.to_string())?;
             }
         }
+        tx.commit().map_err(|e| e.to_string())?;
     }
 
     // Since AppState contains a Mutex<Connection> that is not Clone, we can just use the app handle to get the state inside the task
@@ -488,7 +506,7 @@ fn create_instance(
 #[tauri::command]
 async fn delete_instance(id: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
     crate::ids::assert_safe_instance_id(&id)?;
-    downloader::request_cancel(&id);
+    let _cancel = downloader::CancelGuard::request(&id);
     downloader::wait_until_idle(&id, 15_000).await?;
     let _guard = downloader::InstallGuard::acquire(&id)?;
 
@@ -505,7 +523,6 @@ async fn delete_instance(id: String, state: tauri::State<'_, AppState>) -> Resul
     if instance_dir.exists() {
         std::fs::remove_dir_all(instance_dir).map_err(|e| e.to_string())?;
     }
-    downloader::clear_cancel(&id);
     Ok(())
 }
 
@@ -563,41 +580,33 @@ fn update_instance_details(
         .lock()
         .map_err(|_| "Database lock poisoned".to_string())?;
 
-    if let Some(n) = name {
-        conn.execute(
-            "UPDATE instances SET name = ?1 WHERE id = ?2",
-            rusqlite::params![n, id],
-        )
-        .map_err(|e| e.to_string())?;
-    }
-    if let Some(d) = description {
-        conn.execute(
+    // A partial detail edit is worse than a failed one: commit all or nothing.
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    for (value, sql) in [
+        (name, "UPDATE instances SET name = ?1 WHERE id = ?2"),
+        (
+            description,
             "UPDATE instances SET description = ?1 WHERE id = ?2",
-            rusqlite::params![d, id],
-        )
-        .map_err(|e| e.to_string())?;
-    }
-    if let Some(b) = banner_url {
-        conn.execute(
+        ),
+        (
+            banner_url,
             "UPDATE instances SET banner_url = ?1 WHERE id = ?2",
-            rusqlite::params![b, id],
-        )
-        .map_err(|e| e.to_string())?;
-    }
-    if let Some(es) = export_settings {
-        conn.execute(
+        ),
+        (
+            export_settings,
             "UPDATE instances SET export_settings = ?1 WHERE id = ?2",
-            rusqlite::params![es, id],
-        )
-        .map_err(|e| e.to_string())?;
-    }
-    if let Some(le) = last_exported {
-        conn.execute(
+        ),
+        (
+            last_exported,
             "UPDATE instances SET last_exported = ?1 WHERE id = ?2",
-            rusqlite::params![le, id],
-        )
-        .map_err(|e| e.to_string())?;
+        ),
+    ] {
+        if let Some(v) = value {
+            tx.execute(sql, rusqlite::params![v, id])
+                .map_err(|e| e.to_string())?;
+        }
     }
+    tx.commit().map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -1010,14 +1019,21 @@ fn read_log_tail(max_bytes: Option<u64>) -> Result<String, String> {
     let Some((_, path)) = newest else {
         return Ok(String::new());
     };
-    let data = std::fs::read(&path).map_err(|e| e.to_string())?;
-    let limit = max_bytes.unwrap_or(64 * 1024) as usize;
-    if data.len() <= limit {
+    // Seek to the tail rather than reading a log that can reach hundreds of MB.
+    use std::io::{Read, Seek, SeekFrom};
+    let limit = max_bytes.unwrap_or(64 * 1024);
+    let mut file = std::fs::File::open(&path).map_err(|e| e.to_string())?;
+    let len = file.metadata().map_err(|e| e.to_string())?.len();
+    let read_from = len.saturating_sub(limit);
+    file.seek(SeekFrom::Start(read_from))
+        .map_err(|e| e.to_string())?;
+    let mut data = Vec::with_capacity(limit.min(len) as usize);
+    file.read_to_end(&mut data).map_err(|e| e.to_string())?;
+    if read_from == 0 {
         return Ok(String::from_utf8_lossy(&data).into_owned());
     }
-    let start = data.len() - limit;
     // Skip partial first line.
-    let slice = &data[start..];
+    let slice = &data[..];
     let skip = slice
         .iter()
         .position(|&b| b == b'\n')
@@ -1084,6 +1100,7 @@ async fn layer_custom_mods(
     let client = reqwest::Client::builder()
         .user_agent("packweaver/0.2.0 (packweaver-app)")
         .timeout(std::time::Duration::from_secs(120))
+        .redirect(downloader::allowlist_redirect_policy())
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -1177,18 +1194,8 @@ fn set_server_original_archive(
         .join("server");
     std::fs::create_dir_all(&server_dir).map_err(|e| e.to_string())?;
 
-    // Replace previous dedicated server archive(s).
-    if let Ok(entries) = std::fs::read_dir(&server_dir) {
-        for entry in entries.flatten() {
-            let p = entry.path();
-            if p.is_file() {
-                let _ = std::fs::remove_file(p);
-            }
-        }
-    }
-
-    let dest = server_dir.join(&leaf);
-    std::fs::copy(src, &dest).map_err(|e| format!("Failed to store server pack: {e}"))?;
+    crate::fetchers::store_archive(src, &server_dir)
+        .map_err(|e| format!("Failed to store server pack: {e}"))?;
 
     let conn = state
         .db
@@ -1422,10 +1429,28 @@ async fn export_instance(
         },
     );
 
-    let pack_result = if is_mrpack {
-        downloader::export_client_mrpack(&app, &instance_id, &temp_zip, &release_ver)
-    } else {
-        downloader::zip_workspace(&workspace_dir, &temp_zip)
+    // Deflating a whole workspace is CPU-bound and blocking; keep it off the
+    // async runtime's worker threads.
+    let pack_result = {
+        let app_for_pack = app.clone();
+        let instance_for_pack = instance_id.clone();
+        let temp_for_pack = temp_zip.clone();
+        let workspace_for_pack = workspace_dir.clone();
+        let release_for_pack = release_ver.clone();
+        tokio::task::spawn_blocking(move || {
+            if is_mrpack {
+                downloader::export_client_mrpack(
+                    &app_for_pack,
+                    &instance_for_pack,
+                    &temp_for_pack,
+                    &release_for_pack,
+                )
+            } else {
+                downloader::zip_workspace(&workspace_for_pack, &temp_for_pack)
+            }
+        })
+        .await
+        .map_err(|e| format!("Export task failed: {e}"))?
     };
     if let Err(e) = pack_result {
         let _ = std::fs::remove_file(&temp_zip);

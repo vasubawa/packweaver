@@ -31,3 +31,6 @@ docs/agents/
 packweaver-data/
 CONTEXT.md
 .audit
+
+# Local pack fixtures — large archives, kept out of the repo (history not rewritten).
+test-packs/

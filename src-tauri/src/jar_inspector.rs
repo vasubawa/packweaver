@@ -3,6 +3,20 @@ use std::io::Read;
 use std::path::Path;
 use zip::ZipArchive;
 
+/// Metadata descriptors are a few KB at most; anything larger is a zip bomb or
+/// not a descriptor, and `inspect_jar` runs once per jar over whole packs.
+const MAX_DESCRIPTOR_BYTES: u64 = 1 << 20;
+
+/// Read a zip entry as UTF-8, refusing to allocate past the cap.
+fn read_capped(entry: &mut impl Read) -> Option<String> {
+    let mut contents = String::new();
+    entry
+        .take(MAX_DESCRIPTOR_BYTES)
+        .read_to_string(&mut contents)
+        .ok()?;
+    Some(contents)
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct JarMeta {
     pub name: Option<String>,
@@ -25,8 +39,7 @@ pub fn inspect_jar(path: &Path) -> JarMeta {
 
     // 1. Try fabric.mod.json
     if let Ok(mut mod_file) = archive.by_name("fabric.mod.json") {
-        let mut contents = String::new();
-        if mod_file.read_to_string(&mut contents).is_ok() {
+        if let Some(contents) = read_capped(&mut mod_file) {
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&contents) {
                 if let Some(n) = v.get("name").and_then(|n| n.as_str()) {
                     meta.name = Some(n.to_string());
@@ -72,8 +85,7 @@ pub fn inspect_jar(path: &Path) -> JarMeta {
 
     // 2. Try quilt.mod.json
     if let Ok(mut mod_file) = archive.by_name("quilt.mod.json") {
-        let mut contents = String::new();
-        if mod_file.read_to_string(&mut contents).is_ok() {
+        if let Some(contents) = read_capped(&mut mod_file) {
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&contents) {
                 if let Some(ql) = v.get("quilt_loader") {
                     if let Some(m) = ql.get("metadata") {
@@ -107,8 +119,7 @@ pub fn inspect_jar(path: &Path) -> JarMeta {
     let toml_paths = ["META-INF/mods.toml", "META-INF/neoforge.mods.toml"];
     for toml_path in toml_paths {
         if let Ok(mut mod_file) = archive.by_name(toml_path) {
-            let mut contents = String::new();
-            if mod_file.read_to_string(&mut contents).is_ok() {
+            if let Some(contents) = read_capped(&mut mod_file) {
                 if let Ok(value) = contents.parse::<toml::Value>() {
                     if let Some(mods_array) = value.get("mods").and_then(|m| m.as_array()) {
                         if let Some(first_mod) = mods_array.first() {
@@ -158,8 +169,7 @@ pub fn inspect_jar(path: &Path) -> JarMeta {
 
     // 4. Try mcmod.info (Legacy Forge)
     if let Ok(mut mod_file) = archive.by_name("mcmod.info") {
-        let mut contents = String::new();
-        if mod_file.read_to_string(&mut contents).is_ok() {
+        if let Some(contents) = read_capped(&mut mod_file) {
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&contents) {
                 let obj = if let Some(arr) = v.as_array().and_then(|a| a.first()) {
                     Some(arr)
@@ -194,4 +204,59 @@ pub fn inspect_jar(path: &Path) -> JarMeta {
     }
 
     meta
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    /// A descriptor larger than the cap must be refused, not read into memory.
+    /// `inspect_jar` runs once per jar across a whole pack, so one crafted entry
+    /// would otherwise be enough to exhaust memory.
+    #[test]
+    fn oversized_descriptor_is_capped() {
+        let dir = std::env::temp_dir().join(format!("pw-jar-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let jar_path = dir.join("bomb.jar");
+
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(&jar_path).unwrap());
+        zip.start_file::<_, ()>("fabric.mod.json", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        // Highly compressible, so the jar on disk stays tiny.
+        let padding = "a".repeat((MAX_DESCRIPTOR_BYTES as usize) * 4);
+        write!(zip, r#"{{"id":"bomb","name":"{padding}"}}"#).unwrap();
+        zip.finish().unwrap();
+        assert!(std::fs::metadata(&jar_path).unwrap().len() < 100_000);
+
+        let meta = inspect_jar(&jar_path);
+
+        assert!(meta.name.is_none(), "truncated JSON must not parse");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn normal_descriptor_still_parses() {
+        let dir = std::env::temp_dir().join(format!("pw-jar-ok-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let jar_path = dir.join("mod.jar");
+
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(&jar_path).unwrap());
+        zip.start_file::<_, ()>("fabric.mod.json", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        write!(
+            zip,
+            r#"{{"id":"sodium","name":"Sodium","version":"0.5.8"}}"#
+        )
+        .unwrap();
+        zip.finish().unwrap();
+
+        let meta = inspect_jar(&jar_path);
+
+        assert_eq!(meta.name.as_deref(), Some("Sodium"));
+        assert_eq!(meta.version.as_deref(), Some("0.5.8"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

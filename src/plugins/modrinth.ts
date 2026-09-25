@@ -6,6 +6,7 @@ import {
   ProjectDetails,
   DependencyInfo,
   VersionOptions,
+  VersionDependency,
 } from './types';
 
 async function searchByType(
@@ -51,6 +52,16 @@ async function searchByType(
     console.error(e);
     return [];
   }
+}
+
+/** Modrinth's per-version `dependencies` array -> our provider-neutral shape. */
+function mapDependencies(raw: unknown): VersionDependency[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((d: any) => ({
+    projectId: d?.project_id ?? null,
+    versionId: d?.version_id ?? null,
+    dependencyType: d?.dependency_type ?? 'required',
+  }));
 }
 
 export const ModrinthPlugin: SourcePlugin = {
@@ -167,6 +178,7 @@ export const ModrinthPlugin: SourcePlugin = {
           publishDate: v.date_published,
           downloadUrls: v.files?.map((f: any) => f.url) || [],
           primaryFilename: primaryFile?.filename,
+          dependencies: mapDependencies(v.dependencies),
         };
       });
     } catch (e) {
@@ -237,6 +249,7 @@ export const ModrinthPlugin: SourcePlugin = {
         publishDate: v.date_published,
         downloadUrls: v.files?.map((f: any) => f.url) || [],
         primaryFilename: primaryFile?.filename,
+        dependencies: mapDependencies(v.dependencies),
       };
     } catch (e) {
       console.error(e);

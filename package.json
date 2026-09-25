@@ -15,11 +15,12 @@
     "test:ui": "vitest",
     "check:frontend": "prettier --check \"src/**/*.{ts,tsx,css,json}\" && eslint \"src/**/*.{ts,tsx}\" && tsc --noEmit",
     "check:rust": "cargo fmt --manifest-path src-tauri/Cargo.toml --check && cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings",
-    "check": "pnpm check:frontend && pnpm check:rust && pnpm test",
+    "check": "pnpm version:check && pnpm check:frontend && pnpm check:rust && pnpm test",
     "fix": "prettier --write \"src/**/*.{ts,tsx,css,json}\" && eslint \"src/**/*.{ts,tsx}\" --fix && cargo fmt --manifest-path src-tauri/Cargo.toml",
     "update": "pnpm up && cargo update --manifest-path src-tauri/Cargo.toml && pnpm test",
-    "build:zip:win": "pnpm tauri build && powershell -Command \"Compress-Archive -Path src-tauri\\target\\release\\packweaver.exe -DestinationPath packweaver-windows.zip -Force\"",
-    "prepare": "husky"
+    "prepare": "husky",
+    "version:sync": "node scripts/sync-version.mjs",
+    "version:check": "node scripts/sync-version.mjs --check"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",

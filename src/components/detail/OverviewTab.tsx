@@ -81,6 +81,14 @@ export function OverviewTab({
   const anyBusy = runningKeys.size > 0;
   const unlistenRef = useRef<(() => void) | null>(null);
 
+  // onUpdate's identity changes on every progress tick. Holding it in a ref lets
+  // the listener effect key on the instance alone, instead of tearing down and
+  // re-registering constantly and dropping terminal events landing in the gap.
+  const onUpdateRef = useRef(onUpdate);
+  useEffect(() => {
+    onUpdateRef.current = onUpdate;
+  }, [onUpdate]);
+
   useEffect(() => {
     let cancelled = false;
     const unlisteners: (() => void)[] = [];
@@ -142,9 +150,9 @@ export function OverviewTab({
         },
       }));
       if (status === 'Ready' || (total > 0 && progress >= total && !isError)) {
-        onUpdate({ status: 'Ready' });
+        onUpdateRef.current({ status: 'Ready' });
       } else if (isError) {
-        onUpdate({ status });
+        onUpdateRef.current({ status });
       }
     }).then(fn => {
       if (cancelled) {
@@ -159,7 +167,7 @@ export function OverviewTab({
       cancelled = true;
       unlistenRef.current?.();
     };
-  }, [instance.id, onUpdate]);
+  }, [instance.id]);
 
   if (instance.id !== prevInstanceId) {
     setPrevInstanceId(instance.id);

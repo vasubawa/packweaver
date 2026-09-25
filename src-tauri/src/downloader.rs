@@ -9,6 +9,12 @@ use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 use tauri::{AppHandle, Emitter, Manager};
 
+/// Insert for a base row discovered by the server pipeline. `enabled_client` is 1
+/// because the client pipeline owns that column: a 0 here is read back into
+/// `preserve_enabled` on the next client rebuild and deletes every base jar.
+const SERVER_BASE_INSERT_SQL: &str = "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, file_name, source, is_base, enabled, enabled_client, enabled_server, side)
+     VALUES (?1, ?2, ?3, 'unknown', ?4, 'modrinth', 1, 1, 1, ?5, ?6)";
+
 /// Per-instance install lock to prevent overlapping create/rebuild.
 fn install_locks() -> &'static Mutex<std::collections::HashSet<String>> {
     static LOCKS: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
@@ -63,6 +69,27 @@ pub fn is_cancelled(instance_id: &str) -> bool {
 pub fn clear_cancel(instance_id: &str) {
     if let Ok(mut g) = cancel_flags().lock() {
         g.remove(instance_id);
+    }
+}
+
+/// Holds a cancel request for a scope and clears it on drop, so an early return
+/// (timeout, locked directory) cannot strand the flag.
+pub struct CancelGuard {
+    id: String,
+}
+
+impl CancelGuard {
+    pub fn request(instance_id: &str) -> Self {
+        request_cancel(instance_id);
+        Self {
+            id: instance_id.to_string(),
+        }
+    }
+}
+
+impl Drop for CancelGuard {
+    fn drop(&mut self) {
+        clear_cancel(&self.id);
     }
 }
 
@@ -261,9 +288,48 @@ fn http_client() -> Result<Client, String> {
     Client::builder()
         .user_agent("packweaver/0.2.0 (packweaver-app)")
         .connect_timeout(std::time::Duration::from_secs(10))
-        .timeout(std::time::Duration::from_secs(120))
+        // Per-read, not per-request: a large pack on a slow line is slow, not broken.
+        .read_timeout(std::time::Duration::from_secs(60))
+        .redirect(allowlist_redirect_policy())
         .build()
         .map_err(|e| e.to_string())
+}
+
+/// Re-check the allowlist on every hop. Without this an allowed host can 302 to
+/// anywhere and reqwest will happily fetch the payload from there.
+pub fn allowlist_redirect_policy() -> reqwest::redirect::Policy {
+    reqwest::redirect::Policy::custom(|attempt| {
+        if attempt.previous().len() >= 10 {
+            return attempt.error("Too many redirects");
+        }
+        if installer::is_allowed_download_url(attempt.url()) {
+            attempt.follow()
+        } else {
+            let msg = format!(
+                "Refusing redirect to {}: host or scheme not allowed",
+                attempt.url()
+            );
+            attempt.error(msg)
+        }
+    })
+}
+
+/// Record why a pipeline stopped. Without this the row keeps whatever
+/// transient status it had ("Installing...") for good, across restarts.
+fn mark_pipeline_failed(app: &AppHandle, instance_id: &str, error: &str) {
+    let status = if is_cancelled(instance_id) {
+        "Cancelled".to_string()
+    } else {
+        format!("Error: {error}")
+    };
+    let _ = with_db(app, |conn| {
+        conn.execute(
+            "UPDATE instances SET status = ?1 WHERE id = ?2",
+            params![&status, instance_id],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    });
 }
 
 /// Install (or rebuild) base pack into workspace, then re-layer enabled custom mods.
@@ -275,7 +341,19 @@ pub async fn run_pipeline(
     source: String,
 ) -> Result<(), String> {
     let _guard = InstallGuard::acquire(&instance_id)?;
+    let result = run_pipeline_inner(app.clone(), instance_id.clone(), base_pack_id, source).await;
+    if let Err(e) = &result {
+        mark_pipeline_failed(&app, &instance_id, e);
+    }
+    result
+}
 
+async fn run_pipeline_inner(
+    app: AppHandle,
+    instance_id: String,
+    base_pack_id: String,
+    source: String,
+) -> Result<(), String> {
     let client = http_client()?;
 
     let emit = |status: &str, p: u32, t: u32| {
@@ -301,20 +379,27 @@ pub async fn run_pipeline(
             .map_err(|e| e.to_string())?;
 
         // Preserve user enable flags for base mods across rebuild
+        // A dropped row here silently resets the user's enable toggles, so the
+        // whole read has to succeed or the rebuild has to stop.
         let mut map = std::collections::HashMap::new();
-        if let Ok(mut stmt) = conn.prepare(
-            "SELECT mod_id, enabled_client, enabled_server FROM instance_mods WHERE instance_id = ?1 AND is_base = 1",
-        ) {
-            if let Ok(rows) = stmt.query_map([&instance_id], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, bool>(1)?,
-                    row.get::<_, bool>(2)?,
-                ))
-            }) {
-                for r in rows.flatten() {
-                    map.insert(r.0, (r.1, r.2));
-                }
+        {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT mod_id, enabled_client, enabled_server FROM instance_mods WHERE instance_id = ?1 AND is_base = 1",
+                )
+                .map_err(|e| e.to_string())?;
+            let rows = stmt
+                .query_map([&instance_id], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, bool>(1)?,
+                        row.get::<_, bool>(2)?,
+                    ))
+                })
+                .map_err(|e| e.to_string())?;
+            for r in rows {
+                let r = r.map_err(|e| e.to_string())?;
+                map.insert(r.0, (r.1, r.2));
             }
         }
         Ok((version, mc, loader, map))
@@ -361,8 +446,6 @@ pub async fn run_pipeline(
 
     let stem = stem_from_filename(&original_filename);
     let client_root = client_workspace_root(&instance_id);
-    // Wipe side root so a renamed stem doesn't leave an old tree behind.
-    let _ = installer::wipe_dir(&client_root);
     // Drop legacy flat workspace/mods (pre client/server layout).
     for legacy in ["mods", "config", "resourcepacks", "shaderpacks"] {
         let p = instance_dir.join("workspace").join(legacy);
@@ -370,34 +453,42 @@ pub async fn run_pipeline(
             let _ = installer::wipe_dir(&p);
         }
     }
-    let workspace_dir = client_root.join(&stem);
+
+    let staging_root = installer::with_suffix(&client_root, ".new");
+    installer::wipe_dir(&staging_root)?;
+    let staging_dir = staging_root.join(&stem);
 
     emit("Installing into workspace...", 20, 100);
     let install_result =
-        installer::install_mrpack_client(&client, &archive_path, &workspace_dir).await;
+        installer::install_mrpack_client(&client, &archive_path, &staging_dir).await;
 
-    let install = match install_result {
+    let mut install = match install_result {
         Ok(v) => v,
         Err(e) => {
-            let _ = installer::wipe_dir(&workspace_dir);
+            let _ = fs::remove_dir_all(&staging_root);
             return Err(e);
         }
     };
+
+    // Replacing the whole side root means a renamed stem leaves no old tree behind.
+    if let Err(e) = installer::swap_dir(&staging_root, &client_root) {
+        let _ = fs::remove_dir_all(&staging_root);
+        return Err(e);
+    }
+    let workspace_dir = client_root.join(&stem);
+    // `dest_path` was recorded under the staging root; rebase onto the live tree.
+    for file in &mut install.files {
+        if let Ok(p) = installer::safe_join(&workspace_dir, &file.file_path) {
+            file.dest_path = p;
+        }
+    }
     let installed = install.files;
     let pack_meta = install.meta;
     let mc_version = pack_meta.mc_version.clone();
     let loader = pack_meta.loader.clone();
 
-    // Replace base mod rows; keep customs
-    with_db(&app, |conn| {
-        conn.execute(
-            "DELETE FROM instance_mods WHERE instance_id = ?1 AND is_base = 1",
-            params![&instance_id],
-        )
-        .map_err(|e| e.to_string())?;
-        Ok(())
-    })?;
-
+    // Network work runs before any row is deleted: a failure here must not leave
+    // the instance with zero base mods.
     let hashes: Vec<String> = installed.iter().filter_map(|f| f.sha1.clone()).collect();
     let enrichment = fetch_modrinth_enrichment(&client, &hashes).await;
 
@@ -457,11 +548,16 @@ pub async fn run_pipeline(
         });
     }
 
-    if !upserts.is_empty() {
-        with_db(&app, |conn| {
-            let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
-            {
-                let mut stmt = tx
+    // Replace base mod rows in one transaction; keep customs.
+    with_db(&app, |conn| {
+        let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+        tx.execute(
+            "DELETE FROM instance_mods WHERE instance_id = ?1 AND is_base = 1",
+            params![&instance_id],
+        )
+        .map_err(|e| e.to_string())?;
+        {
+            let mut stmt = tx
                     .prepare(
                         "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, file_name, source, is_base, enabled, enabled_client, enabled_server, side, icon_url, author, description)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
@@ -480,29 +576,28 @@ pub async fn run_pipeline(
                     description=excluded.description",
                     )
                     .map_err(|e| e.to_string())?;
-                for row in &upserts {
-                    stmt.execute(params![
-                        &instance_id,
-                        &row.mod_id,
-                        &row.name,
-                        &row.version,
-                        &row.file_path,
-                        &source,
-                        row.enabled_client,
-                        row.enabled_client,
-                        row.enabled_server,
-                        &row.side,
-                        &row.icon_url,
-                        row.author.as_deref().unwrap_or(""),
-                        row.description.as_deref().unwrap_or(""),
-                    ])
-                    .map_err(|e| e.to_string())?;
-                }
+            for row in &upserts {
+                stmt.execute(params![
+                    &instance_id,
+                    &row.mod_id,
+                    &row.name,
+                    &row.version,
+                    &row.file_path,
+                    &source,
+                    row.enabled_client,
+                    row.enabled_client,
+                    row.enabled_server,
+                    &row.side,
+                    &row.icon_url,
+                    row.author.as_deref().unwrap_or(""),
+                    row.description.as_deref().unwrap_or(""),
+                ])
+                .map_err(|e| e.to_string())?;
             }
-            tx.commit().map_err(|e| e.to_string())?;
-            Ok(())
-        })?;
-    }
+        }
+        tx.commit().map_err(|e| e.to_string())?;
+        Ok(())
+    })?;
 
     // Local plain zip: scan mods dir for base entries if index was empty
     if installed.is_empty() {
@@ -692,6 +787,21 @@ fn persist_pack_media(
     Ok((icon_url, banner_url))
 }
 
+/// Drop earlier copies of a mod, never the file just written to `keep`.
+fn remove_stale_copies(workspace_dir: &Path, file_name: &str, mod_id: &str, keep: &Path) {
+    let mods_dir = workspace_dir.join("mods");
+    let stale = [
+        installer::safe_join(&mods_dir, &crate::ids::jar_leaf(file_name)),
+        installer::safe_join(&mods_dir, &crate::ids::jar_leaf(mod_id)),
+        installer::safe_join(&mods_dir, &format!("{}.jar", mod_id)),
+    ];
+    for path in stale.into_iter().flatten() {
+        if path != keep {
+            let _ = fs::remove_file(path);
+        }
+    }
+}
+
 /// Download/copy one custom mod into `workspace_dir/mods`.
 #[allow(clippy::too_many_arguments)]
 async fn place_custom_mod(
@@ -709,7 +819,6 @@ async fn place_custom_mod(
     check_cancel(instance_id)?;
     let mods_dir = workspace_dir.join("mods");
     fs::create_dir_all(&mods_dir).map_err(|e| e.to_string())?;
-    installer::remove_mod_file_from_workspace(workspace_dir, Some(file_name), mod_id);
 
     match source {
         "modrinth" => {
@@ -729,10 +838,8 @@ async fn place_custom_mod(
                 .as_str()
                 .ok_or_else(|| format!("No URL for {}", mod_id))?;
             let fname = crate::ids::jar_leaf(file["filename"].as_str().unwrap_or("mod.jar"));
-            if fname.is_empty() || fname.contains("..") {
-                return Err(format!("Invalid filename for {}", mod_id));
-            }
-            let dest = mods_dir.join(&fname);
+            let dest = installer::safe_join(&mods_dir, &fname)
+                .map_err(|e| format!("Invalid filename for {}: {}", mod_id, e))?;
             let mut expected: std::collections::HashMap<String, String> =
                 std::collections::HashMap::new();
             if let Some(s) = file["hashes"]["sha1"].as_str() {
@@ -741,17 +848,20 @@ async fn place_custom_mod(
             if let Some(s) = file["hashes"]["sha512"].as_str() {
                 expected.insert("sha512".to_string(), s.to_string());
             }
+            // Modrinth always publishes sha1; a version file without one is not
+            // something to install unverified.
+            let expected_size = file["size"].as_u64();
             installer::download_url_to_file(
                 client,
                 url,
                 &dest,
-                if expected.is_empty() {
-                    None
-                } else {
-                    Some(&expected)
-                },
+                installer::Integrity::required(Some(&expected), expected_size),
             )
             .await?;
+
+            // The previous jar is only dropped now that the replacement exists;
+            // a failed download used to leave the mod missing entirely.
+            remove_stale_copies(workspace_dir, file_name, mod_id, &dest);
 
             let vid = version_json["id"].as_str().unwrap_or(provider_version_id);
             let vnum = version_json["version_number"]
@@ -783,8 +893,12 @@ async fn place_custom_mod(
                 .and_then(|n| n.to_str())
                 .ok_or("Invalid filename")?
                 .to_string();
-            let dest = mods_dir.join(&leaf);
-            fs::copy(&canonical, &dest).map_err(|e| e.to_string())?;
+            let dest = installer::safe_join(&mods_dir, &leaf)
+                .map_err(|e| format!("Invalid filename for {}: {}", mod_id, e))?;
+            if !crate::fetchers::same_file(&canonical, &dest) {
+                fs::copy(&canonical, &dest).map_err(|e| e.to_string())?;
+            }
+            remove_stale_copies(workspace_dir, file_name, mod_id, &dest);
             with_db(app, |conn| {
                 conn.execute(
                     "UPDATE instance_mods SET file_name = ?1, source_path = ?2 WHERE instance_id = ?3 AND mod_id = ?4",
@@ -904,12 +1018,14 @@ async fn layer_custom_mods_inner(
                 ))
             })
             .map_err(|e| e.to_string())?;
-        Ok(rows.flatten().collect())
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
     })?;
 
     let mut count = 0u32;
+    let mut failures: Vec<String> = Vec::new();
     for (mod_id, source, file_name, mod_version_id, source_path, provider_version_id) in customs {
-        place_custom_mod(
+        let placed = place_custom_mod(
             app,
             client,
             instance_id,
@@ -921,8 +1037,34 @@ async fn layer_custom_mods_inner(
             &source_path,
             &provider_version_id,
         )
-        .await?;
-        count += 1;
+        .await;
+        match placed {
+            Ok(()) => count += 1,
+            // Cancellation is the user's decision and stops the pass; one mod
+            // that will not download should not discard the ones that did.
+            Err(e) if is_cancelled(instance_id) => return Err(e),
+            Err(e) => {
+                log::warn!(target: "packweaver", "layer skip id={instance_id} mod={mod_id}: {e}");
+                failures.push(format!("{mod_id}: {e}"));
+            }
+        }
+    }
+
+    if !failures.is_empty() {
+        let _ = app.emit(
+            "instance-progress",
+            ProgressEvent::emit_body(
+                instance_id,
+                &format!(
+                    "{} custom mod(s) failed: {}",
+                    failures.len(),
+                    failures.join("; ")
+                ),
+                count,
+                count + failures.len() as u32,
+                if for_server { "server" } else { "client" },
+            ),
+        );
     }
 
     Ok(count)
@@ -1263,6 +1405,14 @@ pub async fn apply_mod_enabled(
 /// Rebuild workspace/server/{stem} from original archive + enabled_server customs.
 pub async fn run_server_pipeline(app: AppHandle, instance_id: String) -> Result<(), String> {
     let _guard = InstallGuard::acquire(&instance_id)?;
+    let result = run_server_pipeline_inner(app.clone(), instance_id.clone()).await;
+    if let Err(e) = &result {
+        mark_pipeline_failed(&app, &instance_id, e);
+    }
+    result
+}
+
+async fn run_server_pipeline_inner(app: AppHandle, instance_id: String) -> Result<(), String> {
     let client = http_client()?;
 
     let emit = |status: &str, p: u32, t: u32| {
@@ -1275,15 +1425,18 @@ pub async fn run_server_pipeline(app: AppHandle, instance_id: String) -> Result<
 
     let preserve_server: std::collections::HashMap<String, bool> = with_db(&app, |conn| {
         let mut map = std::collections::HashMap::new();
-        if let Ok(mut stmt) =
-            conn.prepare("SELECT mod_id, enabled_server FROM instance_mods WHERE instance_id = ?1")
         {
-            if let Ok(rows) = stmt.query_map([&instance_id], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?))
-            }) {
-                for r in rows.flatten() {
-                    map.insert(r.0, r.1);
-                }
+            let mut stmt = conn
+                .prepare("SELECT mod_id, enabled_server FROM instance_mods WHERE instance_id = ?1")
+                .map_err(|e| e.to_string())?;
+            let rows = stmt
+                .query_map([&instance_id], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?))
+                })
+                .map_err(|e| e.to_string())?;
+            for r in rows {
+                let r = r.map_err(|e| e.to_string())?;
+                map.insert(r.0, r.1);
             }
         }
         Ok(map)
@@ -1299,30 +1452,35 @@ pub async fn run_server_pipeline(app: AppHandle, instance_id: String) -> Result<
     })?;
 
     let archive = server_archive_path(&instance_id, &server_original_filename, &original_filename)?;
-    let stem = if !original_filename.is_empty() {
-        stem_from_filename(&original_filename)
-    } else if !server_original_filename.is_empty() {
-        stem_from_filename(&server_original_filename)
-    } else {
-        stem_from_filename(
-            archive
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("pack"),
-        )
-    };
+    // Must match `original_stem`, which is what every reader (and
+    // `server_workspace_dir`) uses. Deriving it from the server archive name
+    // instead left server-only instances unable to find their own workspace.
+    let stem = original_stem(&app, &instance_id)?;
     let server_root = server_workspace_root(&instance_id);
-    let _ = installer::wipe_dir(&server_root);
     // Drop legacy sibling folder from pre-nested layout.
     let legacy_server = instance_dir(&instance_id).join("server-workspace");
     if legacy_server.exists() {
         let _ = installer::wipe_dir(&legacy_server);
     }
-    let server_dir = server_root.join(&stem);
+
+    let staging_root = installer::with_suffix(&server_root, ".new");
+    installer::wipe_dir(&staging_root)?;
 
     emit("Installing server workspace...", 20, 100);
-    let (installed, _mc, _loader) =
-        installer::install_mrpack_server(&client, &archive, &server_dir).await?;
+    let install_result =
+        installer::install_mrpack_server(&client, &archive, &staging_root.join(&stem)).await;
+    let (installed, _mc, _loader) = match install_result {
+        Ok(v) => v,
+        Err(e) => {
+            let _ = fs::remove_dir_all(&staging_root);
+            return Err(e);
+        }
+    };
+    if let Err(e) = installer::swap_dir(&staging_root, &server_root) {
+        let _ = fs::remove_dir_all(&staging_root);
+        return Err(e);
+    }
+    let server_dir = server_root.join(&stem);
 
     let mut server_upserts: Vec<(String, String, bool, String)> =
         Vec::with_capacity(installed.len());
@@ -1357,10 +1515,7 @@ pub async fn run_server_pipeline(app: AppHandle, instance_id: String) -> Result<
                     )
                     .map_err(|e| e.to_string())?;
                 let mut insert_stmt = tx
-                    .prepare(
-                        "INSERT INTO instance_mods (instance_id, mod_id, name, mod_version_id, file_name, source, is_base, enabled, enabled_client, enabled_server, side)
-                     VALUES (?1, ?2, ?3, 'unknown', ?4, 'modrinth', 1, 0, 0, ?5, ?6)",
-                    )
+                    .prepare(SERVER_BASE_INSERT_SQL)
                     .map_err(|e| e.to_string())?;
                 let mut update_stmt = tx
                     .prepare(
@@ -1541,8 +1696,8 @@ pub fn export_client_mrpack(
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })
             .map_err(|e| e.to_string())?;
-        for row in rows.flatten() {
-            let (file_name, mod_id) = row;
+        for row in rows {
+            let (file_name, mod_id) = row.map_err(|e| e.to_string())?;
             if !file_name.is_empty() {
                 enabled_paths.insert(file_name.replace('\\', "/"));
             }
@@ -1572,4 +1727,55 @@ pub fn export_client_mrpack(
         &loader_version,
         &enabled_paths,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cancel_guard_clears_the_flag_on_drop() {
+        let id = "pw-test-cancel-guard";
+        clear_cancel(id);
+        {
+            let _guard = CancelGuard::request(id);
+            assert!(is_cancelled(id), "flag must be set inside the scope");
+        }
+        assert!(
+            !is_cancelled(id),
+            "an early return must not strand the cancel flag"
+        );
+    }
+
+    /// A server-discovered base row must not claim the client has it disabled;
+    /// the next client rebuild reads that column and would delete the jar.
+    #[test]
+    fn server_base_insert_leaves_the_client_enabled() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE instance_mods (
+                instance_id TEXT, mod_id TEXT, name TEXT, mod_version_id TEXT,
+                file_name TEXT, source TEXT, is_base INTEGER, enabled INTEGER,
+                enabled_client INTEGER, enabled_server INTEGER, side TEXT
+            );",
+        )
+        .unwrap();
+
+        conn.execute(
+            SERVER_BASE_INSERT_SQL,
+            params!["inst", "mod-a", "mod-a", "mods/a.jar", true, "server"],
+        )
+        .unwrap();
+
+        let (enabled, client, server): (bool, bool, bool) = conn
+            .query_row(
+                "SELECT enabled, enabled_client, enabled_server FROM instance_mods",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert!(client, "enabled_client must default to 1");
+        assert!(enabled);
+        assert!(server);
+    }
 }

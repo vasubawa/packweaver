@@ -17,6 +17,8 @@ export interface PackVersionInfo {
   versionType?: string;
   publishDate?: string;
   downloadUrls?: string[];
+  /** Per-version dependencies. `required` entries must be present or the pack will not launch. */
+  dependencies?: VersionDependency[];
   primaryFilename?: string;
 }
 
@@ -47,6 +49,13 @@ export interface ProjectDetails {
   discordUrl: string | null;
   iconUrl?: string | null;
   gallery: { url: string; featured: boolean; title: string | null; description: string | null }[];
+}
+
+/** One entry of a version's `dependencies` array, as the provider reports it. */
+export interface VersionDependency {
+  projectId: string | null;
+  versionId: string | null;
+  dependencyType: 'required' | 'optional' | 'incompatible' | 'embedded' | string;
 }
 
 export interface DependencyInfo {

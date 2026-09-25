@@ -4,7 +4,7 @@ import { Instance } from '../../types';
 import { SOURCE_COLORS, formatBasePackName } from '../../constants';
 import { ConfirmDeleteModal } from '../ConfirmDeleteModal';
 import { useDeleteInstance } from '../../hooks/useDeleteInstance';
-import { mediaUrl } from '../../lib/mediaUrl';
+import { cssUrl, mediaUrl } from '../../lib/mediaUrl';
 
 interface DetailHeaderProps {
   instance: Instance;
@@ -35,7 +35,7 @@ export function DetailHeader({
   const sc = SOURCE_COLORS[instance.source] || SOURCE_COLORS.local;
   const { showDeleteModal, isDeleting, requestDelete, cancelDelete, confirmDelete } =
     useDeleteInstance(instance.id, onDelete);
-  const cover = mediaUrl(instance.bannerUrl || instance.iconUrl);
+  const cover = cssUrl(instance.bannerUrl || instance.iconUrl);
   const iconSrc = mediaUrl(instance.iconUrl);
 
   if (instance.name !== prevName) {
@@ -70,7 +70,7 @@ export function DetailHeader({
         style={{
           height: 'clamp(96px, 12vh, 160px)',
           background: cover
-            ? `url(${cover}) center/cover no-repeat`
+            ? `${cover} center/cover no-repeat`
             : instance.bannerGradient || sc.gradient,
         }}
       >

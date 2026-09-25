@@ -1,9 +1,11 @@
 import { useState, useEffect, useMemo, startTransition } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Icon } from '../Icon';
+import { ModNameLink } from './ModNameLink';
 import { SOURCE_COLORS } from '../../constants';
 import { Instance, InstanceMod, ModSource } from '../../types';
 import { useToast } from '../../context/ToastContext';
+import { appLog } from '../../lib/appLog';
 import {
   getActiveSourcePlugins,
   isServerExporterEnabled,
@@ -17,9 +19,15 @@ import {
   displayModVersion,
   compareModName,
   modMatchesQuery,
+  modListToText,
 } from './modListFormat';
 import { checkPackUpdates, loaderFacet } from '../../lib/packUpdates';
 import { applyOneCustomModUpdate } from '../../lib/applyPackUpdates';
+import {
+  installedModIds,
+  missingRequiredDependencies,
+  conflictingMods,
+} from '../../lib/modDependencies';
 import type { PackVersionInfo } from '../../plugins';
 import { open } from '@tauri-apps/plugin-dialog';
 
@@ -76,32 +84,90 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
     return () => window.removeEventListener('packweaver_plugins_changed', sync);
   }, []);
 
-  const refreshCustomUpdates = async () => {
+  const refreshCustomUpdates = async (isStale?: () => boolean) => {
     if (checkingUpdates) return;
     setCheckingUpdates(true);
     try {
       const result = await checkPackUpdates(instance);
+      if (isStale?.()) return;
       const map: Record<string, PackVersionInfo> = {};
       for (const c of result.customs) map[c.mod.id] = c.latest;
       setModUpdates(map);
     } catch (e) {
-      console.error(e);
+      if (isStale?.()) return;
+      appLog('error', 'updates', `Update scan failed for ${instance.id}: ${String(e)}`);
+      addToast(`Could not check for mod updates: ${String(e)}`, 'error');
     } finally {
-      setCheckingUpdates(false);
+      if (!isStale?.()) setCheckingUpdates(false);
     }
   };
 
   useEffect(() => {
+    // A scan started for pack A must not write into pack B's state.
+    let cancelled = false;
+    const isStale = () => cancelled;
     // startTransition: avoid react-hooks/set-state-in-effect on sync setState
     if (instance.customMods.some(m => m.source === 'modrinth')) {
       startTransition(() => {
-        void refreshCustomUpdates();
+        void refreshCustomUpdates(isStale);
       });
     } else {
       startTransition(() => setModUpdates({}));
     }
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- re-scan when custom list identity changes
   }, [instance.id, instance.customMods.length, instance.mcVersion, instance.loader]);
+
+  /**
+   * Tell the user when a freshly added mod needs something the pack does not
+   * have. Modrinth reports this per version, so a pack can otherwise be
+   * exported missing a hard requirement and only fail at launch.
+   */
+  const reportDependencyIssues = async (
+    version: PackVersionInfo | null,
+    modName: string,
+    customsAfterAdd: InstanceMod[]
+  ) => {
+    try {
+      const installed = installedModIds({
+        basePackMods: instance.basePackMods,
+        customMods: customsAfterAdd,
+      });
+      const missing = missingRequiredDependencies(version, installed);
+      const conflicts = conflictingMods(version, [...instance.basePackMods, ...customsAfterAdd]);
+
+      if (conflicts.length > 0) {
+        addToast(
+          `"${modName}" is marked incompatible with ${conflicts.map(m => m.name).join(', ')}`,
+          'error'
+        );
+      }
+      if (missing.length === 0) return;
+
+      // Ids alone are useless in a toast; ask the provider for titles, but do
+      // not let a failed lookup swallow the warning itself.
+      const plugin = getActiveSourcePlugins().find(p => p.id === 'modrinth');
+      const named = await Promise.all(
+        missing.map(async dep => {
+          if (!plugin?.getProjectDetails) return dep.projectId;
+          try {
+            const details = await plugin.getProjectDetails(dep.projectId);
+            return details?.title || dep.projectId;
+          } catch {
+            return dep.projectId;
+          }
+        })
+      );
+      addToast(
+        `"${modName}" requires ${named.join(', ')} — add ${named.length === 1 ? 'it' : 'them'} or the pack will not launch`,
+        'error'
+      );
+    } catch (e) {
+      appLog('warn', 'mods', `Dependency check failed for ${modName}: ${String(e)}`);
+    }
+  };
 
   const updateOneCustom = async (mod: InstanceMod, latest: PackVersionInfo) => {
     if (updatingId) return;
@@ -144,6 +210,19 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
     }
   );
 
+  const copyModList = async (mods: { enabled?: boolean }[], label: string) => {
+    const text = modListToText(mods as Parameters<typeof modListToText>[0], {
+      includeDisabled: false,
+    });
+    try {
+      await navigator.clipboard.writeText(text || '(no enabled mods)');
+      addToast(`Copied ${mods.filter(m => m.enabled !== false).length} ${label}`, 'success');
+    } catch (e) {
+      appLog('error', 'mods', `Clipboard write failed: ${String(e)}`);
+      addToast('Could not copy to clipboard', 'error');
+    }
+  };
+
   const sorted = useMemo(() => {
     const mods = instance.customMods.filter(m => modMatchesQuery(m, listQuery));
     mods.sort((a, b) => {
@@ -184,12 +263,13 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
       let enabledClient = true;
       let enabledServer = true;
 
+      let resolved: PackVersionInfo | null = null;
       if (currentSourcePlugin?.getLatestVersion) {
-        const info = await currentSourcePlugin.getLatestVersion(modId);
-        if (info) {
-          version = info.versionNumber;
-          versionId = info.versionId;
-          fileName = info.primaryFilename;
+        resolved = await currentSourcePlugin.getLatestVersion(modId);
+        if (resolved) {
+          version = resolved.versionNumber;
+          versionId = resolved.versionId;
+          fileName = resolved.primaryFilename;
         }
       }
       if (!version.trim()) {
@@ -247,6 +327,7 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
       setModQuery('');
       setShowModResults(false);
       addToast(`Added "${name}"`, 'success');
+      void reportDependencyIssues(resolved, name, [...instance.customMods, newMod]);
     } catch (e) {
       console.error('Failed to resolve/add custom mod:', e);
       addToast(`Failed to add "${name}": ${e}`, 'error');
@@ -265,7 +346,7 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
       const path = String(file);
       const leaf = path.replace(/\\/g, '/').split('/').pop() || path;
       const name = leaf.replace(/\.jar$/i, '') || leaf;
-      const modId = `local-${Date.now()}`;
+      const modId = `local-${crypto.randomUUID()}`;
       setIsAddingMod(true);
       try {
         await invoke('add_custom_mod', {
@@ -574,6 +655,14 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
             />
           </div>
           <div className="flex items-center justify-between gap-2">
+            <button
+              type="button"
+              className="btn-ghost text-[11px] px-2 py-0.5 shrink-0"
+              onClick={() => void copyModList(instance.customMods, 'custom mods')}
+              title="Copy the enabled custom mods as plain text"
+            >
+              Copy list
+            </button>
             <p className="text-[12.5px] text-[var(--text-secondary)]">
               {Object.keys(modUpdates).length > 0
                 ? `${Object.keys(modUpdates).length} update${Object.keys(modUpdates).length === 1 ? '' : 's'} available — use Update on a row, or Overview for base + customs`
@@ -727,13 +816,11 @@ export function CustomModsTab({ instance, onUpdate }: CustomModsTabProps) {
                                 initials || mod.name.slice(0, 2).toUpperCase()
                               )}
                             </div>
-                            <div
+                            <ModNameLink
+                              mod={mod}
+                              label={mod.name}
                               className="text-[13px] font-medium truncate min-w-0"
-                              style={{ color: 'var(--text-primary)' }}
-                              title={mod.name}
-                            >
-                              {mod.name}
-                            </div>
+                            />
                           </div>
                         </td>
                         <td

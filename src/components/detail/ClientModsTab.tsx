@@ -1,10 +1,18 @@
 import { useState, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Icon } from '../Icon';
+import { ModNameLink } from './ModNameLink';
 import { SOURCE_COLORS } from '../../constants';
 import { Instance } from '../../types';
 import { useToast } from '../../context/ToastContext';
-import { jarLeaf, formatBytes, compareModName, modMatchesQuery } from './modListFormat';
+import { appLog } from '../../lib/appLog';
+import {
+  jarLeaf,
+  formatBytes,
+  compareModName,
+  modMatchesQuery,
+  modListToText,
+} from './modListFormat';
 
 const BASE_MODS_PAGE_SIZE = 50;
 
@@ -73,6 +81,85 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
   }, [clientBaseMods, baseFilter]);
 
   const visibleBaseMods = filteredBaseMods.slice(0, baseShowCount);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [rebuilding, setRebuilding] = useState(false);
+  const pendingCount = clientBaseMods.filter(m => m.enabled && m.onDiskClient === false).length;
+
+  /**
+   * Flip every mod the current filter matches. One IPC call per mod is
+   * unavoidable (the command is per-mod), but the UI updates once at the end
+   * instead of re-rendering the whole table 400 times.
+   */
+  const setAllFiltered = async (enabled: boolean) => {
+    const targets = filteredBaseMods.filter(m => m.enabled !== enabled);
+    if (targets.length === 0 || bulkBusy) return;
+    setBulkBusy(true);
+    const changed = new Set<string>();
+    const failures: string[] = [];
+    try {
+      for (const mod of targets) {
+        try {
+          await invoke('toggle_mod_state', {
+            instanceId: instance.id,
+            modId: mod.id,
+            enabled,
+            side: 'client',
+          });
+          changed.add(mod.id);
+        } catch (e) {
+          failures.push(`${mod.name}: ${e}`);
+        }
+      }
+      if (changed.size > 0) {
+        onUpdate({
+          basePackMods: instance.basePackMods.map(m =>
+            changed.has(m.id)
+              ? { ...m, enabled, onDiskClient: enabled ? m.onDiskClient : false }
+              : m
+          ),
+        });
+      }
+      if (failures.length > 0) {
+        appLog('error', 'mods', `Bulk toggle failures: ${failures.join('; ')}`);
+        addToast(`${failures.length} mod(s) could not be toggled`, 'error');
+      } else if (enabled) {
+        addToast(`Enabled ${changed.size} mod(s). Rebuild to restore them on disk.`, 'info');
+      } else {
+        addToast(`Disabled ${changed.size} mod(s).`, 'success');
+      }
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  // The Pending pill knows exactly which action fixes it, so offer it here
+  // rather than sending the user to the Overview tab.
+  const rebuildNow = async () => {
+    if (rebuilding) return;
+    setRebuilding(true);
+    onUpdate({ status: 'Installing...' });
+    try {
+      await invoke('rebuild_workspace', { instanceId: instance.id });
+      onUpdate({ status: 'Ready' });
+      addToast('Client workspace rebuilt', 'success');
+    } catch (e) {
+      onUpdate({ status: `Error: ${e}` });
+      addToast(`Rebuild failed: ${e}`, 'error');
+    } finally {
+      setRebuilding(false);
+    }
+  };
+
+  const copyModList = async () => {
+    const text = modListToText(filteredBaseMods, { includeDisabled: false });
+    try {
+      await navigator.clipboard.writeText(text || '(no enabled mods)');
+      addToast(`Copied ${filteredBaseMods.filter(m => m.enabled).length} mods`, 'success');
+    } catch (e) {
+      appLog('error', 'mods', `Clipboard write failed: ${String(e)}`);
+      addToast('Could not copy to clipboard', 'error');
+    }
+  };
 
   const toggleBaseMod = async (id: string, currentEnabled: boolean) => {
     try {
@@ -140,6 +227,53 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
                 setBaseShowCount(BASE_MODS_PAGE_SIZE);
               }}
             />
+          </div>
+
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="btn-ghost text-[11px] px-2 py-0.5"
+                onClick={() => void setAllFiltered(true)}
+                disabled={bulkBusy || filteredBaseMods.every(m => m.enabled)}
+                title="Enable every mod matching the current search"
+              >
+                Enable {baseFilter ? 'matching' : 'all'}
+              </button>
+              <button
+                type="button"
+                className="btn-ghost text-[11px] px-2 py-0.5"
+                onClick={() => void setAllFiltered(false)}
+                disabled={bulkBusy || filteredBaseMods.every(m => !m.enabled)}
+                title="Disable every mod matching the current search"
+              >
+                Disable {baseFilter ? 'matching' : 'all'}
+              </button>
+              <button
+                type="button"
+                className="btn-ghost text-[11px] px-2 py-0.5"
+                onClick={() => void copyModList()}
+                title="Copy the enabled mods in this view as plain text"
+              >
+                Copy list
+              </button>
+              {bulkBusy ? (
+                <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                  Applying…
+                </span>
+              ) : null}
+            </div>
+            {pendingCount > 0 ? (
+              <button
+                type="button"
+                className="btn-secondary text-[11px] px-3 py-1"
+                onClick={() => void rebuildNow()}
+                disabled={rebuilding}
+                title="Download and place the enabled mods that are not on disk yet"
+              >
+                {rebuilding ? 'Rebuilding…' : `Rebuild to add ${pendingCount} pending`}
+              </button>
+            ) : null}
           </div>
 
           <div
@@ -235,13 +369,11 @@ export function ClientModsTab({ instance, onUpdate }: ClientModsTabProps) {
                                   initials
                                 )}
                               </div>
-                              <div
+                              <ModNameLink
+                                mod={mod}
+                                label={displayName}
                                 className="text-[12.5px] font-medium truncate min-w-0"
-                                style={{ color: 'var(--text-primary)' }}
-                                title={displayName}
-                              >
-                                {displayName}
-                              </div>
+                              />
                             </div>
                           </td>
                           <td

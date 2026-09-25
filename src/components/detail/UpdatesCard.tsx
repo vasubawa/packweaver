@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Instance } from '../../types';
 import { Icon } from '../Icon';
+import { ChangelogDisclosure } from './ChangelogDisclosure';
 import { useToast } from '../../context/ToastContext';
 import { isServerExporterEnabled } from '../../plugins';
 import { checkPackUpdates, CustomUpdateInfo, UpdateCheckResult } from '../../lib/packUpdates';
@@ -38,10 +39,26 @@ export function UpdatesCard({
     setApplyingCustoms(false);
   }
 
+  // Results that arrive after the user switched packs belong to the old pack.
+  const activeIdRef = useRef(instance.id);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    activeIdRef.current = instance.id;
+  }, [instance.id]);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+  const isStale = (startedFor: string) => !mountedRef.current || activeIdRef.current !== startedFor;
+
   const runCheck = async () => {
+    const startedFor = instance.id;
     setChecking(true);
     try {
       const next = await checkPackUpdates(instance);
+      if (isStale(startedFor)) return;
       setResult(next);
       const sel: Record<string, boolean> = {};
       for (const c of next.customs) sel[c.mod.id] = true;
@@ -50,15 +67,17 @@ export function UpdatesCard({
         addToast('Everything looks up to date', 'success');
       }
     } catch (e) {
+      if (isStale(startedFor)) return;
       addToast(`Update check failed: ${e}`, 'error');
     } finally {
-      setChecking(false);
+      if (!isStale(startedFor)) setChecking(false);
     }
   };
 
   const applyBase = async () => {
     if (!result?.base.latest || applyingBase) return;
     const latest = result.base.latest;
+    const startedFor = instance.id;
     setApplyingBase(true);
     onUpdate({ status: 'Installing...' });
     try {
@@ -67,6 +86,7 @@ export function UpdatesCard({
         latest,
         serverOn,
       });
+      if (isStale(startedFor)) return;
       onUpdate({
         basePackVersion: applied.versionId,
         basePackVersionLabel: applied.versionNumber,
@@ -95,10 +115,11 @@ export function UpdatesCard({
       );
       onBaseUpdated?.();
     } catch (e) {
+      if (isStale(startedFor)) return;
       onUpdate({ status: `Error: ${e}` });
       addToast(`Base update failed: ${e}`, 'error');
     } finally {
-      setApplyingBase(false);
+      if (!isStale(startedFor)) setApplyingBase(false);
     }
   };
 
@@ -108,6 +129,7 @@ export function UpdatesCard({
   const applyCustoms = async () => {
     const picks = selectedCustoms();
     if (picks.length === 0 || applyingCustoms) return;
+    const startedFor = instance.id;
     setApplyingCustoms(true);
     try {
       const applied = await applyCustomModUpdates({
@@ -120,6 +142,7 @@ export function UpdatesCard({
           fileName: c.latest.primaryFilename || undefined,
         })),
       });
+      if (isStale(startedFor)) return;
       onUpdate({ customMods: applied.updatedMods });
       setResult(prev =>
         prev ? { ...prev, customs: prev.customs.filter(c => !selected[c.mod.id]) } : prev
@@ -213,6 +236,13 @@ export function UpdatesCard({
             </div>
           )}
 
+          {result?.base.available && result.base.latest && (
+            <ChangelogDisclosure
+              changelog={result.base.latest.changelog}
+              label={`base pack ${result.base.latest.versionNumber}`}
+            />
+          )}
+
           {result && result.customs.length > 0 && (
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -261,26 +291,32 @@ export function UpdatesCard({
                 {result.customs.map(c => (
                   <li
                     key={c.mod.id}
-                    className="flex items-center gap-2 text-[12px] px-2 py-1.5 rounded-md"
+                    className="flex flex-col gap-1 text-[12px] px-2 py-1.5 rounded-md"
                     style={{ background: 'var(--bg-muted)' }}
                   >
-                    <input
-                      type="checkbox"
-                      checked={!!selected[c.mod.id]}
-                      onChange={e =>
-                        setSelected(prev => ({ ...prev, [c.mod.id]: e.target.checked }))
-                      }
-                      aria-label={`Update ${c.mod.name}`}
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={!!selected[c.mod.id]}
+                        onChange={e =>
+                          setSelected(prev => ({ ...prev, [c.mod.id]: e.target.checked }))
+                        }
+                        aria-label={`Update ${c.mod.name}`}
+                      />
+                      <span
+                        className="truncate flex-1 font-medium"
+                        style={{ color: 'var(--text-primary)' }}
+                      >
+                        {c.mod.name}
+                      </span>
+                      <span className="text-[11px] text-[var(--text-muted)] shrink-0">
+                        {c.currentLabel} → {c.latest.versionNumber}
+                      </span>
+                    </div>
+                    <ChangelogDisclosure
+                      changelog={c.latest.changelog}
+                      label={`${c.mod.name} ${c.latest.versionNumber}`}
                     />
-                    <span
-                      className="truncate flex-1 font-medium"
-                      style={{ color: 'var(--text-primary)' }}
-                    >
-                      {c.mod.name}
-                    </span>
-                    <span className="text-[11px] text-[var(--text-muted)] shrink-0">
-                      {c.currentLabel} → {c.latest.versionNumber}
-                    </span>
                   </li>
                 ))}
               </ul>

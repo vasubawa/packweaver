@@ -11,6 +11,13 @@ import { LibraryView } from './components/views/LibraryView';
 import { Instance } from './types';
 import { useToast } from './context/ToastContext';
 import { appLog, installAppLogBridges, isVerboseLogging } from './lib/appLog';
+import {
+  loadScanCache,
+  saveScanCache,
+  applyScanCache,
+  instancesNeedingScan,
+  scanForUpdates,
+} from './lib/updateScan';
 import './App.css';
 
 interface ProgressEvent {
@@ -69,7 +76,8 @@ function App() {
           ),
         }));
 
-        setInstances(augmented);
+        // Badges come from the last background scan; the scan itself runs below.
+        setInstances(applyScanCache(augmented, loadScanCache()));
       } catch {
         if (!opts?.quiet) {
           setInstances([]);
@@ -125,6 +133,31 @@ function App() {
     };
   }, [loadInstances]);
 
+  // Light up the update badge without making the user open every pack. Results
+  // are cached for a day so opening the app is not a burst of Modrinth calls.
+  useEffect(() => {
+    if (isLoadingInstances || instances.length === 0) return;
+    const pending = instancesNeedingScan(instances, loadScanCache(), Date.now());
+    if (pending.length === 0) return;
+
+    let cancelled = false;
+    void scanForUpdates(
+      pending,
+      (id, entry) => {
+        saveScanCache({ ...loadScanCache(), [id]: entry });
+        setInstances(prev =>
+          prev.map(i => (i.id === id ? { ...i, hasUpdate: entry.hasUpdate } : i))
+        );
+      },
+      () => cancelled
+    );
+    return () => {
+      cancelled = true;
+    };
+    // Re-runs when the pack set changes, not on every progress tick.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoadingInstances, instances.map(i => i.id).join(',')]);
+
   const handleNavigate = useCallback((s: string) => {
     setScreen(s);
     setSelectedInstanceId(null);
@@ -141,8 +174,8 @@ function App() {
     setScreen('library');
   }, []);
 
-  const handleUpdateInstance = useCallback((updatedInstance: Instance) => {
-    setInstances(prev => prev.map(i => (i.id === updatedInstance.id ? updatedInstance : i)));
+  const handleUpdateInstance = useCallback((id: string, updates: Partial<Instance>) => {
+    setInstances(prev => prev.map(i => (i.id === id ? { ...i, ...updates } : i)));
   }, []);
 
   const handleDeleteInstance = useCallback(

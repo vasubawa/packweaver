@@ -55,14 +55,16 @@ jobs:
         shell: pwsh
         run: |
           $exe = "src-tauri\target\release\packweaver.exe"
-          if (-not (Test-Path $exe)) { throw "Missing $exe — Tauri build did not produce the binary" }
-          New-Item -ItemType Directory -Force -Path release-staging | Out-Null
-          Copy-Item $exe release-staging\
+          if (-not (Test-Path $exe)) { throw "Missing $exe - Tauri build did not produce the binary" }
+          $staging = "release-staging"
+          if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path $staging | Out-Null
+          Copy-Item $exe $staging\
           # Compress-Archive drops empty directories; seed so packweaver-data/instances survives.
-          New-Item -ItemType Directory -Force -Path release-staging\packweaver-data\instances | Out-Null
-          New-Item -ItemType File -Force -Path release-staging\packweaver-data\instances\.keep | Out-Null
+          New-Item -ItemType Directory -Force -Path $staging\packweaver-data\instances | Out-Null
+          New-Item -ItemType File -Force -Path $staging\packweaver-data\instances\.keep | Out-Null
           if (Test-Path Packweaver-Windows.zip) { Remove-Item Packweaver-Windows.zip -Force }
-          Compress-Archive -Path release-staging\* -DestinationPath Packweaver-Windows.zip
+          Compress-Archive -Path "$staging\*" -DestinationPath Packweaver-Windows.zip
 
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v3

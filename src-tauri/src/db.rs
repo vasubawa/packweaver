@@ -14,13 +14,14 @@ pub fn get_portable_data_dir() -> PathBuf {
     path.join("packweaver-data")
 }
 
-fn has_column(conn: &Connection, table: &str, column: &str) -> bool {
+fn has_column(conn: &Connection, table: &str, column: &str) -> Result<bool> {
+    // Swallowing the error here used to report "column missing" for a query that
+    // never ran, and the duplicate ALTER TABLE that followed aborted apply_schema.
     conn.prepare(&format!(
         "SELECT name FROM pragma_table_info('{}') WHERE name = '{}'",
         table, column
-    ))
-    .and_then(|mut stmt| stmt.exists([]))
-    .unwrap_or(false)
+    ))?
+    .exists([])
 }
 
 /// Apply pragmas, tables, and migrations. PRAGMA assignments return a row, so they
@@ -121,7 +122,7 @@ pub fn apply_schema(conn: &Connection) -> Result<()> {
         ("server_files", "source_path", "TEXT DEFAULT ''"),
     ];
     for (table, col, decl) in alters {
-        if !has_column(conn, table, col) {
+        if !has_column(conn, table, col)? {
             conn.execute(
                 &format!("ALTER TABLE {} ADD COLUMN {} {}", table, col, decl),
                 [],
@@ -133,10 +134,20 @@ pub fn apply_schema(conn: &Connection) -> Result<()> {
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .unwrap_or(0);
     if user_version < 1 {
-        let _ = conn.execute("UPDATE instance_mods SET enabled_client = enabled", []);
+        // Only record the migration once the backfill has actually landed,
+        // otherwise a failed UPDATE is never retried.
+        conn.execute("UPDATE instance_mods SET enabled_client = enabled", [])?;
         conn.pragma_update(None, "user_version", 1)?;
     }
 
+    // A legacy DB can hold duplicates, which would make the unique index fail and
+    // take startup down with it. Collapse them onto the newest row first.
+    conn.execute(
+        "DELETE FROM instance_mods WHERE id NOT IN (
+            SELECT MAX(id) FROM instance_mods GROUP BY instance_id, mod_id
+        )",
+        [],
+    )?;
     conn.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_instance_mods_unique ON instance_mods(instance_id, mod_id)",
         [],
@@ -169,12 +180,8 @@ mod tests {
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
         assert!(v >= 1);
-        assert!(super::has_column(
-            &conn,
-            "instance_mods",
-            "provider_version_id"
-        ));
-        assert!(super::has_column(&conn, "server_files", "file_id"));
+        assert!(super::has_column(&conn, "instance_mods", "provider_version_id").unwrap());
+        assert!(super::has_column(&conn, "server_files", "file_id").unwrap());
     }
 
     #[test]

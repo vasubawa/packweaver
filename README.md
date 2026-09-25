@@ -102,6 +102,16 @@ pnpm tauri dev
 pnpm tauri build
 ```
 
+### Scripts
+
+| Command              | Does                                                     |
+| -------------------- | -------------------------------------------------------- |
+| `pnpm test`          | Frontend (vitest) + Rust (`cargo test`) tests            |
+| `pnpm check`         | Format/lint/typecheck (frontend + Rust) then `pnpm test` |
+| `pnpm fix`           | Auto-format/lint-fix frontend + `cargo fmt`              |
+| `pnpm update`        | Bump pnpm + cargo deps, then `pnpm test`                 |
+| `pnpm build:zip:win` | `tauri build` + zip the release `.exe`                   |
+
 ---
 
 ## Domain model
