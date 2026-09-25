@@ -52,14 +52,26 @@ export function SettingsView() {
   }, []);
 
   useEffect(() => {
+    let disposed = false;
     let unlisten: (() => void) | undefined;
-    listenUpdateProgress(p => {
-      setUpdateProgress(p);
+
+    void listenUpdateProgress(p => {
+      if (!disposed) {
+        setUpdateProgress(p);
+      }
     }).then(u => {
-      unlisten = u;
+      if (disposed) {
+        u();
+      } else {
+        unlisten = u;
+      }
     });
+
     return () => {
-      if (unlisten) unlisten();
+      disposed = true;
+      if (unlisten) {
+        unlisten();
+      }
     };
   }, []);
 
