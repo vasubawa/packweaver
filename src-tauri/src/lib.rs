@@ -1694,6 +1694,11 @@ async fn install_app_update(app: tauri::AppHandle, channel: Option<String>) -> R
     app_updater::install(&app, ch).await
 }
 
+#[tauri::command]
+fn restart_app(app: tauri::AppHandle) {
+    app.restart();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut builder = tauri::Builder::default()
@@ -1750,6 +1755,7 @@ pub fn run() {
             set_update_channel,
             check_app_update,
             install_app_update,
+            restart_app,
             reveal_instance_mod
         ])
         .run(tauri::generate_context!())

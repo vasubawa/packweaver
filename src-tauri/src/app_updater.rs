@@ -11,15 +11,13 @@ use std::path::PathBuf;
 #[serde(rename_all = "lowercase")]
 pub enum UpdateChannel {
     Stable,
-    Beta,
-    Alpha,
+    Unstable,
 }
 
 impl UpdateChannel {
     pub fn parse(s: &str) -> Self {
         match s.trim().to_ascii_lowercase().as_str() {
-            "beta" => Self::Beta,
-            "alpha" => Self::Alpha,
+            "unstable" | "beta" | "alpha" | "testing" => Self::Unstable,
             _ => Self::Stable,
         }
     }
@@ -27,8 +25,7 @@ impl UpdateChannel {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Stable => "stable",
-            Self::Beta => "beta",
-            Self::Alpha => "alpha",
+            Self::Unstable => "unstable",
         }
     }
 
@@ -38,11 +35,8 @@ impl UpdateChannel {
             Self::Stable => {
                 "https://github.com/vasubawa/packweaver/releases/latest/download/latest.json"
             }
-            Self::Beta => {
-                "https://github.com/vasubawa/packweaver/releases/download/beta-channel/latest.json"
-            }
-            Self::Alpha => {
-                "https://github.com/vasubawa/packweaver/releases/download/alpha-channel/latest.json"
+            Self::Unstable => {
+                "https://github.com/vasubawa/packweaver/releases/download/unstable/latest.json"
             }
         }
     }
@@ -87,6 +81,14 @@ pub fn save_channel(channel: UpdateChannel) -> Result<(), String> {
     file.update_channel = channel.as_str().to_string();
     let pretty = serde_json::to_string_pretty(&file).map_err(|e| e.to_string())?;
     fs::write(&path, pretty).map_err(|e| e.to_string())
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct UpdateProgressPayload {
+    pub chunk_length: usize,
+    pub downloaded: u64,
+    pub total: Option<u64>,
+    pub percentage: Option<f32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -159,7 +161,7 @@ mod desktop {
                 configured: true,
                 message: None,
             }),
-            Ok(None) => Ok(AppUpdateStatus {
+            Ok(Option::None) => Ok(AppUpdateStatus {
                 available: false,
                 channel: channel.as_str().into(),
                 current_version: current,
@@ -217,8 +219,38 @@ mod desktop {
             update.version
         );
 
+        let downloaded = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let dl = downloaded.clone();
+        let app_handle = app.clone();
+
+        use tauri::Emitter;
         update
-            .download_and_install(|_chunk, _total| {}, || {})
+            .download_and_install(
+                move |chunk_length, content_length| {
+                    let prev =
+                        dl.fetch_add(chunk_length as u64, std::sync::atomic::Ordering::Relaxed);
+                    let current = prev + chunk_length as u64;
+                    let percentage = content_length.map(|tot| {
+                        if tot == 0 {
+                            0.0
+                        } else {
+                            ((current as f64 / tot as f64) * 100.0) as f32
+                        }
+                    });
+                    let _ = app_handle.emit(
+                        "app-update-progress",
+                        UpdateProgressPayload {
+                            chunk_length,
+                            downloaded: current,
+                            total: content_length,
+                            percentage,
+                        },
+                    );
+                },
+                || {
+                    log::info!(target: "packweaver", "app update download complete, installing...");
+                },
+            )
             .await
             .map_err(|e| e.to_string())?;
         Ok(())

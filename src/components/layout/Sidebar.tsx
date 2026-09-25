@@ -4,6 +4,7 @@ import { useTheme } from '../../context/ThemeContext';
 interface SidebarProps {
   activeScreen: string;
   onNavigate: (screen: string) => void;
+  hasAppUpdate?: boolean;
 }
 
 const NAV = [
@@ -11,7 +12,7 @@ const NAV = [
   { id: 'plugins', label: 'Plugins', icon: 'puzzle' },
 ];
 
-export function Sidebar({ activeScreen, onNavigate }: SidebarProps) {
+export function Sidebar({ activeScreen, onNavigate, hasAppUpdate }: SidebarProps) {
   const { theme, toggleTheme } = useTheme();
 
   return (
@@ -68,12 +69,19 @@ export function Sidebar({ activeScreen, onNavigate }: SidebarProps) {
       <div className="flex flex-col gap-0.5 px-3 pt-3 pb-4">
         <div className="flex items-center gap-1">
           <button
-            className={`sidebar-link ${activeScreen === 'settings' ? 'active' : ''}`}
+            className={`sidebar-link ${activeScreen === 'settings' ? 'active' : ''} flex items-center gap-2`}
             onClick={() => onNavigate('settings')}
             style={{ flex: 1 }}
           >
             <Icon name="settings" />
-            Settings
+            <span className="flex-1 text-left">Settings</span>
+            {hasAppUpdate && (
+              <span
+                className="w-2 h-2 rounded-full shrink-0"
+                style={{ background: 'var(--accent)' }}
+                title="Application update available"
+              />
+            )}
           </button>
           <button
             className="btn-ghost"

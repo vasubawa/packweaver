@@ -18,6 +18,8 @@ import {
   instancesNeedingScan,
   scanForUpdates,
 } from './lib/updateScan';
+import { checkAppUpdate } from './lib/appUpdater';
+import { Icon } from './components/Icon';
 import './App.css';
 
 interface ProgressEvent {
@@ -35,6 +37,7 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [instances, setInstances] = useState<Instance[]>([]);
   const [isLoadingInstances, setIsLoadingInstances] = useState(true);
+  const [appUpdateVersion, setAppUpdateVersion] = useState<string | null>(null);
   const { addToast } = useToast();
 
   const loadInstances = useCallback(
@@ -92,6 +95,16 @@ function App() {
 
   useEffect(() => {
     installAppLogBridges();
+  }, []);
+
+  useEffect(() => {
+    checkAppUpdate()
+      .then(status => {
+        if (status.available && status.version) {
+          setAppUpdateVersion(status.version);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -235,9 +248,49 @@ function App() {
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: 'var(--bg-canvas)' }}>
-      <Sidebar activeScreen={screen} onNavigate={handleNavigate} />
+      <Sidebar
+        activeScreen={screen}
+        onNavigate={handleNavigate}
+        hasAppUpdate={Boolean(appUpdateVersion)}
+      />
 
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+        {appUpdateVersion && screen !== 'settings' && (
+          <div
+            className="px-4 py-2 flex items-center justify-between text-[12px] font-medium shrink-0 animate-slide-in"
+            style={{
+              background: 'var(--accent-soft)',
+              borderBottom: '1px solid var(--accent)',
+              color: 'var(--text-primary)',
+            }}
+          >
+            <div className="flex items-center gap-2">
+              <Icon name="package" size={14} style={{ color: 'var(--accent)' }} />
+              <span>
+                Packweaver <strong>v{appUpdateVersion}</strong> is available.
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                className="btn-primary text-[11px] px-2.5 py-1"
+                onClick={() => {
+                  setScreen('settings');
+                  setSelectedInstanceId(null);
+                }}
+              >
+                Update in Settings
+              </button>
+              <button
+                className="btn-ghost text-[11px] px-1.5 py-1"
+                onClick={() => setAppUpdateVersion(null)}
+                title="Dismiss"
+              >
+                <Icon name="x" size={13} />
+              </button>
+            </div>
+          </div>
+        )}
+
         {screen !== 'detail' && (
           <Header
             searchQuery={searchQuery}
