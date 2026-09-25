@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+      - 'unstable'
 
 jobs:
   release:
@@ -53,10 +54,10 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: 'Packweaver v__VERSION__'
+          releaseName: ${{ github.ref_name == 'unstable' && 'Packweaver Unstable (Preview)' || 'Packweaver v__VERSION__' }}
           releaseBody: 'See the assets to download this version and install.'
           releaseDraft: false
-          prerelease: false
+          prerelease: ${{ contains(github.ref_name, '-') || github.ref_name == 'unstable' }}
 
       - name: Zip Artifacts (Windows)
         if: matrix.platform == 'windows-latest'
